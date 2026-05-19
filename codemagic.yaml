@@ -45,8 +45,8 @@ workflows:
       - flutter_drive.log
     publishing:
       email:
-        # Add your email in the Codemagic UI under workflow notifications
-        # (or fill in here once we know it). Sends the IPA link on completion.
+        recipients:
+          - smith.jessi.personal@gmail.com
         notify:
           success: true
           failure: true
