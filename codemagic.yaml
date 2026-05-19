@@ -1,0 +1,52 @@
+workflows:
+  ios-dev-sideload:
+    name: iOS dev build (sideload IPA)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      vars:
+        BUNDLE_ID: "com.fiammettainfernali.umbrareader"
+        XCODE_WORKSPACE: "Runner.xcworkspace"
+        XCODE_SCHEME: "Runner"
+      ios_signing:
+        # Wired up in Codemagic UI after Apple enrollment is Active:
+        #   Teams → Code signing identities → add Apple Developer Portal
+        #   integration using App-Specific Password. Then reference it here.
+        distribution_type: development
+        bundle_identifier: "com.fiammettainfernali.umbrareader"
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+    scripts:
+      - name: Flutter pub get
+        script: flutter pub get
+      - name: Pod install
+        script: |
+          cd ios
+          pod install
+      - name: Set up signing
+        script: |
+          xcode-project use-profiles
+      - name: Flutter build IPA
+        script: |
+          flutter build ipa \
+            --release \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_drive.log
+    publishing:
+      email:
+        # Add your email in the Codemagic UI under workflow notifications
+        # (or fill in here once we know it). Sends the IPA link on completion.
+        notify:
+          success: true
+          failure: true
