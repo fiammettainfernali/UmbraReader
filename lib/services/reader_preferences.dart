@@ -11,6 +11,8 @@ class ReaderPreferences {
   static const _kLineHeight = 'reader_line_height';
   static const _kMargin = 'reader_margin';
   static const _kSpeechRate = 'reader_speech_rate';
+  static const _kVoiceName = 'reader_voice_name';
+  static const _kVoiceLocale = 'reader_voice_locale';
 
   Future<ReaderSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -25,6 +27,8 @@ class ReaderPreferences {
       lineHeight: prefs.getDouble(_kLineHeight) ?? d.lineHeight,
       margin: prefs.getDouble(_kMargin) ?? d.margin,
       speechRate: prefs.getDouble(_kSpeechRate) ?? d.speechRate,
+      voiceName: prefs.getString(_kVoiceName) ?? d.voiceName,
+      voiceLocale: prefs.getString(_kVoiceLocale) ?? d.voiceLocale,
     );
   }
 
@@ -37,5 +41,7 @@ class ReaderPreferences {
     await prefs.setDouble(_kLineHeight, settings.lineHeight);
     await prefs.setDouble(_kMargin, settings.margin);
     await prefs.setDouble(_kSpeechRate, settings.speechRate);
+    await prefs.setString(_kVoiceName, settings.voiceName);
+    await prefs.setString(_kVoiceLocale, settings.voiceLocale);
   }
 }

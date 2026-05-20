@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/reader_settings.dart';
 import '../models/reader_theme.dart';
+import '../services/tts_service.dart';
 
 /// Font choices offered in the reader. An empty string is the system font.
 const List<String> kReaderFonts = [
@@ -13,16 +14,37 @@ const List<String> kReaderFonts = [
 
 String _fontLabel(String family) => family.isEmpty ? 'System' : family;
 
+/// Sleep-timer choices for read-aloud. A null [duration] means either "off"
+/// or "stop when the current chapter ends".
+enum SleepTimerOption {
+  off('Off', null),
+  m15('15 min', Duration(minutes: 15)),
+  m30('30 min', Duration(minutes: 30)),
+  m45('45 min', Duration(minutes: 45)),
+  m60('60 min', Duration(minutes: 60)),
+  endOfChapter('End of chapter', null);
+
+  const SleepTimerOption(this.label, this.duration);
+
+  final String label;
+  final Duration? duration;
+}
+
 /// Bottom sheet for adjusting reader settings live: layout mode, colour
 /// theme, font, text size, line spacing and margins.
 class ReaderSettingsSheet extends StatefulWidget {
   const ReaderSettingsSheet({
     super.key,
     required this.initial,
+    required this.voices,
     required this.onChanged,
   });
 
   final ReaderSettings initial;
+
+  /// Installed read-aloud voices to choose from.
+  final List<TtsVoice> voices;
+
   final ValueChanged<ReaderSettings> onChanged;
 
   @override
@@ -139,6 +161,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
             const SizedBox(height: 16),
 
             _label(theme, 'Read aloud'),
+            _buildVoicePicker(theme),
             _slider(
               theme,
               label: 'Speech rate',
@@ -163,6 +186,73 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
         style: theme.textTheme.titleSmall?.copyWith(
           fontWeight: FontWeight.w600,
         ),
+      ),
+    );
+  }
+
+  /// Index of the saved voice within [widget.voices], or -1 for the default.
+  int _voiceIndex() {
+    for (var i = 0; i < widget.voices.length; i++) {
+      if (widget.voices[i].name == _settings.voiceName &&
+          widget.voices[i].locale == _settings.voiceLocale) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  Widget _buildVoicePicker(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          Text('Voice', style: theme.textTheme.titleSmall),
+          const SizedBox(width: 16),
+          Expanded(
+            child: widget.voices.isEmpty
+                ? Text(
+                    'System default',
+                    textAlign: TextAlign.end,
+                    style: theme.textTheme.bodyMedium,
+                  )
+                : DropdownButton<int>(
+                    isExpanded: true,
+                    alignment: Alignment.centerRight,
+                    value: _voiceIndex(),
+                    items: [
+                      const DropdownMenuItem(
+                        value: -1,
+                        child: Text('System default'),
+                      ),
+                      for (var i = 0; i < widget.voices.length; i++)
+                        DropdownMenuItem(
+                          value: i,
+                          child: Text(
+                            '${widget.voices[i].name}'
+                            '  ·  ${widget.voices[i].locale}',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: (index) {
+                      if (index == null) return;
+                      if (index < 0) {
+                        _update(
+                          _settings.copyWith(voiceName: '', voiceLocale: ''),
+                        );
+                      } else {
+                        final voice = widget.voices[index];
+                        _update(
+                          _settings.copyWith(
+                            voiceName: voice.name,
+                            voiceLocale: voice.locale,
+                          ),
+                        );
+                      }
+                    },
+                  ),
+          ),
+        ],
       ),
     );
   }

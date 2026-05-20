@@ -19,6 +19,8 @@ class ReaderSettings {
     required this.lineHeight,
     required this.margin,
     required this.speechRate,
+    required this.voiceName,
+    required this.voiceLocale,
   });
 
   final ReadingMode mode;
@@ -41,6 +43,10 @@ class ReaderSettings {
   /// Read-aloud speech rate, 0–1 (flutter_tts scale; ~0.5 is normal).
   final double speechRate;
 
+  /// Chosen read-aloud voice; empty strings mean the system default.
+  final String voiceName;
+  final String voiceLocale;
+
   static const defaults = ReaderSettings(
     mode: ReadingMode.scroll,
     themeId: 'dark',
@@ -49,6 +55,8 @@ class ReaderSettings {
     lineHeight: 1.62,
     margin: 20,
     speechRate: 0.5,
+    voiceName: '',
+    voiceLocale: '',
   );
 
   ReaderThemePreset get theme => readerThemeById(themeId);
@@ -61,6 +69,8 @@ class ReaderSettings {
     double? lineHeight,
     double? margin,
     double? speechRate,
+    String? voiceName,
+    String? voiceLocale,
   }) {
     return ReaderSettings(
       mode: mode ?? this.mode,
@@ -70,6 +80,8 @@ class ReaderSettings {
       lineHeight: lineHeight ?? this.lineHeight,
       margin: margin ?? this.margin,
       speechRate: speechRate ?? this.speechRate,
+      voiceName: voiceName ?? this.voiceName,
+      voiceLocale: voiceLocale ?? this.voiceLocale,
     );
   }
 }

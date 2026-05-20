@@ -3,6 +3,17 @@ import 'package:flutter_tts/flutter_tts.dart';
 /// Read-aloud playback state.
 enum TtsPlaybackState { stopped, playing, paused }
 
+/// An installed text-to-speech voice.
+class TtsVoice {
+  const TtsVoice({required this.name, required this.locale});
+
+  final String name;
+  final String locale;
+
+  /// Stable key for matching a saved voice against the installed list.
+  String get id => '$name|$locale';
+}
+
 /// Wraps [FlutterTts] to read a chapter aloud, chunk by chunk.
 ///
 /// A chapter is supplied as a list of text chunks (one per paragraph). Chunks
@@ -53,15 +64,60 @@ class TtsService {
     _initialized = true;
   }
 
-  /// Begins reading [chunks] aloud from [from], at the given [rate] (0–1).
+  /// Lists the installed English text-to-speech voices, sorted by name.
+  Future<List<TtsVoice>> availableVoices() async {
+    await _ensureInitialized();
+    try {
+      final raw = await _tts.getVoices;
+      if (raw is! List) return const [];
+      final seen = <String>{};
+      final voices = <TtsVoice>[];
+      for (final entry in raw) {
+        if (entry is! Map) continue;
+        final name = entry['name']?.toString();
+        final locale = entry['locale']?.toString();
+        if (name == null || name.isEmpty || locale == null) continue;
+        if (!locale.toLowerCase().startsWith('en')) continue;
+        final voice = TtsVoice(name: name, locale: locale);
+        if (seen.add(voice.id)) voices.add(voice);
+      }
+      voices.sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
+      return voices;
+    } on Exception {
+      return const [];
+    }
+  }
+
+  /// Sets the active voice (best-effort; falls back to the system default).
+  Future<void> setVoice(String name, String locale) async {
+    await _ensureInitialized();
+    await _applyVoice(name, locale);
+  }
+
+  Future<void> _applyVoice(String name, String locale) async {
+    if (name.isEmpty || locale.isEmpty) return;
+    try {
+      await _tts.setVoice({'name': name, 'locale': locale});
+    } on Exception {
+      // Voice unavailable — the system default voice is used instead.
+    }
+  }
+
+  /// Begins reading [chunks] aloud from [from], at the given [rate] (0–1) and
+  /// (optionally) a chosen voice.
   Future<void> start(
     List<String> chunks, {
     int from = 0,
     required double rate,
+    String voiceName = '',
+    String voiceLocale = '',
   }) async {
     await _ensureInitialized();
     await _tts.stop();
     await _tts.setSpeechRate(rate);
+    await _applyVoice(voiceName, voiceLocale);
     _chunks = chunks;
     _index = chunks.isEmpty ? 0 : from.clamp(0, chunks.length - 1);
     _setState(TtsPlaybackState.playing);

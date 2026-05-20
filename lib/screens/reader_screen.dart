@@ -405,6 +405,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
   Future<void> _applySettings(ReaderSettings next) async {
     final fontChanged = next.fontFamily != _settings.fontFamily;
     final rateChanged = next.speechRate != _settings.speechRate;
+    final voiceChanged =
+        next.voiceName != _settings.voiceName ||
+        next.voiceLocale != _settings.voiceLocale;
     final currentPage = _pageController.hasClients
         ? (_pageController.page?.round() ?? 0)
         : 0;
@@ -414,6 +417,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     });
     ReaderPreferences().save(next);
     if (rateChanged) _ttsService.setRate(next.speechRate);
+    if (voiceChanged) _ttsService.setVoice(next.voiceName, next.voiceLocale);
     if (fontChanged) {
       await _preloadFont(next.fontFamily);
       if (mounted) setState(() => _fontToken++);
@@ -457,7 +461,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
     _ttsBlockForChunk = blockForChunk;
     _followedBlock = -1;
-    _ttsService.start(texts, from: fromChunk, rate: _settings.speechRate);
+    _ttsService.start(
+      texts,
+      from: fromChunk,
+      rate: _settings.speechRate,
+      voiceName: _settings.voiceName,
+      voiceLocale: _settings.voiceLocale,
+    );
   }
 
   /// Highlights the sentence being read and keeps it on screen.
@@ -554,13 +564,18 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
   }
 
-  void _openSettings() {
+  Future<void> _openSettings() async {
+    final voices = await _ttsService.availableVoices();
+    if (!mounted) return;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) =>
-          ReaderSettingsSheet(initial: _settings, onChanged: _applySettings),
+      builder: (_) => ReaderSettingsSheet(
+        initial: _settings,
+        voices: voices,
+        onChanged: _applySettings,
+      ),
     );
   }
 
