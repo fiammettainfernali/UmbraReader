@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -193,6 +195,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// Last block that auto-follow moved to — so it only moves on a change.
   int _followedBlock = -1;
 
+  /// Active sleep-timer choice and its countdown.
+  SleepTimerOption _sleepOption = SleepTimerOption.off;
+  Timer? _sleepTimer;
+
   @override
   void initState() {
     super.initState();
@@ -213,6 +219,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   @override
   void dispose() {
     _saveProgress();
+    _sleepTimer?.cancel();
     _ttsService.dispose();
     _scrollController.dispose();
     _pageController.dispose();
@@ -553,14 +560,32 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   /// When read-aloud reaches the end of a chapter, roll into the next one and
-  /// keep reading.
+  /// keep reading — unless the sleep timer is set to stop at the chapter end.
   void _onTtsChapterFinished() {
+    if (_sleepOption == SleepTimerOption.endOfChapter) {
+      if (mounted) setState(() => _sleepOption = SleepTimerOption.off);
+      return;
+    }
     final book = _book;
     if (book == null) return;
     if (_chapterIndex < book.chapters.length - 1) {
       _goToChapter(_chapterIndex + 1, fromTts: true);
       // A TTS-driven advance reads the new chapter from its start.
       _startTts(fromCurrentPosition: false);
+    }
+  }
+
+  /// Arms (or clears) the read-aloud sleep timer.
+  void _setSleepTimer(SleepTimerOption option) {
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+    setState(() => _sleepOption = option);
+    final duration = option.duration;
+    if (duration != null) {
+      _sleepTimer = Timer(duration, () {
+        _ttsService.pause();
+        if (mounted) setState(() => _sleepOption = SleepTimerOption.off);
+      });
     }
   }
 
@@ -574,7 +599,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
       builder: (_) => ReaderSettingsSheet(
         initial: _settings,
         voices: voices,
+        sleepOption: _sleepOption,
         onChanged: _applySettings,
+        onSleepTimerChanged: _setSleepTimer,
       ),
     );
   }

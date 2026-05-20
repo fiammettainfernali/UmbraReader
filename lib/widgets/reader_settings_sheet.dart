@@ -37,7 +37,9 @@ class ReaderSettingsSheet extends StatefulWidget {
     super.key,
     required this.initial,
     required this.voices,
+    required this.sleepOption,
     required this.onChanged,
+    required this.onSleepTimerChanged,
   });
 
   final ReaderSettings initial;
@@ -45,7 +47,11 @@ class ReaderSettingsSheet extends StatefulWidget {
   /// Installed read-aloud voices to choose from.
   final List<TtsVoice> voices;
 
+  /// The currently active sleep-timer choice.
+  final SleepTimerOption sleepOption;
+
   final ValueChanged<ReaderSettings> onChanged;
+  final ValueChanged<SleepTimerOption> onSleepTimerChanged;
 
   @override
   State<ReaderSettingsSheet> createState() => _ReaderSettingsSheetState();
@@ -53,11 +59,13 @@ class ReaderSettingsSheet extends StatefulWidget {
 
 class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
   late ReaderSettings _settings;
+  late SleepTimerOption _sleepOption;
 
   @override
   void initState() {
     super.initState();
     _settings = widget.initial;
+    _sleepOption = widget.sleepOption;
   }
 
   void _update(ReaderSettings next) {
@@ -171,6 +179,24 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
               divisions: 15,
               display: _settings.speechRate.toStringAsFixed(2),
               onChanged: (v) => _update(_settings.copyWith(speechRate: v)),
+            ),
+            const SizedBox(height: 16),
+
+            _label(theme, 'Sleep timer'),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final option in SleepTimerOption.values)
+                  ChoiceChip(
+                    label: Text(option.label),
+                    selected: option == _sleepOption,
+                    onSelected: (_) {
+                      setState(() => _sleepOption = option);
+                      widget.onSleepTimerChanged(option);
+                    },
+                  ),
+              ],
             ),
           ],
         ),
