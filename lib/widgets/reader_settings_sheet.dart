@@ -171,6 +171,27 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
             ),
             const SizedBox(height: 16),
 
+            _label(theme, 'Text style'),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text('Bold text'),
+              subtitle: const Text('Render all text in a heavier weight'),
+              value: _settings.boldText,
+              onChanged: (on) =>
+                  _update(_settings.copyWith(boldText: on)),
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text('Italic text'),
+              subtitle: const Text('Render all text in italics'),
+              value: _settings.italicText,
+              onChanged: (on) =>
+                  _update(_settings.copyWith(italicText: on)),
+            ),
+            const SizedBox(height: 16),
+
             _label(theme, 'Read aloud'),
             _buildVoicePicker(theme),
             _slider(

@@ -31,7 +31,13 @@ const int _lastPage = -1;
 
 /// Body text style for the active settings.
 TextStyle _paragraphStyle(ReaderSettings s, Color color) {
-  final base = TextStyle(fontSize: s.fontSize, height: s.lineHeight, color: color);
+  final base = TextStyle(
+    fontSize: s.fontSize,
+    height: s.lineHeight,
+    color: color,
+    fontWeight: s.boldText ? FontWeight.bold : null,
+    fontStyle: s.italicText ? FontStyle.italic : null,
+  );
   return s.fontFamily.isEmpty
       ? base
       : GoogleFonts.getFont(s.fontFamily, textStyle: base);
@@ -48,6 +54,7 @@ TextStyle _headingStyle(ReaderSettings s, int level, Color color) {
     fontSize: s.fontSize * scale,
     height: 1.3,
     fontWeight: FontWeight.w700,
+    fontStyle: s.italicText ? FontStyle.italic : null,
     color: color,
   );
   return s.fontFamily.isEmpty
@@ -1000,7 +1007,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
         final key =
             '$_chapterIndex:${width.round()}x${height.round()}'
             ':${_settings.fontSize}:${_settings.lineHeight}'
-            ':${_settings.fontFamily}:$_fontToken';
+            ':${_settings.fontFamily}:$_fontToken'
+            ':${_settings.boldText}:${_settings.italicText}';
         if (key != _pageKey) {
           _pageKey = key;
           _pages = _paginate(_blocks ?? const [], width, height, _settings);

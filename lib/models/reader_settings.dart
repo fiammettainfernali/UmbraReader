@@ -21,6 +21,8 @@ class ReaderSettings {
     required this.speechRate,
     required this.voiceName,
     required this.voiceLocale,
+    required this.boldText,
+    required this.italicText,
   });
 
   final ReadingMode mode;
@@ -47,6 +49,12 @@ class ReaderSettings {
   final String voiceName;
   final String voiceLocale;
 
+  /// When true, all body text is rendered in a heavier weight.
+  final bool boldText;
+
+  /// When true, all body text is rendered italic.
+  final bool italicText;
+
   static const defaults = ReaderSettings(
     mode: ReadingMode.scroll,
     themeId: 'dark',
@@ -57,6 +65,8 @@ class ReaderSettings {
     speechRate: 0.5,
     voiceName: '',
     voiceLocale: '',
+    boldText: false,
+    italicText: false,
   );
 
   ReaderThemePreset get theme => readerThemeById(themeId);
@@ -71,6 +81,8 @@ class ReaderSettings {
     double? speechRate,
     String? voiceName,
     String? voiceLocale,
+    bool? boldText,
+    bool? italicText,
   }) {
     return ReaderSettings(
       mode: mode ?? this.mode,
@@ -82,6 +94,8 @@ class ReaderSettings {
       speechRate: speechRate ?? this.speechRate,
       voiceName: voiceName ?? this.voiceName,
       voiceLocale: voiceLocale ?? this.voiceLocale,
+      boldText: boldText ?? this.boldText,
+      italicText: italicText ?? this.italicText,
     );
   }
 }
