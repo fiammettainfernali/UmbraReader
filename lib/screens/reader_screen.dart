@@ -208,6 +208,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
   SleepTimerOption _sleepOption = SleepTimerOption.off;
   Timer? _sleepTimer;
 
+  /// Progress through the current chapter (0..1) and its total word count —
+  /// drive the reading-progress bar and the "time left" estimate.
+  double _chapterFraction = 0;
+  int _chapterWordCount = 0;
+
   @override
   void initState() {
     super.initState();
@@ -228,6 +233,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _nowPlaying.onToggle = _toggleTts;
     _nowPlaying.onNext = () => _remoteSkipChapter(1);
     _nowPlaying.onPrevious = () => _remoteSkipChapter(-1);
+    _scrollController.addListener(_onPositionTick);
+    _pageController.addListener(_onPositionTick);
     _open();
   }
 
@@ -270,6 +277,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         _book = book;
         _chapterIndex = chapterIndex;
         _blocks = blocks;
+        _chapterWordCount = _countWords(blocks);
         _settings = settings;
         _pendingRestoreBlock = blocks.isEmpty
             ? 0
@@ -320,6 +328,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     setState(() {
       _chapterIndex = clamped;
       _blocks = blocks;
+      _chapterWordCount = _countWords(blocks);
+      _chapterFraction = 0;
       _pageKey = null;
       _pageJumpTarget = landOnLastPage ? _lastPage : 0;
     });
@@ -400,6 +410,43 @@ class _ReaderScreenState extends State<ReaderScreen> {
       widget.volume,
       ReadingProgress(chapterIndex: _chapterIndex, blockIndex: block),
     );
+  }
+
+  // ── in-chapter progress ──────────────────────────────────────────────────
+
+  /// Recomputes how far through the current chapter the reader is, refreshing
+  /// the progress bar / time estimate when it moves by at least half a percent.
+  void _onPositionTick() {
+    final fraction = _computeChapterFraction();
+    if ((fraction * 200).round() != (_chapterFraction * 200).round()) {
+      setState(() => _chapterFraction = fraction);
+    }
+  }
+
+  /// Fraction (0..1) of the current chapter that has been read.
+  double _computeChapterFraction() {
+    if (_settings.mode == ReadingMode.paged) {
+      final pages = _pages;
+      if (pages == null || pages.length <= 1 || !_pageController.hasClients) {
+        return 0;
+      }
+      return ((_pageController.page ?? 0) / (pages.length - 1)).clamp(0.0, 1.0);
+    }
+    if (!_scrollController.hasClients) return 0;
+    final max = _scrollController.position.maxScrollExtent;
+    if (max <= 0) return 0;
+    return (_scrollController.offset / max).clamp(0.0, 1.0);
+  }
+
+  /// Total word count of a chapter's blocks, for the time-left estimate.
+  int _countWords(List<ContentBlock> blocks) {
+    var words = 0;
+    for (final block in blocks) {
+      for (final word in _blockText(block).split(RegExp(r'\s+'))) {
+        if (word.isNotEmpty) words++;
+      }
+    }
+    return words;
   }
 
   /// Restores the saved scroll-mode position once the list has laid out.
@@ -959,6 +1006,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
                       preset: preset,
                       index: _chapterIndex,
                       total: book.chapters.length,
+                      progress: _chapterFraction,
+                      minutesLeft:
+                          _chapterWordCount * (1 - _chapterFraction) / 220.0,
                       onPrevious: () => _goToChapter(_chapterIndex - 1),
                       onNext: () => _goToChapter(_chapterIndex + 1),
                     ),
@@ -1260,6 +1310,8 @@ class _ChapterBar extends StatelessWidget {
     required this.preset,
     required this.index,
     required this.total,
+    required this.progress,
+    required this.minutesLeft,
     required this.onPrevious,
     required this.onNext,
   });
@@ -1268,8 +1320,22 @@ class _ChapterBar extends StatelessWidget {
   final ReaderThemePreset preset;
   final int index;
   final int total;
+
+  /// Fraction (0..1) of the current chapter that has been read.
+  final double progress;
+
+  /// Estimated reading time remaining in the chapter, in minutes.
+  final double minutesLeft;
+
   final VoidCallback onPrevious;
   final VoidCallback onNext;
+
+  /// A short human label for the time left in the chapter.
+  String get _timeLabel {
+    if (minutesLeft < 0.5) return 'Almost done';
+    if (minutesLeft < 1.5) return '~1 min left in chapter';
+    return '~${minutesLeft.round()} min left in chapter';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1279,34 +1345,63 @@ class _ChapterBar extends StatelessWidget {
       elevation: 2,
       child: SizedBox(
         height: height,
-        child: SafeArea(
-          top: false,
-          child: Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.chevron_left),
-                color: preset.text,
-                disabledColor: preset.secondary,
-                tooltip: 'Previous chapter',
-                onPressed: index > 0 ? onPrevious : null,
-              ),
-              Expanded(
-                child: Center(
-                  child: Text(
-                    'Chapter ${index + 1} of $total',
-                    style: TextStyle(color: preset.secondary, fontSize: 12),
-                  ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            LinearProgressIndicator(
+              value: progress.clamp(0.0, 1.0),
+              minHeight: 3,
+              backgroundColor: preset.secondary.withValues(alpha: 0.25),
+              color: preset.text.withValues(alpha: 0.55),
+            ),
+            Expanded(
+              child: SafeArea(
+                top: false,
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.chevron_left),
+                      color: preset.text,
+                      disabledColor: preset.secondary,
+                      tooltip: 'Previous chapter',
+                      onPressed: index > 0 ? onPrevious : null,
+                    ),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'Chapter ${index + 1} of $total',
+                            style: TextStyle(
+                              color: preset.text,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            _timeLabel,
+                            style: TextStyle(
+                              color: preset.secondary,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.chevron_right),
+                      color: preset.text,
+                      disabledColor: preset.secondary,
+                      tooltip: 'Next chapter',
+                      onPressed: index < total - 1 ? onNext : null,
+                    ),
+                  ],
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.chevron_right),
-                color: preset.text,
-                disabledColor: preset.secondary,
-                tooltip: 'Next chapter',
-                onPressed: index < total - 1 ? onNext : null,
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
