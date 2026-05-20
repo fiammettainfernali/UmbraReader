@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../models/series.dart';
+import '../services/library_cache.dart';
+import '../services/library_storage.dart';
 import '../services/opds_client.dart';
 import '../services/settings_service.dart';
 import 'series_detail_screen.dart';
@@ -46,8 +48,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// Null until the initial settings load finishes.
   OpdsSettings? _settings;
   List<Series>? _library;
+  LibraryCache? _cache;
   bool _loading = false;
   String? _error;
+
+  /// True when the displayed library came from the offline cache because the
+  /// last sync couldn't reach the server.
+  bool _offline = false;
 
   String _searchQuery = '';
   LibrarySort _sort = LibrarySort.titleAsc;
@@ -66,8 +73,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Future<void> _initialize() async {
     final settings = await _settingsService.load();
+    final cache = LibraryCache(LibraryStorage());
+    await cache.load();
     if (!mounted) return;
-    setState(() => _settings = settings);
+    setState(() {
+      _settings = settings;
+      _cache = cache;
+      // Show the cached library straight away — instant, and works offline.
+      if (cache.series.isNotEmpty) _library = cache.series;
+    });
     if (settings.isConfigured) {
       await _sync();
     }
@@ -82,16 +96,24 @@ class _LibraryScreenState extends State<LibraryScreen> {
     });
     try {
       final library = await OpdsClient(settings).fetchLibrary();
+      await _cache?.saveSeries(library);
       if (!mounted) return;
       setState(() {
         _library = library;
+        _offline = false;
         _loading = false;
       });
     } on OpdsException catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.message;
         _loading = false;
+        if (_library != null && _library!.isNotEmpty) {
+          // We have a cached library — stay browsable offline rather than
+          // showing a fatal error.
+          _offline = true;
+        } else {
+          _error = e.message;
+        }
       });
     }
   }
@@ -193,8 +215,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   List<Widget> _buildContentSlivers() {
-    // Initial load — full-screen spinner. A refresh of an already-loaded
-    // library keeps the grid visible (the RefreshIndicator shows progress).
+    // Initial load — full-screen spinner (nothing cached to show yet).
     if (_settings == null || (_loading && _library == null)) {
       return const [
         SliverFillRemaining(
@@ -203,6 +224,49 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ),
       ];
     }
+
+    // We have a library to show (live or from the offline cache).
+    final all = _library ?? const <Series>[];
+    if (all.isNotEmpty) {
+      final visible = _visibleLibrary;
+      return [
+        if (_offline) SliverToBoxAdapter(child: _buildOfflineBanner()),
+        SliverToBoxAdapter(child: _buildControls(all.length, visible.length)),
+        if (visible.isEmpty)
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: _MessageView(
+              icon: Icons.search_off_outlined,
+              title: 'No matches',
+              message: 'No series match “$_searchQuery”.',
+              actionLabel: 'Clear search',
+              onAction: _clearSearch,
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+            sliver: SliverGrid.builder(
+              gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                maxCrossAxisExtent: 160,
+                childAspectRatio: 0.52,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 20,
+              ),
+              itemCount: visible.length,
+              itemBuilder: (context, index) => _SeriesCard(
+                series: visible[index],
+                imageHeaders: _settings!.isConfigured
+                    ? OpdsClient(_settings!).authHeaders
+                    : const {},
+                onTap: () => _openSeries(visible[index]),
+              ),
+            ),
+          ),
+      ];
+    }
+
+    // Nothing to show.
     if (!_settings!.isConfigured) {
       return [
         SliverFillRemaining(
@@ -233,56 +297,48 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ),
       ];
     }
-    final all = _library ?? const <Series>[];
-    if (all.isEmpty) {
-      return [
-        SliverFillRemaining(
-          hasScrollBody: false,
-          child: _MessageView(
-            icon: Icons.library_books_outlined,
-            title: 'No books found',
-            message:
-                'The library is empty, or no series have a compiled EPUB yet.',
-            actionLabel: 'Refresh',
-            onAction: _sync,
-          ),
-        ),
-      ];
-    }
-
-    final visible = _visibleLibrary;
     return [
-      SliverToBoxAdapter(child: _buildControls(all.length, visible.length)),
-      if (visible.isEmpty)
-        SliverFillRemaining(
-          hasScrollBody: false,
-          child: _MessageView(
-            icon: Icons.search_off_outlined,
-            title: 'No matches',
-            message: 'No series match “$_searchQuery”.',
-            actionLabel: 'Clear search',
-            onAction: _clearSearch,
-          ),
-        )
-      else
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-          sliver: SliverGrid.builder(
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 160,
-              childAspectRatio: 0.52,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 20,
-            ),
-            itemCount: visible.length,
-            itemBuilder: (context, index) => _SeriesCard(
-              series: visible[index],
-              imageHeaders: OpdsClient(_settings!).authHeaders,
-              onTap: () => _openSeries(visible[index]),
-            ),
-          ),
+      SliverFillRemaining(
+        hasScrollBody: false,
+        child: _MessageView(
+          icon: Icons.library_books_outlined,
+          title: 'No books found',
+          message:
+              'The library is empty, or no series have a compiled EPUB yet.',
+          actionLabel: 'Refresh',
+          onAction: _sync,
         ),
+      ),
     ];
+  }
+
+  /// A slim banner shown above the grid when browsing the offline cache.
+  Widget _buildOfflineBanner() {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      color: theme.colorScheme.surfaceContainerHighest,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      child: Row(
+        children: [
+          Icon(
+            Icons.cloud_off_outlined,
+            size: 16,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Offline — showing your saved library. Downloaded books can '
+              'still be read.',
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   /// The search field, sort menu, and result-count line.

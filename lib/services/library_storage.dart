@@ -37,6 +37,12 @@ class LibraryStorage {
     return '${root.path}/downloads.json';
   }
 
+  /// Path of the JSON cache of library metadata (for offline browsing).
+  Future<String> cachePath() async {
+    final root = await _libraryRoot();
+    return '${root.path}/library_cache.json';
+  }
+
   /// Deletes a volume's EPUB, and its series folder if that leaves it empty.
   Future<void> deleteEpub(Volume volume) async {
     final file = await epubFile(volume);

@@ -30,4 +30,22 @@ class Volume {
 
   /// When this volume's EPUB was last compiled on the server.
   final DateTime? updatedAt;
+
+  Map<String, dynamic> toJson() => {
+    'seriesOpdsId': seriesOpdsId,
+    'title': title,
+    'fileName': fileName,
+    'downloadUrl': downloadUrl,
+    'fileSizeBytes': fileSizeBytes,
+    'updatedAt': updatedAt?.toIso8601String(),
+  };
+
+  factory Volume.fromJson(Map<String, dynamic> json) => Volume(
+    seriesOpdsId: (json['seriesOpdsId'] as num?)?.toInt() ?? 0,
+    title: json['title'] as String? ?? '',
+    fileName: json['fileName'] as String? ?? '',
+    downloadUrl: json['downloadUrl'] as String? ?? '',
+    fileSizeBytes: (json['fileSizeBytes'] as num?)?.toInt() ?? 0,
+    updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? ''),
+  );
 }

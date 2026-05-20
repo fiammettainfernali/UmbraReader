@@ -47,4 +47,36 @@ class Series {
 
   /// True when the series has multiple volumes (and so a [volumesFeedUrl]).
   bool get hasMultipleVolumes => volumesFeedUrl != null;
+
+  Map<String, dynamic> toJson() => {
+    'opdsId': opdsId,
+    'title': title,
+    'author': author,
+    'description': description,
+    'genres': genres,
+    'readingStatus': readingStatus,
+    'totalChapters': totalChapters,
+    'downloadedChapters': downloadedChapters,
+    'coverUrl': coverUrl,
+    'updatedAt': updatedAt?.toIso8601String(),
+    'directEpubUrl': directEpubUrl,
+    'volumesFeedUrl': volumesFeedUrl,
+  };
+
+  factory Series.fromJson(Map<String, dynamic> json) => Series(
+    opdsId: (json['opdsId'] as num?)?.toInt() ?? 0,
+    title: json['title'] as String? ?? 'Untitled',
+    author: json['author'] as String? ?? 'Unknown',
+    description: json['description'] as String? ?? '',
+    genres:
+        (json['genres'] as List?)?.map((e) => e.toString()).toList() ??
+        const [],
+    readingStatus: json['readingStatus'] as String? ?? 'ongoing',
+    totalChapters: (json['totalChapters'] as num?)?.toInt() ?? 0,
+    downloadedChapters: (json['downloadedChapters'] as num?)?.toInt() ?? 0,
+    coverUrl: json['coverUrl'] as String?,
+    updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? ''),
+    directEpubUrl: json['directEpubUrl'] as String?,
+    volumesFeedUrl: json['volumesFeedUrl'] as String?,
+  );
 }

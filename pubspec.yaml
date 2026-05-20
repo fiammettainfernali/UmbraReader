@@ -66,6 +66,9 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
 
+  # Lets widget tests stub path_provider (no real platform in `flutter test`).
+  path_provider_platform_interface: ^2.1.0
+
 # Pin path_provider's iOS implementation below the version that adopted the
 # `objective_c` package. objective_c ships an arm64e-only framework that App
 # Store Connect rejects (error 91080); older path_provider_foundation uses

@@ -4,6 +4,7 @@ import '../models/download_record.dart';
 import '../models/series.dart';
 import '../models/volume.dart';
 import '../services/download_service.dart';
+import '../services/library_cache.dart';
 import '../services/library_storage.dart';
 import '../services/opds_client.dart';
 import '../services/settings_service.dart';
@@ -36,7 +37,11 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
 
   late final DownloadStore _store;
   late final DownloadService _downloadService;
+  late final LibraryCache _libraryCache;
   bool _ready = false;
+
+  /// True when the volume list shown came from the offline cache.
+  bool _offline = false;
 
   /// Fractional progress (0..1) of in-flight downloads, keyed by file name.
   final Map<String, double> _progress = {};
@@ -51,10 +56,13 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   Future<void> _init() async {
     final storage = LibraryStorage();
     final store = DownloadStore(storage);
+    final cache = LibraryCache(storage);
     await store.load();
+    await cache.load();
     if (!mounted) return;
     setState(() {
       _store = store;
+      _libraryCache = cache;
       _downloadService = DownloadService(
         settings: widget.settings,
         storage: storage,
@@ -74,16 +82,26 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
       final volumes = await OpdsClient(
         widget.settings,
       ).fetchVolumes(widget.series.opdsId);
+      await _libraryCache.saveVolumes(widget.series.opdsId, volumes);
       if (!mounted) return;
       setState(() {
         _volumes = volumes;
+        _offline = false;
         _loadingVolumes = false;
       });
     } on OpdsException catch (e) {
       if (!mounted) return;
+      // Offline — fall back to the cached volume list so downloaded books
+      // can still be opened.
+      final cached = _libraryCache.volumesFor(widget.series.opdsId);
       setState(() {
-        _volumesError = e.message;
         _loadingVolumes = false;
+        if (cached != null && cached.isNotEmpty) {
+          _volumes = cached;
+          _offline = true;
+        } else {
+          _volumesError = e.message;
+        }
       });
     }
   }
@@ -305,7 +323,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
                   Text('Downloading…', style: theme.textTheme.labelMedium),
                 ],
               )
-            else if (pending > 0)
+            else if (pending > 0 && !_offline)
               TextButton.icon(
                 onPressed: _downloadAll,
                 icon: const Icon(Icons.download, size: 18),
