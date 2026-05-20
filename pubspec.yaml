@@ -45,6 +45,10 @@ dependencies:
   # Locating the on-device documents directory for downloaded EPUBs.
   path_provider: ^2.1.5
 
+  # EPUB reading: archive unzips the .epub, html parses chapter XHTML.
+  archive: ^3.6.1
+  html: ^0.15.4
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

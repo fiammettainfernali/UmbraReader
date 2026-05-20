@@ -7,6 +7,7 @@ import '../services/download_service.dart';
 import '../services/library_storage.dart';
 import '../services/opds_client.dart';
 import '../services/settings_service.dart';
+import 'reader_screen.dart';
 
 /// Download state of a single volume, derived per build.
 enum _VolumeStatus { notDownloaded, downloading, downloaded, updateAvailable }
@@ -152,6 +153,12 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     _snack('Removed “${volume.title}”.');
   }
 
+  void _openReader(Volume volume) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => ReaderScreen(volume: volume)),
+    );
+  }
+
   void _snack(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -253,6 +260,11 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
               progress: _progress[volume.fileName] ?? 0,
               onDownload: () => _download(volume),
               onDelete: () => _delete(volume),
+              onOpen:
+                  (_statusOf(volume) == _VolumeStatus.downloaded ||
+                      _statusOf(volume) == _VolumeStatus.updateAvailable)
+                  ? () => _openReader(volume)
+                  : null,
             ),
         ],
       );
@@ -528,6 +540,7 @@ class _VolumeTile extends StatelessWidget {
     required this.progress,
     required this.onDownload,
     required this.onDelete,
+    required this.onOpen,
   });
 
   final Volume volume;
@@ -535,6 +548,9 @@ class _VolumeTile extends StatelessWidget {
   final double progress;
   final VoidCallback onDownload;
   final VoidCallback onDelete;
+
+  /// Opens the reader; null when the volume isn't downloaded yet.
+  final VoidCallback? onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -554,14 +570,15 @@ class _VolumeTile extends StatelessWidget {
         ),
       ),
       trailing: _trailing(context),
+      onTap: onOpen,
     );
   }
 
   String _subtitle() {
     final size = _formatBytes(volume.fileSizeBytes);
     return switch (status) {
-      _VolumeStatus.downloaded => '$size  ·  Downloaded',
-      _VolumeStatus.updateAvailable => '$size  ·  Update available',
+      _VolumeStatus.downloaded => '$size  ·  Tap to read',
+      _VolumeStatus.updateAvailable => '$size  ·  Update available · tap to read',
       _ => '$size  ·  updated ${_formatDate(volume.updatedAt)}',
     };
   }
