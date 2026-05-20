@@ -12,6 +12,11 @@
 .swiftpm/
 migrate_working_dir/
 
+# Secrets — App Store Connect API key (.p8) and anything else credential-ish.
+# These live only locally and in Codemagic's UI; never commit them.
+_secrets/
+*.p8
+
 # IntelliJ related
 *.iml
 *.ipr
