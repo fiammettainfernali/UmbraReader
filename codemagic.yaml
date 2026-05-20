@@ -1,6 +1,6 @@
 workflows:
-  ios-dev-sideload:
-    name: iOS dev build (sideload IPA)
+  ios-testflight:
+    name: iOS TestFlight build
     instance_type: mac_mini_m2
     max_build_duration: 60
     integrations:
@@ -45,7 +45,7 @@ workflows:
           # device registered in the Apple Developer portal at build time.
           keychain initialize
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
-            --type IOS_APP_DEVELOPMENT \
+            --type IOS_APP_STORE \
             --certificate-key @env:CERTIFICATE_PRIVATE_KEY \
             --create
           keychain add-certificates
@@ -57,8 +57,12 @@ workflows:
       # CocoaPods (and generates the Podfile) itself as part of the build.
       - name: Flutter build IPA
         script: |
+          # --build-number=$BUILD_NUMBER: TestFlight rejects duplicate build
+          # numbers, so use Codemagic's auto-incrementing build counter for
+          # CFBundleVersion. The version name (1.0.0) stays from pubspec.yaml.
           flutter build ipa \
             --release \
+            --build-number=$BUILD_NUMBER \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - build/ios/ipa/*.ipa
@@ -71,3 +75,10 @@ workflows:
         notify:
           success: true
           failure: true
+      app_store_connect:
+        # Uploads the IPA to App Store Connect and releases it to TestFlight.
+        # `auth: integration` reuses the UmbraReaderASC API key integration.
+        # Internal testers (you) see the build automatically once it finishes
+        # processing — no App Store review needed for internal testing.
+        auth: integration
+        submit_to_testflight: true
