@@ -27,13 +27,10 @@ workflows:
       # profiles and fails with "No matching profiles found" when none exist.
       # We instead create the cert + profile explicitly in the "Set up code
       # signing" script below using `app-store-connect ... --create`.
-    triggering:
-      events:
-        - push
-      branch_patterns:
-        - pattern: main
-          include: true
-          source: true
+    # No `triggering:` block — builds are started MANUALLY from the Codemagic
+    # UI ("Start new build"). Auto-building on every push uploaded a build to
+    # App Store Connect each commit and hit Apple's daily upload limit
+    # (error 90382). Commit freely; build when a batch is worth testing.
     scripts:
       - name: Set up code signing
         script: |
