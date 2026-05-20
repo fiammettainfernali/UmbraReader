@@ -42,6 +42,9 @@ dependencies:
   # Persisting the OPDS server connection settings.
   shared_preferences: ^2.3.2
 
+  # Locating the on-device documents directory for downloaded EPUBs.
+  path_provider: ^2.1.5
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
 
+import '../models/download_record.dart';
 import '../models/series.dart';
 import '../models/volume.dart';
+import '../services/download_service.dart';
+import '../services/library_storage.dart';
 import '../services/opds_client.dart';
 import '../services/settings_service.dart';
 
-/// Detail view for one series: cover, metadata, description, and its volumes.
+/// Download state of a single volume, derived per build.
+enum _VolumeStatus { notDownloaded, downloading, downloaded, updateAvailable }
+
+/// Detail view for one series: cover, metadata, description, and downloadable
+/// volumes.
 class SeriesDetailScreen extends StatefulWidget {
   const SeriesDetailScreen({
     super.key,
@@ -26,10 +33,35 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   String? _volumesError;
   bool _descriptionExpanded = false;
 
+  late final DownloadStore _store;
+  late final DownloadService _downloadService;
+  bool _ready = false;
+
+  /// Fractional progress (0..1) of in-flight downloads, keyed by file name.
+  final Map<String, double> _progress = {};
+  bool _downloadingAll = false;
+
   @override
   void initState() {
     super.initState();
-    _loadVolumes();
+    _init();
+  }
+
+  Future<void> _init() async {
+    final storage = LibraryStorage();
+    final store = DownloadStore(storage);
+    await store.load();
+    if (!mounted) return;
+    setState(() {
+      _store = store;
+      _downloadService = DownloadService(
+        settings: widget.settings,
+        storage: storage,
+        store: store,
+      );
+      _ready = true;
+    });
+    await _loadVolumes();
   }
 
   Future<void> _loadVolumes() async {
@@ -53,6 +85,81 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
         _loadingVolumes = false;
       });
     }
+  }
+
+  _VolumeStatus _statusOf(Volume volume) {
+    if (_progress.containsKey(volume.fileName)) {
+      return _VolumeStatus.downloading;
+    }
+    final record = _store.recordFor(volume);
+    if (record == null) return _VolumeStatus.notDownloaded;
+    return _isStale(volume, record)
+        ? _VolumeStatus.updateAvailable
+        : _VolumeStatus.downloaded;
+  }
+
+  /// True when the server's copy of [volume] differs from what was downloaded
+  /// — i.e. Novel Grabber re-compiled it with new chapters.
+  bool _isStale(Volume volume, DownloadRecord record) {
+    final serverTime = volume.updatedAt;
+    final recordTime = record.volumeUpdatedAt;
+    final timeChanged =
+        serverTime != null &&
+        recordTime != null &&
+        serverTime.isAfter(recordTime);
+    final sizeChanged =
+        volume.fileSizeBytes > 0 &&
+        record.sizeBytes > 0 &&
+        volume.fileSizeBytes != record.sizeBytes;
+    return timeChanged || sizeChanged;
+  }
+
+  Future<void> _download(Volume volume) async {
+    setState(() => _progress[volume.fileName] = 0);
+    try {
+      await _downloadService.download(
+        volume,
+        onProgress: (p) {
+          if (mounted) setState(() => _progress[volume.fileName] = p);
+        },
+      );
+    } on DownloadException catch (e) {
+      _snack(e.message, isError: true);
+    } finally {
+      if (mounted) setState(() => _progress.remove(volume.fileName));
+    }
+  }
+
+  Future<void> _downloadAll() async {
+    final volumes = _volumes ?? const <Volume>[];
+    setState(() => _downloadingAll = true);
+    for (final volume in volumes) {
+      if (!mounted) break;
+      final status = _statusOf(volume);
+      if (status == _VolumeStatus.downloaded ||
+          status == _VolumeStatus.downloading) {
+        continue;
+      }
+      await _download(volume);
+    }
+    if (mounted) setState(() => _downloadingAll = false);
+  }
+
+  Future<void> _delete(Volume volume) async {
+    await _downloadService.delete(volume);
+    if (!mounted) return;
+    setState(() {});
+    _snack('Removed “${volume.title}”.');
+  }
+
+  void _snack(String message, {bool isError = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: Duration(seconds: isError ? 6 : 3),
+      ),
+    );
   }
 
   @override
@@ -89,14 +196,114 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
           const SizedBox(height: 24),
           const Divider(),
           const SizedBox(height: 8),
-          _VolumesSection(
-            loading: _loadingVolumes,
-            error: _volumesError,
-            volumes: _volumes,
-            onRetry: _loadVolumes,
-          ),
+          _buildVolumesSection(),
         ],
       ),
+    );
+  }
+
+  Widget _buildVolumesSection() {
+    final theme = Theme.of(context);
+    final volumes = _volumes;
+    final count = volumes?.length;
+
+    final Widget content;
+    if (!_ready || _loadingVolumes) {
+      content = const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    } else if (_volumesError != null) {
+      content = Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _volumesError!,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.error,
+              ),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton(
+              onPressed: _loadVolumes,
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    } else if (volumes == null || volumes.isEmpty) {
+      content = Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Text(
+          'No volumes have been compiled for this series yet.',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      );
+    } else {
+      content = Column(
+        children: [
+          for (final volume in volumes)
+            _VolumeTile(
+              volume: volume,
+              status: _statusOf(volume),
+              progress: _progress[volume.fileName] ?? 0,
+              onDownload: () => _download(volume),
+              onDelete: () => _delete(volume),
+            ),
+        ],
+      );
+    }
+
+    final pending =
+        volumes
+            ?.where(
+              (v) =>
+                  _statusOf(v) == _VolumeStatus.notDownloaded ||
+                  _statusOf(v) == _VolumeStatus.updateAvailable,
+            )
+            .length ??
+        0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                count == null ? 'Volumes' : 'Volumes ($count)',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            if (_downloadingAll)
+              Row(
+                children: [
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 8),
+                  Text('Downloading…', style: theme.textTheme.labelMedium),
+                ],
+              )
+            else if (pending > 0)
+              TextButton.icon(
+                onPressed: _downloadAll,
+                icon: const Icon(Icons.download, size: 18),
+                label: Text('Download all ($pending)'),
+              ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        content,
+      ],
     );
   }
 }
@@ -214,9 +421,9 @@ class _Cover extends StatelessWidget {
             textAlign: TextAlign.center,
             maxLines: 6,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(
-              context,
-            ).textTheme.labelMedium?.copyWith(color: scheme.onPrimaryContainer),
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: scheme.onPrimaryContainer,
+            ),
           ),
         ),
       ),
@@ -310,97 +517,112 @@ class _Description extends StatelessWidget {
   }
 }
 
-/// The "Volumes" section: loading, error, or the list of volumes.
-class _VolumesSection extends StatelessWidget {
-  const _VolumesSection({
-    required this.loading,
-    required this.error,
-    required this.volumes,
-    required this.onRetry,
+/// Menu actions on a downloaded volume.
+enum _VolumeAction { download, delete }
+
+/// One row in the volume list, with a download / progress / downloaded control.
+class _VolumeTile extends StatelessWidget {
+  const _VolumeTile({
+    required this.volume,
+    required this.status,
+    required this.progress,
+    required this.onDownload,
+    required this.onDelete,
   });
 
-  final bool loading;
-  final String? error;
-  final List<Volume>? volumes;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final count = volumes?.length;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          count == null ? 'Volumes' : 'Volumes ($count)',
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-        const SizedBox(height: 8),
-        if (loading)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 24),
-            child: Center(child: CircularProgressIndicator()),
-          )
-        else if (error != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  error!,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.error,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                OutlinedButton(onPressed: onRetry, child: const Text('Retry')),
-              ],
-            ),
-          )
-        else if (volumes != null && volumes!.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 16),
-            child: Text(
-              'No volumes have been compiled for this series yet.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          )
-        else
-          for (final volume in volumes ?? const <Volume>[])
-            _VolumeTile(volume: volume),
-      ],
-    );
-  }
-}
-
-/// One row in the volume list — display-only for now; a download action is
-/// added in the next step.
-class _VolumeTile extends StatelessWidget {
-  const _VolumeTile({required this.volume});
-
   final Volume volume;
+  final _VolumeStatus status;
+  final double progress;
+  final VoidCallback onDownload;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final size = _formatBytes(volume.fileSizeBytes);
-    final date = _formatDate(volume.updatedAt);
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: const Icon(Icons.menu_book_outlined),
-      title: Text(volume.title, maxLines: 2, overflow: TextOverflow.ellipsis),
+      title: Text(
+        volume.title,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
       subtitle: Text(
-        '$size  ·  updated $date',
+        _subtitle(),
         style: theme.textTheme.bodySmall?.copyWith(
           color: theme.colorScheme.outline,
         ),
       ),
+      trailing: _trailing(context),
     );
+  }
+
+  String _subtitle() {
+    final size = _formatBytes(volume.fileSizeBytes);
+    return switch (status) {
+      _VolumeStatus.downloaded => '$size  ·  Downloaded',
+      _VolumeStatus.updateAvailable => '$size  ·  Update available',
+      _ => '$size  ·  updated ${_formatDate(volume.updatedAt)}',
+    };
+  }
+
+  Widget _trailing(BuildContext context) {
+    switch (status) {
+      case _VolumeStatus.notDownloaded:
+        return IconButton(
+          icon: const Icon(Icons.download_outlined),
+          tooltip: 'Download',
+          onPressed: onDownload,
+        );
+      case _VolumeStatus.downloading:
+        return SizedBox(
+          width: 40,
+          height: 40,
+          child: Center(
+            child: SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(
+                value: progress > 0 ? progress : null,
+                strokeWidth: 3,
+              ),
+            ),
+          ),
+        );
+      case _VolumeStatus.downloaded:
+        return PopupMenuButton<_VolumeAction>(
+          icon: const Icon(Icons.download_done, color: Colors.green),
+          tooltip: 'Downloaded',
+          onSelected: (action) {
+            if (action == _VolumeAction.delete) onDelete();
+          },
+          itemBuilder: (context) => const [
+            PopupMenuItem(
+              value: _VolumeAction.delete,
+              child: Text('Delete download'),
+            ),
+          ],
+        );
+      case _VolumeStatus.updateAvailable:
+        return PopupMenuButton<_VolumeAction>(
+          icon: const Icon(Icons.update, color: Colors.orange),
+          tooltip: 'Update available',
+          onSelected: (action) {
+            if (action == _VolumeAction.download) onDownload();
+            if (action == _VolumeAction.delete) onDelete();
+          },
+          itemBuilder: (context) => const [
+            PopupMenuItem(
+              value: _VolumeAction.download,
+              child: Text('Re-download (update)'),
+            ),
+            PopupMenuItem(
+              value: _VolumeAction.delete,
+              child: Text('Delete download'),
+            ),
+          ],
+        );
+    }
   }
 }
 
@@ -422,18 +644,8 @@ String _formatBytes(int bytes) {
 String _formatDate(DateTime? date) {
   if (date == null) return 'unknown date';
   const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'May',
-    'Jun',
-    'Jul',
-    'Aug',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dec',
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
   ];
   final local = date.toLocal();
   return '${months[local.month - 1]} ${local.day}, ${local.year}';
