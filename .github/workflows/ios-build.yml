@@ -1,5 +1,11 @@
-name: iOS dev build
+name: iOS dev build (backup)
 
+# DORMANT BACKUP PIPELINE. Codemagic (codemagic.yaml) is the primary CI.
+# This workflow is manual-trigger-only (workflow_dispatch) so it never
+# auto-builds on push — that avoids double builds and wasted macOS minutes.
+# Kept around in case Codemagic ever breaks again; run it from the Actions
+# tab via "Run workflow".
+#
 # Builds a development-signed IPA for sideloading onto a registered device.
 # Runs entirely on GitHub's macOS runners — no Mac needed locally.
 #
@@ -18,8 +24,7 @@ name: iOS dev build
 # get tight.
 
 on:
-  push:
-    branches: [main]
+  # Manual only — Codemagic is primary. No `push:` trigger on purpose.
   workflow_dispatch:
 
 jobs:

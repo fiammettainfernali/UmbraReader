@@ -12,6 +12,12 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
+      groups:
+        # Codemagic env-var group holding CERTIFICATE_PRIVATE_KEY (the RSA key
+        # used to create/own our iOS signing certificate). Create it in the
+        # Codemagic UI: app → Environment variables → add CERTIFICATE_PRIVATE_KEY
+        # (mark Secure) to a group named "signing".
+        - signing
       vars:
         BUNDLE_ID: "com.fiammettainfernali.umbrareader"
         XCODE_WORKSPACE: "Runner.xcworkspace"
@@ -32,21 +38,23 @@ workflows:
       - name: Set up code signing
         script: |
           # Create the dev certificate + provisioning profile if they don't
-          # exist yet (--create). The profile includes every device currently
-          # registered in the Apple Developer portal, so register the iPhone
-          # UDID BEFORE running this for the IPA to be installable.
+          # exist yet (--create). --certificate-key supplies our own RSA key
+          # so the tool can create and own a usable signing certificate;
+          # without it the run fails with "Cannot save Signing Certificates
+          # without certificate private key". The profile includes every
+          # device registered in the Apple Developer portal at build time.
           keychain initialize
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_DEVELOPMENT \
+            --certificate-key @env:CERTIFICATE_PRIVATE_KEY \
             --create
           keychain add-certificates
           xcode-project use-profiles
       - name: Flutter pub get
         script: flutter pub get
-      - name: Pod install
-        script: |
-          cd ios
-          pod install
+      # No explicit `pod install` — a fresh `flutter create` project has no
+      # ios/Podfile until Flutter generates one. `flutter build ipa` runs
+      # CocoaPods (and generates the Podfile) itself as part of the build.
       - name: Flutter build IPA
         script: |
           flutter build ipa \
