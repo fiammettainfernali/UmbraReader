@@ -343,9 +343,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   void _saveProgress() {
-    final block = _settings.mode == ReadingMode.paged
-        ? _pagedTopBlockIndex()
-        : _scrollTopBlockIndex();
+    // Skip if the position can't be read (e.g. controllers already detached
+    // during dispose) — saving a fallback 0 would clobber the real position.
+    final int block;
+    if (_settings.mode == ReadingMode.paged) {
+      if (!_pageController.hasClients) return;
+      block = _pagedTopBlockIndex();
+    } else {
+      if (!_scrollController.hasClients) return;
+      block = _scrollTopBlockIndex();
+    }
     _progressStore.save(
       widget.volume,
       ReadingProgress(chapterIndex: _chapterIndex, blockIndex: block),
