@@ -28,6 +28,17 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Umbra Reader connects to your Novel Grabber library on your local network to sync and download your books.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Novel Grabber's OPDS server runs over plain HTTP on the LAN.
+		     iOS blocks HTTP by default; this allows it. The app is for
+		     personal use (TestFlight internal), never App Store, so the
+		     broad exception is acceptable here. -->
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
