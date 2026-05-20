@@ -167,6 +167,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// past the end, negative past the start) — used to cross chapters.
   double _edgeOverscroll = 0;
 
+  /// When the last chapter change happened. Edge-crossing is suppressed for a
+  /// short window afterward so the scrollable settling into the new chapter
+  /// can't trigger a second (skipped-chapter) cross.
+  DateTime _lastChapterChange = DateTime.fromMillisecondsSinceEpoch(0);
+
   @override
   void initState() {
     super.initState();
@@ -236,6 +241,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (book == null || parser == null) return;
     final clamped = index.clamp(0, book.chapters.length - 1);
     if (clamped == _chapterIndex && _blocks != null) return;
+    _lastChapterChange = DateTime.now();
+    _edgeOverscroll = 0;
     final blocks = parser.parseChapter(book.chapters[clamped]);
     setState(() {
       _chapterIndex = clamped;
@@ -301,6 +308,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
         : Axis.vertical;
     if (notification.metrics.axis != wantAxis) return false;
 
+    // Suppress crossing while a just-changed chapter settles in — the
+    // scrollable is transiently out of bounds and would otherwise re-trigger.
+    if (DateTime.now().difference(_lastChapterChange) <
+        const Duration(milliseconds: 600)) {
+      _edgeOverscroll = 0;
+      return false;
+    }
+
     if (notification is ScrollStartNotification) {
       _edgeOverscroll = 0;
       return false;
@@ -322,9 +337,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (notification is ScrollEndNotification) {
       final amount = _edgeOverscroll;
       _edgeOverscroll = 0;
-      if (amount > 50) {
+      if (amount > 90) {
         _goToChapter(_chapterIndex + 1);
-      } else if (amount < -50) {
+      } else if (amount < -90) {
         _goToChapter(_chapterIndex - 1, landOnLastPage: true);
       }
     }
