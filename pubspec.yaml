@@ -56,6 +56,13 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
 
+# Pin path_provider's iOS implementation below the version that adopted the
+# `objective_c` package. objective_c ships an arm64e-only framework that App
+# Store Connect rejects (error 91080); older path_provider_foundation uses
+# plain method channels and avoids it entirely.
+dependency_overrides:
+  path_provider_foundation: 2.4.1
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
