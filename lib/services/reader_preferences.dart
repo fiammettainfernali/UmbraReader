@@ -10,6 +10,7 @@ class ReaderPreferences {
   static const _kFontSize = 'reader_font_size';
   static const _kLineHeight = 'reader_line_height';
   static const _kMargin = 'reader_margin';
+  static const _kSpeechRate = 'reader_speech_rate';
 
   Future<ReaderSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -23,6 +24,7 @@ class ReaderPreferences {
       fontSize: prefs.getDouble(_kFontSize) ?? d.fontSize,
       lineHeight: prefs.getDouble(_kLineHeight) ?? d.lineHeight,
       margin: prefs.getDouble(_kMargin) ?? d.margin,
+      speechRate: prefs.getDouble(_kSpeechRate) ?? d.speechRate,
     );
   }
 
@@ -34,5 +36,6 @@ class ReaderPreferences {
     await prefs.setDouble(_kFontSize, settings.fontSize);
     await prefs.setDouble(_kLineHeight, settings.lineHeight);
     await prefs.setDouble(_kMargin, settings.margin);
+    await prefs.setDouble(_kSpeechRate, settings.speechRate);
   }
 }

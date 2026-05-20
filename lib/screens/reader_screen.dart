@@ -11,6 +11,7 @@ import '../services/epub_parser.dart';
 import '../services/library_storage.dart';
 import '../services/reader_preferences.dart';
 import '../services/reading_progress_store.dart';
+import '../services/tts_service.dart';
 import '../widgets/reader_settings_sheet.dart';
 
 // Layout constants — shared by rendering and pagination so the two agree.
@@ -143,6 +144,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   final _progressStore = ReadingProgressStore();
   final _scrollController = ScrollController();
   final _pageController = PageController();
+  final _ttsService = TtsService();
 
   EpubParser? _parser;
   EpubBook? _book;
@@ -175,11 +177,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
   @override
   void initState() {
     super.initState();
+    _ttsService.onStateChanged = (_) {
+      if (mounted) setState(() {});
+    };
+    _ttsService.onChapterFinished = _onTtsChapterFinished;
     _open();
   }
 
   @override
   void dispose() {
+    _ttsService.dispose();
     _scrollController.dispose();
     _pageController.dispose();
     super.dispose();
@@ -235,12 +242,18 @@ class _ReaderScreenState extends State<ReaderScreen> {
     });
   }
 
-  void _goToChapter(int index, {bool landOnLastPage = false}) {
+  void _goToChapter(
+    int index, {
+    bool landOnLastPage = false,
+    bool fromTts = false,
+  }) {
     final book = _book;
     final parser = _parser;
     if (book == null || parser == null) return;
     final clamped = index.clamp(0, book.chapters.length - 1);
     if (clamped == _chapterIndex && _blocks != null) return;
+    // A manual chapter change stops read-aloud; a TTS-driven advance keeps it.
+    if (!fromTts) _ttsService.stop();
     _lastChapterChange = DateTime.now();
     _edgeOverscroll = 0;
     final blocks = parser.parseChapter(book.chapters[clamped]);
@@ -272,6 +285,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   Future<void> _applySettings(ReaderSettings next) async {
     final fontChanged = next.fontFamily != _settings.fontFamily;
+    final rateChanged = next.speechRate != _settings.speechRate;
     final currentPage = _pageController.hasClients
         ? (_pageController.page?.round() ?? 0)
         : 0;
@@ -280,9 +294,56 @@ class _ReaderScreenState extends State<ReaderScreen> {
       _pageJumpTarget = currentPage;
     });
     ReaderPreferences().save(next);
+    if (rateChanged) _ttsService.setRate(next.speechRate);
     if (fontChanged) {
       await _preloadFont(next.fontFamily);
       if (mounted) setState(() => _fontToken++);
+    }
+  }
+
+  // ── read-aloud ───────────────────────────────────────────────────────────
+
+  /// The current chapter's paragraphs as plain-text chunks for speech.
+  List<String> _chapterChunks() {
+    final blocks = _blocks ?? const <ContentBlock>[];
+    final chunks = <String>[];
+    for (final block in blocks) {
+      final raw = switch (block) {
+        ParagraphBlock p => p.runs.map((r) => r.text).join(),
+        HeadingBlock h => h.runs.map((r) => r.text).join(),
+        DividerBlock _ => '',
+      };
+      final text = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
+      if (text.isNotEmpty) chunks.add(text);
+    }
+    return chunks;
+  }
+
+  void _startTts() {
+    final chunks = _chapterChunks();
+    if (chunks.isEmpty) return;
+    _ttsService.start(chunks, rate: _settings.speechRate);
+  }
+
+  void _toggleTts() {
+    final state = _ttsService.state;
+    if (state == TtsPlaybackState.playing) {
+      _ttsService.pause();
+    } else if (state == TtsPlaybackState.paused) {
+      _ttsService.resume(rate: _settings.speechRate);
+    } else {
+      _startTts();
+    }
+  }
+
+  /// When read-aloud reaches the end of a chapter, roll into the next one and
+  /// keep reading.
+  void _onTtsChapterFinished() {
+    final book = _book;
+    if (book == null) return;
+    if (_chapterIndex < book.chapters.length - 1) {
+      _goToChapter(_chapterIndex + 1, fromTts: true);
+      _startTts();
     }
   }
 
@@ -558,7 +619,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
                       height: topSpace,
                       title: book.chapters[_chapterIndex].title,
                       preset: preset,
+                      ttsState: _ttsService.state,
                       onBack: () => Navigator.of(context).pop(),
+                      onToggleTts: _toggleTts,
                       onOpenSettings: _openSettings,
                       onShowContents: _showTableOfContents,
                     ),
@@ -713,7 +776,9 @@ class _TopBar extends StatelessWidget {
     required this.height,
     required this.title,
     required this.preset,
+    required this.ttsState,
     required this.onBack,
+    required this.onToggleTts,
     required this.onOpenSettings,
     required this.onShowContents,
   });
@@ -721,7 +786,9 @@ class _TopBar extends StatelessWidget {
   final double height;
   final String title;
   final ReaderThemePreset preset;
+  final TtsPlaybackState ttsState;
   final VoidCallback onBack;
+  final VoidCallback onToggleTts;
   final VoidCallback onOpenSettings;
   final VoidCallback onShowContents;
 
@@ -754,6 +821,16 @@ class _TopBar extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+              ),
+              IconButton(
+                icon: Icon(
+                  ttsState == TtsPlaybackState.playing
+                      ? Icons.pause_circle_outline
+                      : Icons.play_circle_outline,
+                ),
+                color: preset.text,
+                tooltip: 'Read aloud',
+                onPressed: onToggleTts,
               ),
               IconButton(
                 icon: const Icon(Icons.text_fields),

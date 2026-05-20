@@ -52,6 +52,9 @@ dependencies:
   # Reading fonts for the theme engine (fetched + cached on first use).
   google_fonts: ^6.2.1
 
+  # Text-to-speech (read-aloud) — wraps iOS AVSpeechSynthesizer.
+  flutter_tts: ^4.2.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
