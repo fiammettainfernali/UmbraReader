@@ -430,7 +430,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     DividerBlock _ => '',
   };
 
-  void _startTts() {
+  void _startTts({bool fromCurrentPosition = true}) {
     final blocks = _blocks ?? const <ContentBlock>[];
     final texts = <String>[];
     final blockForChunk = <int>[];
@@ -441,9 +441,23 @@ class _ReaderScreenState extends State<ReaderScreen> {
       blockForChunk.add(i);
     }
     if (texts.isEmpty) return;
+    // Begin from the paragraph currently in view, not the chapter top.
+    var fromChunk = 0;
+    if (fromCurrentPosition) {
+      final topBlock = _settings.mode == ReadingMode.paged
+          ? _pagedTopBlockIndex()
+          : _scrollTopBlockIndex();
+      fromChunk = blockForChunk.length - 1;
+      for (var c = 0; c < blockForChunk.length; c++) {
+        if (blockForChunk[c] >= topBlock) {
+          fromChunk = c;
+          break;
+        }
+      }
+    }
     _ttsBlockForChunk = blockForChunk;
     _followedBlock = -1;
-    _ttsService.start(texts, rate: _settings.speechRate);
+    _ttsService.start(texts, from: fromChunk, rate: _settings.speechRate);
   }
 
   /// Highlights the sentence being read and keeps it on screen.
@@ -535,7 +549,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (book == null) return;
     if (_chapterIndex < book.chapters.length - 1) {
       _goToChapter(_chapterIndex + 1, fromTts: true);
-      _startTts();
+      // A TTS-driven advance reads the new chapter from its start.
+      _startTts(fromCurrentPosition: false);
     }
   }
 
