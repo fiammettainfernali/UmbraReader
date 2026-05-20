@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
+import '../models/download_record.dart';
 import '../models/series.dart';
+import '../models/volume.dart';
+import '../services/download_service.dart';
 import '../services/library_cache.dart';
 import '../services/library_storage.dart';
 import '../services/opds_client.dart';
@@ -58,6 +61,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   String _searchQuery = '';
   LibrarySort _sort = LibrarySort.titleAsc;
+
+  // ── library-wide "download everything" state ─────────────────────────────
+  bool _bulkDownloading = false;
+  bool _bulkCancel = false;
+  int _bulkDone = 0;
+  int _bulkTotal = 0;
+  String? _bulkCurrent;
 
   @override
   void initState() {
@@ -189,8 +199,147 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  // ── library-wide download ────────────────────────────────────────────────
+
+  /// True when a volume isn't downloaded, or the server has a newer build of
+  /// it than what's on the device (a re-compiled volume).
+  bool _needsDownload(Volume volume, DownloadRecord? record) {
+    if (record == null) return true;
+    final serverTime = volume.updatedAt;
+    final recordTime = record.volumeUpdatedAt;
+    final timeChanged =
+        serverTime != null &&
+        recordTime != null &&
+        serverTime.isAfter(recordTime);
+    final sizeChanged =
+        volume.fileSizeBytes > 0 &&
+        record.sizeBytes > 0 &&
+        volume.fileSizeBytes != record.sizeBytes;
+    return timeChanged || sizeChanged;
+  }
+
+  /// Confirms, then downloads every volume of every series for offline use.
+  Future<void> _confirmDownloadEverything() async {
+    final count = _library?.length ?? 0;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Download whole library?'),
+        content: Text(
+          'Umbra Reader will download every volume of all $count series for '
+          'offline reading. This can take a while and use a lot of storage '
+          'and data. Books already downloaded are skipped.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Download'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await _downloadEverything();
+  }
+
+  Future<void> _downloadEverything() async {
+    final settings = _settings;
+    final library = _library;
+    if (settings == null || !settings.isConfigured || library == null) return;
+
+    setState(() {
+      _bulkDownloading = true;
+      _bulkCancel = false;
+      _bulkDone = 0;
+      _bulkTotal = 0;
+      _bulkCurrent = null;
+    });
+
+    final storage = LibraryStorage();
+    final store = DownloadStore(storage);
+    await store.load();
+    final service = DownloadService(
+      settings: settings,
+      storage: storage,
+      store: store,
+    );
+    final opds = OpdsClient(settings);
+    var failures = 0;
+
+    // Phase 1 — scan every series for volumes that need downloading.
+    final pending = <Volume>[];
+    for (final series in library) {
+      if (_bulkCancel || !mounted) break;
+      setState(() => _bulkCurrent = series.title);
+      try {
+        final volumes = await opds.fetchVolumes(series.opdsId);
+        for (final volume in volumes) {
+          if (_needsDownload(volume, store.recordFor(volume))) {
+            pending.add(volume);
+          }
+        }
+      } on OpdsException {
+        failures++;
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _bulkTotal = pending.length;
+      _bulkCurrent = null;
+    });
+
+    // Phase 2 — download them one at a time.
+    for (final volume in pending) {
+      if (_bulkCancel || !mounted) break;
+      setState(() => _bulkCurrent = volume.title);
+      try {
+        await service.download(volume, onProgress: (_) {});
+      } on DownloadException {
+        failures++;
+      }
+      if (!mounted) return;
+      setState(() => _bulkDone++);
+    }
+
+    if (!mounted) return;
+    final cancelled = _bulkCancel;
+    final done = _bulkDone;
+    final total = _bulkTotal;
+    setState(() {
+      _bulkDownloading = false;
+      _bulkCurrent = null;
+    });
+
+    final String message;
+    if (cancelled) {
+      message = 'Download stopped — $done of $total volumes saved.';
+    } else if (total == 0) {
+      message = failures > 0
+          ? 'Nothing new to download ($failures series unreachable).'
+          : 'Your whole library is already downloaded.';
+    } else if (failures > 0) {
+      message = 'Library download finished — $done saved, $failures failed.';
+    } else {
+      message = 'Library downloaded — $done volumes saved for offline reading.';
+    }
+    _snack(message);
+  }
+
+  void _snack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 4)),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final canDownloadAll =
+        (_library?.isNotEmpty ?? false) && !_offline && !_bulkDownloading;
     return Scaffold(
       body: RefreshIndicator(
         onRefresh: _sync,
@@ -200,6 +349,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
             SliverAppBar.large(
               title: const Text('Library'),
               actions: [
+                if (canDownloadAll)
+                  IconButton(
+                    icon: const Icon(Icons.download_for_offline_outlined),
+                    tooltip: 'Download whole library',
+                    onPressed: _confirmDownloadEverything,
+                  ),
                 IconButton(
                   icon: const Icon(Icons.settings_outlined),
                   tooltip: 'Server settings',
@@ -231,6 +386,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       final visible = _visibleLibrary;
       return [
         if (_offline) SliverToBoxAdapter(child: _buildOfflineBanner()),
+        if (_bulkDownloading)
+          SliverToBoxAdapter(child: _buildBulkBanner()),
         SliverToBoxAdapter(child: _buildControls(all.length, visible.length)),
         if (visible.isEmpty)
           SliverFillRemaining(
@@ -335,6 +492,68 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Progress banner shown while the whole library is downloading.
+  Widget _buildBulkBanner() {
+    final theme = Theme.of(context);
+    final total = _bulkTotal;
+    final done = _bulkDone;
+    final scanning = total == 0 && !_bulkCancel;
+    final label = _bulkCancel
+        ? 'Stopping…'
+        : scanning
+        ? 'Scanning library for new volumes…'
+        : 'Downloading $done of $total volumes…';
+    return Container(
+      width: double.infinity,
+      color: theme.colorScheme.primaryContainer,
+      padding: const EdgeInsets.fromLTRB(20, 8, 8, 8),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(
+              strokeWidth: 2.4,
+              value: (total > 0 && !scanning) ? done / total : null,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.onPrimaryContainer,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (_bulkCurrent != null)
+                  Text(
+                    _bulkCurrent!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onPrimaryContainer.withValues(
+                        alpha: 0.75,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: _bulkCancel
+                ? null
+                : () => setState(() => _bulkCancel = true),
+            child: const Text('Stop'),
           ),
         ],
       ),
