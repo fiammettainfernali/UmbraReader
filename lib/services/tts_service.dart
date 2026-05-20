@@ -22,6 +22,10 @@ class TtsService {
   /// Called with the chunk index as each chunk starts.
   void Function(int chunkIndex)? onChunkChanged;
 
+  /// Called as each word is spoken, with the chunk index and the word's
+  /// character range within that chunk's text.
+  void Function(int chunkIndex, int charStart, int charEnd)? onWord;
+
   /// Called whenever playback state changes.
   void Function(TtsPlaybackState state)? onStateChanged;
 
@@ -31,6 +35,9 @@ class TtsService {
   Future<void> _ensureInitialized() async {
     if (_initialized) return;
     await _tts.awaitSpeakCompletion(true);
+    _tts.setProgressHandler((text, start, end, word) {
+      onWord?.call(_index, start, end);
+    });
     try {
       await _tts.setSharedInstance(true);
       await _tts.setIosAudioCategory(

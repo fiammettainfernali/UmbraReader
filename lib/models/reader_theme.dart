@@ -9,6 +9,7 @@ class ReaderThemePreset {
     required this.background,
     required this.text,
     required this.secondary,
+    required this.highlight,
   });
 
   final String id;
@@ -16,6 +17,9 @@ class ReaderThemePreset {
   final Color background;
   final Color text;
   final Color secondary;
+
+  /// Background colour for the sentence being read aloud.
+  final Color highlight;
 
   /// True when the background is light enough to need dark foreground/status
   /// elements.
@@ -30,6 +34,7 @@ const List<ReaderThemePreset> kReaderThemes = [
     background: Color(0xFFFBFAF8),
     text: Color(0xFF1B1A18),
     secondary: Color(0xFF8C8983),
+    highlight: Color(0xFFFCE3A3),
   ),
   ReaderThemePreset(
     id: 'sepia',
@@ -37,6 +42,7 @@ const List<ReaderThemePreset> kReaderThemes = [
     background: Color(0xFFFBF0D9),
     text: Color(0xFF5B4636),
     secondary: Color(0xFFA28B68),
+    highlight: Color(0xFFEAD49C),
   ),
   ReaderThemePreset(
     id: 'dark',
@@ -44,6 +50,7 @@ const List<ReaderThemePreset> kReaderThemes = [
     background: Color(0xFF222426),
     text: Color(0xFFD7D5D1),
     secondary: Color(0xFF7E7C78),
+    highlight: Color(0xFF3C4A5A),
   ),
   ReaderThemePreset(
     id: 'black',
@@ -51,6 +58,7 @@ const List<ReaderThemePreset> kReaderThemes = [
     background: Color(0xFF000000),
     text: Color(0xFFC4C2BE),
     secondary: Color(0xFF6C6A67),
+    highlight: Color(0xFF333338),
   ),
 ];
 

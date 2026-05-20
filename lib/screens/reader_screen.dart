@@ -181,12 +181,31 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// be measured without a MediaQuery lookup (e.g. during dispose).
   double _lastContentWidth = 0;
 
+  /// The block currently being read aloud, and the character range of the
+  /// active sentence within it. Null when read-aloud is stopped.
+  int? _speakingBlock;
+  int _speakingStart = 0;
+  int _speakingEnd = 0;
+
+  /// Maps a TTS chunk index back to its block index in `_blocks`.
+  List<int> _ttsBlockForChunk = const [];
+
+  /// Last block that auto-follow moved to — so it only moves on a change.
+  int _followedBlock = -1;
+
   @override
   void initState() {
     super.initState();
-    _ttsService.onStateChanged = (_) {
-      if (mounted) setState(() {});
+    _ttsService.onStateChanged = (state) {
+      if (!mounted) return;
+      setState(() {
+        if (state == TtsPlaybackState.stopped) {
+          _speakingBlock = null;
+          _followedBlock = -1;
+        }
+      });
     };
+    _ttsService.onWord = _onTtsWord;
     _ttsService.onChapterFinished = _onTtsChapterFinished;
     _open();
   }
@@ -403,26 +422,99 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   // ── read-aloud ───────────────────────────────────────────────────────────
 
-  /// The current chapter's paragraphs as plain-text chunks for speech.
-  List<String> _chapterChunks() {
-    final blocks = _blocks ?? const <ContentBlock>[];
-    final chunks = <String>[];
-    for (final block in blocks) {
-      final raw = switch (block) {
-        ParagraphBlock p => p.runs.map((r) => r.text).join(),
-        HeadingBlock h => h.runs.map((r) => r.text).join(),
-        DividerBlock _ => '',
-      };
-      final text = raw.replaceAll(RegExp(r'\s+'), ' ').trim();
-      if (text.isNotEmpty) chunks.add(text);
-    }
-    return chunks;
-  }
+  /// Plain text of a block — exactly the runs as rendered, so TTS word
+  /// offsets line up with the on-screen text for highlighting.
+  String _blockText(ContentBlock block) => switch (block) {
+    ParagraphBlock p => p.runs.map((r) => r.text).join(),
+    HeadingBlock h => h.runs.map((r) => r.text).join(),
+    DividerBlock _ => '',
+  };
 
   void _startTts() {
-    final chunks = _chapterChunks();
-    if (chunks.isEmpty) return;
-    _ttsService.start(chunks, rate: _settings.speechRate);
+    final blocks = _blocks ?? const <ContentBlock>[];
+    final texts = <String>[];
+    final blockForChunk = <int>[];
+    for (var i = 0; i < blocks.length; i++) {
+      final text = _blockText(blocks[i]);
+      if (text.trim().isEmpty) continue;
+      texts.add(text);
+      blockForChunk.add(i);
+    }
+    if (texts.isEmpty) return;
+    _ttsBlockForChunk = blockForChunk;
+    _followedBlock = -1;
+    _ttsService.start(texts, rate: _settings.speechRate);
+  }
+
+  /// Highlights the sentence being read and keeps it on screen.
+  void _onTtsWord(int chunkIndex, int start, int end) {
+    if (!mounted) return;
+    if (chunkIndex < 0 || chunkIndex >= _ttsBlockForChunk.length) return;
+    final blockIndex = _ttsBlockForChunk[chunkIndex];
+    final blocks = _blocks ?? const <ContentBlock>[];
+    if (blockIndex < 0 || blockIndex >= blocks.length) return;
+    final range = _sentenceRangeAt(_blockText(blocks[blockIndex]), start);
+    setState(() {
+      _speakingBlock = blockIndex;
+      _speakingStart = range.$1;
+      _speakingEnd = range.$2;
+    });
+    _followSpeaking(blockIndex);
+  }
+
+  /// Scrolls/pages so the block being read stays visible — only when the
+  /// block changes, so it doesn't fight the reader within a paragraph.
+  void _followSpeaking(int blockIndex) {
+    if (blockIndex == _followedBlock) return;
+    _followedBlock = blockIndex;
+    if (_settings.mode == ReadingMode.paged) {
+      if (!_pageController.hasClients) return;
+      final page = _pageForBlock(blockIndex);
+      if ((_pageController.page?.round() ?? 0) != page) {
+        _pageController.animateToPage(
+          page,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      }
+    } else {
+      if (!_scrollController.hasClients) return;
+      final target = (_blockOffset(blockIndex) - 80).clamp(
+        0.0,
+        _scrollController.position.maxScrollExtent,
+      );
+      _scrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
+  /// The character range of the sentence containing [offset] in [text].
+  (int, int) _sentenceRangeAt(String text, int offset) {
+    if (text.isEmpty) return (0, 0);
+    final o = offset.clamp(0, text.length - 1);
+    var start = 0;
+    for (var i = o - 1; i >= 0; i--) {
+      final c = text[i];
+      if (c == '.' || c == '!' || c == '?' || c == '\n') {
+        start = i + 1;
+        break;
+      }
+    }
+    while (start < text.length && text[start] == ' ') {
+      start++;
+    }
+    var end = text.length;
+    for (var i = o; i < text.length; i++) {
+      final c = text[i];
+      if (c == '.' || c == '!' || c == '?' || c == '\n') {
+        end = i + 1;
+        break;
+      }
+    }
+    return (start, end);
   }
 
   void _toggleTts() {
@@ -771,8 +863,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
         vertical: _contentVPad,
       ),
       itemCount: blocks.length,
-      itemBuilder: (context, index) =>
-          _BlockView(block: blocks[index], settings: _settings, preset: preset),
+      itemBuilder: (context, index) => _BlockView(
+        block: blocks[index],
+        settings: _settings,
+        preset: preset,
+        highlightStart: index == _speakingBlock ? _speakingStart : null,
+        highlightEnd: index == _speakingBlock ? _speakingEnd : null,
+      ),
     );
   }
 
@@ -808,23 +905,38 @@ class _ReaderScreenState extends State<ReaderScreen> {
         return PageView.builder(
           controller: _pageController,
           itemCount: pages.length,
-          itemBuilder: (context, index) => SingleChildScrollView(
-            padding: EdgeInsets.symmetric(
-              horizontal: _settings.margin,
-              vertical: _contentVPad,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (final block in pages[index])
-                  _BlockView(
-                    block: block,
-                    settings: _settings,
-                    preset: preset,
-                  ),
-              ],
-            ),
-          ),
+          itemBuilder: (context, pageIndex) {
+            // Global block index of the first block on this page, so the
+            // read-aloud highlight can be matched.
+            var globalIndex = 0;
+            for (var p = 0; p < pageIndex; p++) {
+              globalIndex += pages[p].length;
+            }
+            final pageBlocks = pages[pageIndex];
+            return SingleChildScrollView(
+              padding: EdgeInsets.symmetric(
+                horizontal: _settings.margin,
+                vertical: _contentVPad,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (var j = 0; j < pageBlocks.length; j++)
+                    _BlockView(
+                      block: pageBlocks[j],
+                      settings: _settings,
+                      preset: preset,
+                      highlightStart: (globalIndex + j) == _speakingBlock
+                          ? _speakingStart
+                          : null,
+                      highlightEnd: (globalIndex + j) == _speakingBlock
+                          ? _speakingEnd
+                          : null,
+                    ),
+                ],
+              ),
+            );
+          },
         );
       },
     );
@@ -837,11 +949,17 @@ class _BlockView extends StatelessWidget {
     required this.block,
     required this.settings,
     required this.preset,
+    this.highlightStart,
+    this.highlightEnd,
   });
 
   final ContentBlock block;
   final ReaderSettings settings;
   final ReaderThemePreset preset;
+
+  /// Character range to highlight (the sentence being read aloud), or null.
+  final int? highlightStart;
+  final int? highlightEnd;
 
   @override
   Widget build(BuildContext context) {
@@ -850,7 +968,12 @@ class _BlockView extends StatelessWidget {
         return Padding(
           padding: const EdgeInsets.only(bottom: _paragraphGap),
           child: Text.rich(
-            _runSpan(paragraph.runs, _paragraphStyle(settings, preset.text)),
+            TextSpan(
+              children: _spansFor(
+                paragraph.runs,
+                _paragraphStyle(settings, preset.text),
+              ),
+            ),
             textScaler: TextScaler.noScaling,
           ),
         );
@@ -861,9 +984,11 @@ class _BlockView extends StatelessWidget {
             bottom: _headingBottomGap,
           ),
           child: Text.rich(
-            _runSpan(
-              heading.runs,
-              _headingStyle(settings, heading.level, preset.text),
+            TextSpan(
+              children: _spansFor(
+                heading.runs,
+                _headingStyle(settings, heading.level, preset.text),
+              ),
             ),
             textScaler: TextScaler.noScaling,
           ),
@@ -879,6 +1004,43 @@ class _BlockView extends StatelessWidget {
           ),
         );
     }
+  }
+
+  /// Builds the run spans, giving the highlighted character range a
+  /// background colour (splitting runs at the highlight boundaries).
+  List<InlineSpan> _spansFor(List<TextRun> runs, TextStyle base) {
+    final hs = highlightStart;
+    final he = highlightEnd;
+    final spans = <InlineSpan>[];
+    var offset = 0;
+    for (final run in runs) {
+      final runStart = offset;
+      final runEnd = offset + run.text.length;
+      offset = runEnd;
+      final style = base.copyWith(
+        fontWeight: run.bold ? FontWeight.bold : null,
+        fontStyle: run.italic ? FontStyle.italic : null,
+      );
+      if (hs == null || he == null || he <= runStart || hs >= runEnd) {
+        spans.add(TextSpan(text: run.text, style: style));
+        continue;
+      }
+      final a = (hs - runStart).clamp(0, run.text.length);
+      final b = (he - runStart).clamp(0, run.text.length);
+      if (a > 0) {
+        spans.add(TextSpan(text: run.text.substring(0, a), style: style));
+      }
+      spans.add(
+        TextSpan(
+          text: run.text.substring(a, b),
+          style: style.copyWith(backgroundColor: preset.highlight),
+        ),
+      );
+      if (b < run.text.length) {
+        spans.add(TextSpan(text: run.text.substring(b), style: style));
+      }
+    }
+    return spans;
   }
 }
 
