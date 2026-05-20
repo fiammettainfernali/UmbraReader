@@ -66,6 +66,14 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+	<key>UIRequiredDeviceCapabilities</key>
+	<array>
+		<!-- A bundled plugin framework (objective_c.framework, pulled in by
+		     path_provider) ships only the arm64e slice. App Store Connect's
+		     validator then requires this capability to be declared. It limits
+		     the app to A12 / iPhone XS and newer — fine for a personal app. -->
+		<string>arm64e</string>
+	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
