@@ -67,11 +67,9 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
-      - name: CocoaPods install
-        run: |
-          cd ios
-          pod install
-
+      # No explicit `pod install` — a fresh `flutter create` project has no
+      # ios/Podfile until Flutter generates one. `flutter build ipa` runs
+      # CocoaPods (and generates the Podfile) itself as part of the build.
       - name: Build signed IPA
         run: |
           flutter build ipa --release \
