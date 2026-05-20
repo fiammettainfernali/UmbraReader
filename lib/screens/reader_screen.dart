@@ -107,7 +107,7 @@ List<List<ContentBlock>> _paginate(
   double height,
   ReaderSettings settings,
 ) {
-  const fillFactor = 0.88;
+  const fillFactor = 0.93;
   final budget = height * fillFactor;
   final pages = <List<ContentBlock>>[];
   var current = <ContentBlock>[];
