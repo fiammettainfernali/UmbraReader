@@ -4,10 +4,13 @@ name: iOS dev build
 # Runs entirely on GitHub's macOS runners — no Mac needed locally.
 #
 # Signing reuses the codemagic-cli-tools package (pip-installable, standalone)
-# with the App Store Connect API key. Requires three repository secrets:
+# with the App Store Connect API key. Requires four repository secrets:
 #   APP_STORE_CONNECT_ISSUER_ID       — Issuer ID (UUID)
 #   APP_STORE_CONNECT_KEY_IDENTIFIER  — Key ID (10 chars)
-#   APP_STORE_CONNECT_PRIVATE_KEY     — full contents of the .p8 file
+#   APP_STORE_CONNECT_PRIVATE_KEY     — full contents of the App Store Connect .p8 file
+#   CERTIFICATE_PRIVATE_KEY           — RSA private key used to generate/own the
+#                                       iOS signing certificate (our own key, so
+#                                       the cert is reusable across builds)
 #
 # Note: private repos bill macOS minutes at 10x, so the 2000-min free tier
 # is ~200 effective macOS minutes/month. workflow_dispatch lets you trigger
@@ -45,13 +48,18 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.APP_STORE_CONNECT_KEY_IDENTIFIER }}
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          CERTIFICATE_PRIVATE_KEY: ${{ secrets.CERTIFICATE_PRIVATE_KEY }}
         run: |
           # Create the dev certificate + provisioning profile if missing
-          # (--create). The profile includes every device registered in the
-          # Apple Developer portal at build time.
+          # (--create). --certificate-key supplies our own RSA key so the
+          # tool can create and own a usable signing certificate; without it
+          # the run fails with "Cannot save Signing Certificates without
+          # certificate private key". The profile includes every device
+          # registered in the Apple Developer portal at build time.
           keychain initialize
           app-store-connect fetch-signing-files "$BUNDLE_ID" \
             --type IOS_APP_DEVELOPMENT \
+            --certificate-key @env:CERTIFICATE_PRIVATE_KEY \
             --create
           keychain add-certificates
           xcode-project use-profiles
