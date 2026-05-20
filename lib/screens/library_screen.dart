@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/series.dart';
 import '../services/opds_client.dart';
 import '../services/settings_service.dart';
+import 'series_detail_screen.dart';
 import 'settings_screen.dart';
 
 /// How the library grid is ordered.
@@ -156,6 +157,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
     setState(() => _searchQuery = '');
   }
 
+  void _openSeries(Series series) {
+    final settings = _settings;
+    if (settings == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SeriesDetailScreen(series: series, settings: settings),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -267,6 +278,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             itemBuilder: (context, index) => _SeriesCard(
               series: visible[index],
               imageHeaders: OpdsClient(_settings!).authHeaders,
+              onTap: () => _openSeries(visible[index]),
             ),
           ),
         ),
@@ -346,62 +358,71 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
 /// A single cover in the library grid: cover art, title, author.
 class _SeriesCard extends StatelessWidget {
-  const _SeriesCard({required this.series, required this.imageHeaders});
+  const _SeriesCard({
+    required this.series,
+    required this.imageHeaders,
+    required this.onTap,
+  });
 
   final Series series;
   final Map<String, String> imageHeaders;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.4),
-                  blurRadius: 6,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  _CoverImage(series: series, headers: imageHeaders),
-                  if (series.hasMultipleVolumes)
-                    const Positioned(top: 6, right: 6, child: _VolumeBadge()),
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(8),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.4),
+                    blurRadius: 6,
+                    offset: const Offset(0, 3),
+                  ),
                 ],
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _CoverImage(series: series, headers: imageHeaders),
+                    if (series.hasMultipleVolumes)
+                      const Positioned(top: 6, right: 6, child: _VolumeBadge()),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          series.title,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            height: 1.2,
+          const SizedBox(height: 8),
+          Text(
+            series.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+              height: 1.2,
+            ),
           ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          series.author,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.outline,
+          const SizedBox(height: 2),
+          Text(
+            series.author,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }

@@ -90,12 +90,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Server settings'),
-        actions: [
-          TextButton(
-            onPressed: _save,
-            child: const Text('Save'),
-          ),
-        ],
+        actions: [TextButton(onPressed: _save, child: const Text('Save'))],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),

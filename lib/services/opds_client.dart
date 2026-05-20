@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:xml/xml.dart';
 
 import '../models/series.dart';
+import '../models/volume.dart';
 import 'settings_service.dart';
 
 /// Raised when the OPDS server can't be reached or returns something
@@ -61,12 +62,80 @@ class OpdsClient {
     return _parseLibraryFeed(response.body);
   }
 
+  /// Fetches every volume (EPUB batch) of one series.
+  ///
+  /// The `/opds/novel/<id>` feed exists for every series, single- or
+  /// multi-volume, so this works uniformly regardless of how the series was
+  /// linked in the "All Books" feed.
+  Future<List<Volume>> fetchVolumes(int seriesOpdsId) async {
+    final uri = Uri.parse('${settings.baseUrl}/opds/novel/$seriesOpdsId');
+    final http.Response response;
+    try {
+      response = await http
+          .get(uri, headers: authHeaders)
+          .timeout(const Duration(seconds: 20));
+    } on Exception catch (e) {
+      throw OpdsException('Could not load volumes from the server.\n($e)');
+    }
+
+    if (response.statusCode == 401) {
+      throw OpdsException(
+        'Authentication failed — check the username and password.',
+      );
+    }
+    if (response.statusCode != 200) {
+      throw OpdsException('Server returned HTTP ${response.statusCode}.');
+    }
+
+    final XmlDocument doc;
+    try {
+      doc = XmlDocument.parse(response.body);
+    } on XmlException catch (e) {
+      throw OpdsException('The volume feed was not valid OPDS.\n($e)');
+    }
+
+    final volumes = <Volume>[];
+    for (final entry in doc.findAllElements('entry')) {
+      final parsed = _parseVolumeEntry(entry, seriesOpdsId);
+      if (parsed != null) volumes.add(parsed);
+    }
+    return volumes;
+  }
+
+  Volume? _parseVolumeEntry(XmlElement entry, int seriesOpdsId) {
+    String? downloadUrl;
+    var fileSize = 0;
+    for (final link in entry.findElements('link')) {
+      if (link.getAttribute('rel') == 'http://opds-spec.org/acquisition') {
+        downloadUrl = link.getAttribute('href');
+        fileSize = int.tryParse(link.getAttribute('length') ?? '') ?? 0;
+      }
+    }
+    if (downloadUrl == null || downloadUrl.isEmpty) return null;
+
+    final segments = Uri.parse(downloadUrl).pathSegments;
+    final fileName = segments.isNotEmpty ? segments.last : 'volume.epub';
+
+    return Volume(
+      seriesOpdsId: seriesOpdsId,
+      title: entry.getElement('title')?.innerText.trim() ?? fileName,
+      fileName: fileName,
+      downloadUrl: downloadUrl,
+      fileSizeBytes: fileSize,
+      updatedAt: DateTime.tryParse(
+        entry.getElement('updated')?.innerText.trim() ?? '',
+      ),
+    );
+  }
+
   List<Series> _parseLibraryFeed(String xmlBody) {
     final XmlDocument doc;
     try {
       doc = XmlDocument.parse(xmlBody);
     } on XmlException catch (e) {
-      throw OpdsException('The server response was not a valid OPDS feed.\n($e)');
+      throw OpdsException(
+        'The server response was not a valid OPDS feed.\n($e)',
+      );
     }
 
     final series = <Series>[];

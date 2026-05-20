@@ -22,11 +22,7 @@ class OpdsSettings {
 
   static const empty = OpdsSettings(baseUrl: '', username: '', password: '');
 
-  OpdsSettings copyWith({
-    String? baseUrl,
-    String? username,
-    String? password,
-  }) {
+  OpdsSettings copyWith({String? baseUrl, String? username, String? password}) {
     return OpdsSettings(
       baseUrl: baseUrl ?? this.baseUrl,
       username: username ?? this.username,
