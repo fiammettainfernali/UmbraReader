@@ -76,9 +76,10 @@ workflows:
           success: true
           failure: true
       app_store_connect:
-        # Uploads the IPA to App Store Connect and releases it to TestFlight.
-        # `auth: integration` reuses the UmbraReaderASC API key integration.
-        # Internal testers (you) see the build automatically once it finishes
-        # processing — no App Store review needed for internal testing.
+        # Uploads the IPA to App Store Connect. `auth: integration` reuses the
+        # UmbraReaderASC API key integration. We deliberately do NOT set
+        # `submit_to_testflight` — that submits for EXTERNAL beta review, which
+        # requires test info + Apple review. Internal testers (you) receive
+        # every uploaded build automatically with no review, so upload alone
+        # is all we need.
         auth: integration
-        submit_to_testflight: true
