@@ -12,6 +12,7 @@ import '../services/settings_service.dart';
 import 'reader_screen.dart';
 import 'series_detail_screen.dart';
 import 'settings_screen.dart';
+import 'stats_screen.dart';
 
 /// How the library grid is ordered.
 enum LibrarySort {
@@ -216,6 +217,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
     await _loadReading();
   }
 
+  void _openStats() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const StatsScreen()),
+    );
+  }
+
   /// Opens a volume straight into the reader (from a "Continue reading" card).
   Future<void> _openVolume(Volume volume) async {
     await Navigator.of(context).push(
@@ -380,6 +387,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     tooltip: 'Download whole library',
                     onPressed: _confirmDownloadEverything,
                   ),
+                IconButton(
+                  icon: const Icon(Icons.insights_outlined),
+                  tooltip: 'Reading stats',
+                  onPressed: _openStats,
+                ),
                 IconButton(
                   icon: const Icon(Icons.settings_outlined),
                   tooltip: 'Server settings',
