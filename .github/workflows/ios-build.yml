@@ -1,0 +1,77 @@
+name: iOS dev build
+
+# Builds a development-signed IPA for sideloading onto a registered device.
+# Runs entirely on GitHub's macOS runners — no Mac needed locally.
+#
+# Signing reuses the codemagic-cli-tools package (pip-installable, standalone)
+# with the App Store Connect API key. Requires three repository secrets:
+#   APP_STORE_CONNECT_ISSUER_ID       — Issuer ID (UUID)
+#   APP_STORE_CONNECT_KEY_IDENTIFIER  — Key ID (10 chars)
+#   APP_STORE_CONNECT_PRIVATE_KEY     — full contents of the .p8 file
+#
+# Note: private repos bill macOS minutes at 10x, so the 2000-min free tier
+# is ~200 effective macOS minutes/month. workflow_dispatch lets you trigger
+# builds manually to stay in budget; remove the `push` trigger if minutes
+# get tight.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      BUNDLE_ID: com.fiammettainfernali.umbrareader
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Codemagic CLI tools
+        run: |
+          pipx install codemagic-cli-tools
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Set up code signing
+        env:
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.APP_STORE_CONNECT_KEY_IDENTIFIER }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          # Create the dev certificate + provisioning profile if missing
+          # (--create). The profile includes every device registered in the
+          # Apple Developer portal at build time.
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_DEVELOPMENT \
+            --create
+          keychain add-certificates
+          xcode-project use-profiles
+
+      - name: Flutter pub get
+        run: flutter pub get
+
+      - name: CocoaPods install
+        run: |
+          cd ios
+          pod install
+
+      - name: Build signed IPA
+        run: |
+          flutter build ipa --release \
+            --export-options-plist="$HOME/export_options.plist"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: umbra-reader-ipa
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error
