@@ -7,7 +7,9 @@ import '../services/download_service.dart';
 import '../services/library_cache.dart';
 import '../services/library_storage.dart';
 import '../services/opds_client.dart';
+import '../services/reading_progress_store.dart';
 import '../services/settings_service.dart';
+import 'reader_screen.dart';
 import 'series_detail_screen.dart';
 import 'settings_screen.dart';
 
@@ -62,6 +64,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
   String _searchQuery = '';
   LibrarySort _sort = LibrarySort.titleAsc;
 
+  /// Books that have been started but not finished, newest first.
+  List<ReadingEntry> _reading = const [];
+
   // ── library-wide "download everything" state ─────────────────────────────
   bool _bulkDownloading = false;
   bool _bulkCancel = false;
@@ -92,9 +97,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
       // Show the cached library straight away — instant, and works offline.
       if (cache.series.isNotEmpty) _library = cache.series;
     });
+    await _loadReading();
     if (settings.isConfigured) {
       await _sync();
     }
+  }
+
+  /// Refreshes the "Continue reading" shelf from saved reading positions.
+  Future<void> _loadReading() async {
+    final entries = await ReadingProgressStore().allEntries();
+    entries.removeWhere(
+      (e) => !e.progress.isStarted || e.progress.isFinished,
+    );
+    if (!mounted) return;
+    setState(() => _reading = entries.take(12).toList());
   }
 
   Future<void> _sync() async {
@@ -189,14 +205,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
     setState(() => _searchQuery = '');
   }
 
-  void _openSeries(Series series) {
+  Future<void> _openSeries(Series series) async {
     final settings = _settings;
     if (settings == null) return;
-    Navigator.of(context).push(
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => SeriesDetailScreen(series: series, settings: settings),
       ),
     );
+    await _loadReading();
+  }
+
+  /// Opens a volume straight into the reader (from a "Continue reading" card).
+  Future<void> _openVolume(Volume volume) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => ReaderScreen(volume: volume)),
+    );
+    await _loadReading();
   }
 
   // ── library-wide download ────────────────────────────────────────────────
@@ -389,6 +414,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
         if (_bulkDownloading)
           SliverToBoxAdapter(child: _buildBulkBanner()),
         SliverToBoxAdapter(child: _buildControls(all.length, visible.length)),
+        if (_reading.isNotEmpty && _searchQuery.trim().isEmpty)
+          SliverToBoxAdapter(child: _buildContinueShelf()),
         if (visible.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
@@ -495,6 +522,50 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  /// Horizontal shelf of books that are in progress.
+  Widget _buildContinueShelf() {
+    final theme = Theme.of(context);
+    final seriesById = {
+      for (final s in _library ?? const <Series>[]) s.opdsId: s,
+    };
+    final headers = (_settings?.isConfigured ?? false)
+        ? OpdsClient(_settings!).authHeaders
+        : const <String, String>{};
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+          child: Text(
+            'Continue reading',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 236,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: _reading.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 14),
+            itemBuilder: (context, index) {
+              final entry = _reading[index];
+              return _ContinueCard(
+                entry: entry,
+                series: seriesById[entry.volume.seriesOpdsId],
+                imageHeaders: headers,
+                onTap: () => _openVolume(entry.volume),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+      ],
     );
   }
 
@@ -697,6 +768,133 @@ class _SeriesCard extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// A card on the "Continue reading" shelf: cover, title, and progress.
+class _ContinueCard extends StatelessWidget {
+  const _ContinueCard({
+    required this.entry,
+    required this.series,
+    required this.imageHeaders,
+    required this.onTap,
+  });
+
+  final ReadingEntry entry;
+
+  /// The owning series, if it's in the loaded library — for the cover art.
+  final Series? series;
+  final Map<String, String> imageHeaders;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final progress = entry.progress;
+    final title = series?.title ?? entry.volume.title;
+    final chapterLabel = progress.chapterCount > 0
+        ? 'Chapter ${progress.chapterIndex + 1} of ${progress.chapterCount}'
+        : 'Chapter ${progress.chapterIndex + 1}';
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: 124,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 124,
+              height: 165,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.4),
+                      blurRadius: 6,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: series != null
+                      ? _CoverImage(series: series!, headers: imageHeaders)
+                      : _TitleCover(title: entry.volume.title),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 32,
+              child: Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  height: 1.25,
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: LinearProgressIndicator(
+                value: progress.fraction,
+                minHeight: 4,
+                backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              chapterLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A titled gradient panel used when no cover art is available.
+class _TitleCover extends StatelessWidget {
+  const _TitleCover({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [scheme.primaryContainer, scheme.surfaceContainerHighest],
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Center(
+          child: Text(
+            title,
+            textAlign: TextAlign.center,
+            maxLines: 5,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: scheme.onPrimaryContainer,
+            ),
+          ),
+        ),
       ),
     );
   }

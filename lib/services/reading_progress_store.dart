@@ -1,27 +1,64 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/volume.dart';
 
 /// A saved reading position within a volume.
 class ReadingProgress {
-  const ReadingProgress({required this.chapterIndex, required this.blockIndex});
+  const ReadingProgress({
+    required this.chapterIndex,
+    required this.blockIndex,
+    this.chapterCount = 0,
+    this.updatedAt,
+  });
 
   final int chapterIndex;
 
   /// Index of the paragraph/heading block at the top of the view.
   final int blockIndex;
 
+  /// Total chapters in the book — 0 when not recorded (legacy entries).
+  final int chapterCount;
+
+  /// When this position was last saved, or null for legacy entries.
+  final DateTime? updatedAt;
+
+  /// True once the book has been opened past its very first paragraph.
+  bool get isStarted => chapterIndex > 0 || blockIndex > 0;
+
+  /// True when the reader has reached the last chapter.
+  bool get isFinished => chapterCount > 0 && chapterIndex >= chapterCount - 1;
+
+  /// Fraction (0..1) of the book read, by chapter — 0 when unknown.
+  double get fraction => chapterCount > 1
+      ? (chapterIndex / (chapterCount - 1)).clamp(0.0, 1.0)
+      : 0;
+
   static const start = ReadingProgress(chapterIndex: 0, blockIndex: 0);
+}
+
+/// A volume paired with its saved reading position.
+class ReadingEntry {
+  const ReadingEntry({required this.volume, required this.progress});
+
+  final Volume volume;
+  final ReadingProgress progress;
 }
 
 /// Remembers the reading position per volume.
 ///
 /// Position is stored as a chapter index plus a block (paragraph) index —
 /// not a pixel offset or page number — so it stays correct across font,
-/// margin, screen-size and reading-mode changes.
+/// margin, screen-size and reading-mode changes. Alongside the position,
+/// each entry records the book's chapter count, the last-read time, and a
+/// snapshot of the [Volume] so the home screen can list books in progress.
 class ReadingProgressStore {
   static const _chapterPrefix = 'reading_chapter:';
   static const _blockPrefix = 'reading_block:';
+  static const _countPrefix = 'reading_count:';
+  static const _timePrefix = 'reading_time:';
+  static const _volumePrefix = 'reading_volume:';
 
   String _key(Volume volume) => '${volume.seriesOpdsId}/${volume.fileName}';
 
@@ -31,6 +68,8 @@ class ReadingProgressStore {
     return ReadingProgress(
       chapterIndex: prefs.getInt('$_chapterPrefix$key') ?? 0,
       blockIndex: prefs.getInt('$_blockPrefix$key') ?? 0,
+      chapterCount: prefs.getInt('$_countPrefix$key') ?? 0,
+      updatedAt: DateTime.tryParse(prefs.getString('$_timePrefix$key') ?? ''),
     );
   }
 
@@ -39,6 +78,9 @@ class ReadingProgressStore {
     final key = _key(volume);
     await prefs.setInt('$_chapterPrefix$key', progress.chapterIndex);
     await prefs.setInt('$_blockPrefix$key', progress.blockIndex);
+    await prefs.setInt('$_countPrefix$key', progress.chapterCount);
+    await prefs.setString('$_timePrefix$key', DateTime.now().toIso8601String());
+    await prefs.setString('$_volumePrefix$key', jsonEncode(volume.toJson()));
   }
 
   /// Forgets the saved position for [volume] so it reopens from the start.
@@ -47,5 +89,52 @@ class ReadingProgressStore {
     final key = _key(volume);
     await prefs.remove('$_chapterPrefix$key');
     await prefs.remove('$_blockPrefix$key');
+    await prefs.remove('$_countPrefix$key');
+    await prefs.remove('$_timePrefix$key');
+    await prefs.remove('$_volumePrefix$key');
+  }
+
+  /// Every volume with a saved position, newest first. Legacy entries saved
+  /// before volume snapshots were recorded are skipped — they can't be
+  /// reopened without the volume metadata.
+  Future<List<ReadingEntry>> allEntries() async {
+    final prefs = await SharedPreferences.getInstance();
+    final entries = <ReadingEntry>[];
+    for (final fullKey in prefs.getKeys()) {
+      if (!fullKey.startsWith(_chapterPrefix)) continue;
+      final key = fullKey.substring(_chapterPrefix.length);
+      final volumeJson = prefs.getString('$_volumePrefix$key');
+      if (volumeJson == null) continue;
+      final Volume volume;
+      try {
+        final decoded = jsonDecode(volumeJson);
+        if (decoded is! Map<String, dynamic>) continue;
+        volume = Volume.fromJson(decoded);
+      } on FormatException {
+        continue;
+      }
+      entries.add(
+        ReadingEntry(
+          volume: volume,
+          progress: ReadingProgress(
+            chapterIndex: prefs.getInt('$_chapterPrefix$key') ?? 0,
+            blockIndex: prefs.getInt('$_blockPrefix$key') ?? 0,
+            chapterCount: prefs.getInt('$_countPrefix$key') ?? 0,
+            updatedAt: DateTime.tryParse(
+              prefs.getString('$_timePrefix$key') ?? '',
+            ),
+          ),
+        ),
+      );
+    }
+    entries.sort((a, b) {
+      final at = a.progress.updatedAt;
+      final bt = b.progress.updatedAt;
+      if (at == null && bt == null) return 0;
+      if (at == null) return 1;
+      if (bt == null) return -1;
+      return bt.compareTo(at);
+    });
+    return entries;
   }
 }

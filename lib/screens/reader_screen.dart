@@ -335,7 +335,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
     });
     _progressStore.save(
       widget.volume,
-      ReadingProgress(chapterIndex: clamped, blockIndex: 0),
+      ReadingProgress(
+        chapterIndex: clamped,
+        blockIndex: 0,
+        chapterCount: book.chapters.length,
+      ),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_settings.mode == ReadingMode.scroll && _scrollController.hasClients) {
@@ -408,7 +412,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
     _progressStore.save(
       widget.volume,
-      ReadingProgress(chapterIndex: _chapterIndex, blockIndex: block),
+      ReadingProgress(
+        chapterIndex: _chapterIndex,
+        blockIndex: block,
+        chapterCount: _book?.chapters.length ?? 0,
+      ),
     );
   }
 
