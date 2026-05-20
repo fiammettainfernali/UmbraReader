@@ -53,6 +53,14 @@ const List<ReaderThemePreset> kReaderThemes = [
     highlight: Color(0xFF3C4A5A),
   ),
   ReaderThemePreset(
+    id: 'grey',
+    name: 'Grey',
+    background: Color(0xFF44464A),
+    text: Color(0xFFFFFFFF),
+    secondary: Color(0xFFA6A7AB),
+    highlight: Color(0xFF5C6878),
+  ),
+  ReaderThemePreset(
     id: 'black',
     name: 'Black',
     background: Color(0xFF000000),

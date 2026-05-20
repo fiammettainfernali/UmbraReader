@@ -40,4 +40,12 @@ class ReadingProgressStore {
     await prefs.setInt('$_chapterPrefix$key', progress.chapterIndex);
     await prefs.setInt('$_blockPrefix$key', progress.blockIndex);
   }
+
+  /// Forgets the saved position for [volume] so it reopens from the start.
+  Future<void> clear(Volume volume) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = _key(volume);
+    await prefs.remove('$_chapterPrefix$key');
+    await prefs.remove('$_blockPrefix$key');
+  }
 }

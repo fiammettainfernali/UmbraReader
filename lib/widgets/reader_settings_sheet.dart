@@ -104,19 +104,22 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
             const SizedBox(height: 20),
 
             _label(theme, 'Theme'),
-            Row(
-              children: [
-                for (final preset in kReaderThemes)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 12),
-                    child: _ThemeSwatch(
-                      preset: preset,
-                      selected: preset.id == _settings.themeId,
-                      onTap: () =>
-                          _update(_settings.copyWith(themeId: preset.id)),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  for (final preset in kReaderThemes)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: _ThemeSwatch(
+                        preset: preset,
+                        selected: preset.id == _settings.themeId,
+                        onTap: () =>
+                            _update(_settings.copyWith(themeId: preset.id)),
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
             const SizedBox(height: 20),
 

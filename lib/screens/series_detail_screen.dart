@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/download_record.dart';
 import '../models/series.dart';
@@ -7,6 +8,7 @@ import '../services/download_service.dart';
 import '../services/library_cache.dart';
 import '../services/library_storage.dart';
 import '../services/opds_client.dart';
+import '../services/reading_progress_store.dart';
 import '../services/settings_service.dart';
 import 'reader_screen.dart';
 
@@ -171,6 +173,53 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     _snack('Removed “${volume.title}”.');
   }
 
+  /// Opens the iOS share sheet for a downloaded volume's EPUB file.
+  Future<void> _share(Volume volume) async {
+    final file = await LibraryStorage().epubFile(volume);
+    if (!file.existsSync()) {
+      _snack('That volume isn’t downloaded.', isError: true);
+      return;
+    }
+    if (!mounted) return;
+    final box = context.findRenderObject() as RenderBox?;
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(file.path, mimeType: 'application/epub+zip')],
+        subject: volume.title,
+        sharePositionOrigin: box != null
+            ? box.localToGlobal(Offset.zero) & box.size
+            : null,
+      ),
+    );
+  }
+
+  /// Forgets a volume's saved place, after confirmation.
+  Future<void> _resetProgress(Volume volume) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Reset reading progress?'),
+        content: Text(
+          '“${volume.title}” will reopen from the beginning — '
+          'your saved place will be forgotten.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Reset'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await ReadingProgressStore().clear(volume);
+    _snack('Reading progress reset for “${volume.title}”.');
+  }
+
   void _openReader(Volume volume) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => ReaderScreen(volume: volume)),
@@ -278,6 +327,8 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
               progress: _progress[volume.fileName] ?? 0,
               onDownload: () => _download(volume),
               onDelete: () => _delete(volume),
+              onShare: () => _share(volume),
+              onResetProgress: () => _resetProgress(volume),
               onOpen:
                   (_statusOf(volume) == _VolumeStatus.downloaded ||
                       _statusOf(volume) == _VolumeStatus.updateAvailable)
@@ -548,7 +599,7 @@ class _Description extends StatelessWidget {
 }
 
 /// Menu actions on a downloaded volume.
-enum _VolumeAction { download, delete }
+enum _VolumeAction { download, share, resetProgress, delete }
 
 /// One row in the volume list, with a download / progress / downloaded control.
 class _VolumeTile extends StatelessWidget {
@@ -558,6 +609,8 @@ class _VolumeTile extends StatelessWidget {
     required this.progress,
     required this.onDownload,
     required this.onDelete,
+    required this.onShare,
+    required this.onResetProgress,
     required this.onOpen,
   });
 
@@ -566,6 +619,8 @@ class _VolumeTile extends StatelessWidget {
   final double progress;
   final VoidCallback onDownload;
   final VoidCallback onDelete;
+  final VoidCallback onShare;
+  final VoidCallback onResetProgress;
 
   /// Opens the reader; null when the volume isn't downloaded yet.
   final VoidCallback? onOpen;
@@ -628,10 +683,16 @@ class _VolumeTile extends StatelessWidget {
         return PopupMenuButton<_VolumeAction>(
           icon: const Icon(Icons.download_done, color: Colors.green),
           tooltip: 'Downloaded',
-          onSelected: (action) {
-            if (action == _VolumeAction.delete) onDelete();
-          },
+          onSelected: _onAction,
           itemBuilder: (context) => const [
+            PopupMenuItem(
+              value: _VolumeAction.share,
+              child: Text('Share story'),
+            ),
+            PopupMenuItem(
+              value: _VolumeAction.resetProgress,
+              child: Text('Reset reading progress'),
+            ),
             PopupMenuItem(
               value: _VolumeAction.delete,
               child: Text('Delete download'),
@@ -642,14 +703,19 @@ class _VolumeTile extends StatelessWidget {
         return PopupMenuButton<_VolumeAction>(
           icon: const Icon(Icons.update, color: Colors.orange),
           tooltip: 'Update available',
-          onSelected: (action) {
-            if (action == _VolumeAction.download) onDownload();
-            if (action == _VolumeAction.delete) onDelete();
-          },
+          onSelected: _onAction,
           itemBuilder: (context) => const [
             PopupMenuItem(
               value: _VolumeAction.download,
               child: Text('Re-download (update)'),
+            ),
+            PopupMenuItem(
+              value: _VolumeAction.share,
+              child: Text('Share story'),
+            ),
+            PopupMenuItem(
+              value: _VolumeAction.resetProgress,
+              child: Text('Reset reading progress'),
             ),
             PopupMenuItem(
               value: _VolumeAction.delete,
@@ -657,6 +723,19 @@ class _VolumeTile extends StatelessWidget {
             ),
           ],
         );
+    }
+  }
+
+  void _onAction(_VolumeAction action) {
+    switch (action) {
+      case _VolumeAction.download:
+        onDownload();
+      case _VolumeAction.share:
+        onShare();
+      case _VolumeAction.resetProgress:
+        onResetProgress();
+      case _VolumeAction.delete:
+        onDelete();
     }
   }
 }
