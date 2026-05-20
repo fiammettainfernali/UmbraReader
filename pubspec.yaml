@@ -49,6 +49,9 @@ dependencies:
   archive: ^3.6.1
   html: ^0.15.4
 
+  # Reading fonts for the theme engine (fetched + cached on first use).
+  google_fonts: ^6.2.1
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

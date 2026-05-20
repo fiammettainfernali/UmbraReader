@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../models/content_block.dart';
 import '../models/epub_book.dart';
+import '../models/reader_settings.dart';
+import '../models/reader_theme.dart';
 import '../models/volume.dart';
 import '../services/epub_parser.dart';
 import '../services/library_storage.dart';
 import '../services/reader_preferences.dart';
 import '../services/reading_progress_store.dart';
+import '../widgets/reader_settings_sheet.dart';
 
-// Reading layout constants — shared by rendering and pagination so the two
-// always agree.
-const double _readingHPad = 20;
+// Layout constants — shared by rendering and pagination so the two agree.
 const double _contentVPad = 8;
 const double _topBarHeight = 56;
 const double _bottomBarHeight = 56;
@@ -23,19 +25,31 @@ const double _dividerHeight = 60;
 /// Sentinel for "jump to the last page" when paging backward into a chapter.
 const int _lastPage = -1;
 
-TextStyle _paragraphStyle(Color color) =>
-    TextStyle(fontSize: 18, height: 1.62, color: color);
+/// Body text style for the active settings.
+TextStyle _paragraphStyle(ReaderSettings s, Color color) {
+  final base = TextStyle(fontSize: s.fontSize, height: s.lineHeight, color: color);
+  return s.fontFamily.isEmpty
+      ? base
+      : GoogleFonts.getFont(s.fontFamily, textStyle: base);
+}
 
-TextStyle _headingStyle(int level, Color color) => TextStyle(
-  fontSize: level <= 2
-      ? 24
+/// Heading style — sized relative to the body text.
+TextStyle _headingStyle(ReaderSettings s, int level, Color color) {
+  final scale = level <= 2
+      ? 1.35
       : level <= 4
-      ? 21
-      : 19,
-  height: 1.3,
-  fontWeight: FontWeight.w700,
-  color: color,
-);
+      ? 1.18
+      : 1.06;
+  final base = TextStyle(
+    fontSize: s.fontSize * scale,
+    height: 1.3,
+    fontWeight: FontWeight.w700,
+    color: color,
+  );
+  return s.fontFamily.isEmpty
+      ? base
+      : GoogleFonts.getFont(s.fontFamily, textStyle: base);
+}
 
 /// Builds a styled [TextSpan] for a run list, applying bold/italic per run.
 TextSpan _runSpan(List<TextRun> runs, TextStyle base) {
@@ -54,11 +68,14 @@ TextSpan _runSpan(List<TextRun> runs, TextStyle base) {
 }
 
 /// Measures the rendered height of a block at [width] — used for pagination.
-double _measureBlockHeight(ContentBlock block, double width) {
+double _measureBlockHeight(ContentBlock block, double width, ReaderSettings s) {
   switch (block) {
     case ParagraphBlock paragraph:
       final painter = TextPainter(
-        text: _runSpan(paragraph.runs, _paragraphStyle(const Color(0xFF000000))),
+        text: _runSpan(
+          paragraph.runs,
+          _paragraphStyle(s, const Color(0xFF000000)),
+        ),
         textDirection: TextDirection.ltr,
         textScaler: TextScaler.noScaling,
       )..layout(maxWidth: width);
@@ -67,7 +84,7 @@ double _measureBlockHeight(ContentBlock block, double width) {
       final painter = TextPainter(
         text: _runSpan(
           heading.runs,
-          _headingStyle(heading.level, const Color(0xFF000000)),
+          _headingStyle(s, heading.level, const Color(0xFF000000)),
         ),
         textDirection: TextDirection.ltr,
         textScaler: TextScaler.noScaling,
@@ -83,12 +100,12 @@ double _measureBlockHeight(ContentBlock block, double width) {
 ///
 /// Block-height estimation isn't pixel-exact, so pages are packed to only a
 /// fraction of the real height — the headroom guarantees content fits rather
-/// than overflowing into a scroll, at the cost of a little bottom margin
-/// (which reads fine, like a normal page margin).
+/// than overflowing into a scroll, at the cost of a little bottom margin.
 List<List<ContentBlock>> _paginate(
   List<ContentBlock> blocks,
   double width,
   double height,
+  ReaderSettings settings,
 ) {
   const fillFactor = 0.88;
   final budget = height * fillFactor;
@@ -96,7 +113,7 @@ List<List<ContentBlock>> _paginate(
   var current = <ContentBlock>[];
   var used = 0.0;
   for (final block in blocks) {
-    final blockHeight = _measureBlockHeight(block, width);
+    final blockHeight = _measureBlockHeight(block, width, settings);
     if (current.isNotEmpty && used + blockHeight > budget) {
       pages.add(current);
       current = <ContentBlock>[];
@@ -111,8 +128,8 @@ List<List<ContentBlock>> _paginate(
 }
 
 /// Reads a downloaded volume: parses the EPUB and renders its chapters, with
-/// scroll or paged layout, an immersive (fade-away) chrome, chapter navigation
-/// and keyboard/remote support.
+/// scroll or paged layout, an immersive (fade-away) chrome, a colour-theme /
+/// typography engine, chapter navigation and keyboard/remote support.
 class ReaderScreen extends StatefulWidget {
   const ReaderScreen({super.key, required this.volume});
 
@@ -134,13 +151,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
   bool _loading = true;
   String? _error;
 
-  ReadingMode _mode = ReadingMode.scroll;
+  ReaderSettings _settings = ReaderSettings.defaults;
   bool _chromeVisible = true;
 
   // Paged-mode pagination cache.
   List<List<ContentBlock>>? _pages;
   String? _pageKey;
   int _pageJumpTarget = 0;
+
+  /// Bumped when a web font finishes loading, to force re-pagination with the
+  /// now-correct metrics.
+  int _fontToken = 0;
 
   @override
   void initState() {
@@ -156,7 +177,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   Future<void> _open() async {
-    final mode = await ReaderPreferences().loadMode();
+    final settings = await ReaderPreferences().load();
+    await _preloadFont(settings.fontFamily);
     try {
       final file = await LibraryStorage().epubFile(widget.volume);
       if (!file.existsSync()) {
@@ -178,11 +200,21 @@ class _ReaderScreenState extends State<ReaderScreen> {
         _book = book;
         _chapterIndex = index;
         _blocks = blocks;
-        _mode = mode;
+        _settings = settings;
         _loading = false;
       });
     } on EpubException catch (e) {
       _fail(e.message);
+    }
+  }
+
+  Future<void> _preloadFont(String family) async {
+    if (family.isEmpty) return;
+    try {
+      GoogleFonts.getFont(family);
+      await GoogleFonts.pendingFonts();
+    } on Exception {
+      // Offline or fetch failed — the font falls back gracefully.
     }
   }
 
@@ -204,12 +236,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
     setState(() {
       _chapterIndex = clamped;
       _blocks = blocks;
-      _pageKey = null; // force re-pagination
+      _pageKey = null;
       _pageJumpTarget = landOnLastPage ? _lastPage : 0;
     });
     _progressStore.saveChapterIndex(widget.volume, clamped);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_mode == ReadingMode.scroll && _scrollController.hasClients) {
+      if (_settings.mode == ReadingMode.scroll && _scrollController.hasClients) {
         _scrollController.jumpTo(0);
       }
     });
@@ -217,24 +249,39 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   void _toggleChrome() => setState(() => _chromeVisible = !_chromeVisible);
 
-  void _setMode(ReadingMode mode) {
-    if (mode == _mode) return;
+  Future<void> _applySettings(ReaderSettings next) async {
+    final fontChanged = next.fontFamily != _settings.fontFamily;
+    final currentPage = _pageController.hasClients
+        ? (_pageController.page?.round() ?? 0)
+        : 0;
     setState(() {
-      _mode = mode;
-      _pageKey = null;
-      _pageJumpTarget = 0;
+      _settings = next;
+      _pageJumpTarget = currentPage;
     });
-    ReaderPreferences().saveMode(mode);
+    ReaderPreferences().save(next);
+    if (fontChanged) {
+      await _preloadFont(next.fontFamily);
+      if (mounted) setState(() => _fontToken++);
+    }
+  }
+
+  void _openSettings() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) =>
+          ReaderSettingsSheet(initial: _settings, onChanged: _applySettings),
+    );
   }
 
   // ── navigation ───────────────────────────────────────────────────────────
 
   void _advance({required bool forward}) {
-    if (_mode == ReadingMode.paged) {
+    if (_settings.mode == ReadingMode.paged) {
       final pages = _pages ?? const [];
-      final page = (_pageController.hasClients ? _pageController.page : 0)
-          ?.round();
-      final current = page ?? 0;
+      final current =
+          (_pageController.hasClients ? _pageController.page : 0)?.round() ?? 0;
       if (forward) {
         if (current < pages.length - 1) {
           _pageController.nextPage(
@@ -256,7 +303,6 @@ class _ReaderScreenState extends State<ReaderScreen> {
       }
       return;
     }
-    // Scroll mode: move by ~one screen, spilling into the next/prev chapter.
     if (!_scrollController.hasClients) return;
     final pos = _scrollController.position;
     final step = pos.viewportDimension * 0.85;
@@ -395,57 +441,65 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
 
     final book = _book!;
+    final preset = _settings.theme;
     final mq = MediaQuery.of(context);
     final topSpace = mq.padding.top + _topBarHeight;
     final bottomSpace = mq.padding.bottom + _bottomBarHeight;
 
-    return Scaffold(
-      body: Focus(
-        autofocus: true,
-        onKeyEvent: _handleKey,
-        child: GestureDetector(
-          onTap: _toggleChrome,
-          behavior: HitTestBehavior.opaque,
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: Padding(
-                  padding: EdgeInsets.only(top: topSpace, bottom: bottomSpace),
-                  child: _mode == ReadingMode.paged
-                      ? _buildPaged()
-                      : _buildScroll(),
-                ),
-              ),
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: _fadeChrome(
-                  _TopBar(
-                    height: topSpace,
-                    title: book.chapters[_chapterIndex].title,
-                    mode: _mode,
-                    onBack: () => Navigator.of(context).pop(),
-                    onShowContents: _showTableOfContents,
-                    onSelectMode: _setMode,
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: preset.isLight
+          ? SystemUiOverlayStyle.dark
+          : SystemUiOverlayStyle.light,
+      child: Scaffold(
+        backgroundColor: preset.background,
+        body: Focus(
+          autofocus: true,
+          onKeyEvent: _handleKey,
+          child: GestureDetector(
+            onTap: _toggleChrome,
+            behavior: HitTestBehavior.opaque,
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: Padding(
+                    padding: EdgeInsets.only(top: topSpace, bottom: bottomSpace),
+                    child: _settings.mode == ReadingMode.paged
+                        ? _buildPaged(preset)
+                        : _buildScroll(preset),
                   ),
                 ),
-              ),
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                child: _fadeChrome(
-                  _ChapterBar(
-                    height: bottomSpace,
-                    index: _chapterIndex,
-                    total: book.chapters.length,
-                    onPrevious: () => _goToChapter(_chapterIndex - 1),
-                    onNext: () => _goToChapter(_chapterIndex + 1),
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: _fadeChrome(
+                    _TopBar(
+                      height: topSpace,
+                      title: book.chapters[_chapterIndex].title,
+                      preset: preset,
+                      onBack: () => Navigator.of(context).pop(),
+                      onOpenSettings: _openSettings,
+                      onShowContents: _showTableOfContents,
+                    ),
                   ),
                 ),
-              ),
-            ],
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: _fadeChrome(
+                    _ChapterBar(
+                      height: bottomSpace,
+                      preset: preset,
+                      index: _chapterIndex,
+                      total: book.chapters.length,
+                      onPrevious: () => _goToChapter(_chapterIndex - 1),
+                      onNext: () => _goToChapter(_chapterIndex + 1),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -460,28 +514,32 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
-  Widget _buildScroll() {
+  Widget _buildScroll(ReaderThemePreset preset) {
     final blocks = _blocks ?? const <ContentBlock>[];
     return ListView.builder(
       controller: _scrollController,
-      padding: const EdgeInsets.symmetric(
-        horizontal: _readingHPad,
+      padding: EdgeInsets.symmetric(
+        horizontal: _settings.margin,
         vertical: _contentVPad,
       ),
       itemCount: blocks.length,
-      itemBuilder: (context, index) => _BlockView(block: blocks[index]),
+      itemBuilder: (context, index) =>
+          _BlockView(block: blocks[index], settings: _settings, preset: preset),
     );
   }
 
-  Widget _buildPaged() {
+  Widget _buildPaged(ReaderThemePreset preset) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final width = constraints.maxWidth - 2 * _readingHPad;
+        final width = constraints.maxWidth - 2 * _settings.margin;
         final height = constraints.maxHeight - 2 * _contentVPad;
-        final key = '$_chapterIndex:${width.round()}x${height.round()}';
+        final key =
+            '$_chapterIndex:${width.round()}x${height.round()}'
+            ':${_settings.fontSize}:${_settings.lineHeight}'
+            ':${_settings.fontFamily}:$_fontToken';
         if (key != _pageKey) {
           _pageKey = key;
-          _pages = _paginate(_blocks ?? const [], width, height);
+          _pages = _paginate(_blocks ?? const [], width, height, _settings);
           final target = _pageJumpTarget;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted || !_pageController.hasClients) return;
@@ -495,14 +553,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
           controller: _pageController,
           itemCount: pages.length,
           itemBuilder: (context, index) => SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(
-              horizontal: _readingHPad,
+            padding: EdgeInsets.symmetric(
+              horizontal: _settings.margin,
               vertical: _contentVPad,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (final block in pages[index]) _BlockView(block: block),
+                for (final block in pages[index])
+                  _BlockView(
+                    block: block,
+                    settings: _settings,
+                    preset: preset,
+                  ),
               ],
             ),
           ),
@@ -512,26 +575,26 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 }
 
-/// Renders one [ContentBlock] with comfortable reading typography.
-///
-/// Typography is fixed for now; the theme engine will make font, size,
-/// spacing and colour configurable.
+/// Renders one [ContentBlock] with the active theme and typography.
 class _BlockView extends StatelessWidget {
-  const _BlockView({required this.block});
+  const _BlockView({
+    required this.block,
+    required this.settings,
+    required this.preset,
+  });
 
   final ContentBlock block;
+  final ReaderSettings settings;
+  final ReaderThemePreset preset;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final color = theme.colorScheme.onSurface;
-
     switch (block) {
       case ParagraphBlock paragraph:
         return Padding(
           padding: const EdgeInsets.only(bottom: _paragraphGap),
           child: Text.rich(
-            _runSpan(paragraph.runs, _paragraphStyle(color)),
+            _runSpan(paragraph.runs, _paragraphStyle(settings, preset.text)),
             textScaler: TextScaler.noScaling,
           ),
         );
@@ -542,7 +605,10 @@ class _BlockView extends StatelessWidget {
             bottom: _headingBottomGap,
           ),
           child: Text.rich(
-            _runSpan(heading.runs, _headingStyle(heading.level, color)),
+            _runSpan(
+              heading.runs,
+              _headingStyle(settings, heading.level, preset.text),
+            ),
             textScaler: TextScaler.noScaling,
           ),
         );
@@ -552,7 +618,7 @@ class _BlockView extends StatelessWidget {
           child: Center(
             child: Text(
               '✶  ✶  ✶',
-              style: TextStyle(color: theme.colorScheme.outline, fontSize: 16),
+              style: TextStyle(color: preset.secondary, fontSize: 16),
             ),
           ),
         );
@@ -560,29 +626,29 @@ class _BlockView extends StatelessWidget {
   }
 }
 
-/// Overlay top bar: back, chapter title, reading-mode menu, contents.
+/// Overlay top bar: back, chapter title, reading settings, contents.
 class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.height,
     required this.title,
-    required this.mode,
+    required this.preset,
     required this.onBack,
+    required this.onOpenSettings,
     required this.onShowContents,
-    required this.onSelectMode,
   });
 
   final double height;
   final String title;
-  final ReadingMode mode;
+  final ReaderThemePreset preset;
   final VoidCallback onBack;
+  final VoidCallback onOpenSettings;
   final VoidCallback onShowContents;
-  final ValueChanged<ReadingMode> onSelectMode;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Material(
-      color: theme.colorScheme.surface,
+      color: preset.background,
+      surfaceTintColor: Colors.transparent,
       elevation: 2,
       child: SizedBox(
         height: height,
@@ -592,6 +658,7 @@ class _TopBar extends StatelessWidget {
             children: [
               IconButton(
                 icon: const Icon(Icons.arrow_back),
+                color: preset.text,
                 tooltip: 'Back',
                 onPressed: onBack,
               ),
@@ -600,21 +667,22 @@ class _TopBar extends StatelessWidget {
                   title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium,
+                  style: TextStyle(
+                    color: preset.text,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
-              PopupMenuButton<ReadingMode>(
-                icon: const Icon(Icons.view_agenda_outlined),
-                tooltip: 'Reading mode',
-                initialValue: mode,
-                onSelected: onSelectMode,
-                itemBuilder: (context) => [
-                  _modeItem(ReadingMode.scroll, 'Scroll', Icons.swap_vert),
-                  _modeItem(ReadingMode.paged, 'Paged', Icons.auto_stories),
-                ],
+              IconButton(
+                icon: const Icon(Icons.text_fields),
+                color: preset.text,
+                tooltip: 'Reading settings',
+                onPressed: onOpenSettings,
               ),
               IconButton(
                 icon: const Icon(Icons.list),
+                color: preset.text,
                 tooltip: 'Contents',
                 onPressed: onShowContents,
               ),
@@ -624,33 +692,13 @@ class _TopBar extends StatelessWidget {
       ),
     );
   }
-
-  PopupMenuItem<ReadingMode> _modeItem(
-    ReadingMode value,
-    String label,
-    IconData icon,
-  ) {
-    return PopupMenuItem<ReadingMode>(
-      value: value,
-      child: Row(
-        children: [
-          SizedBox(
-            width: 28,
-            child: value == mode ? const Icon(Icons.check, size: 18) : null,
-          ),
-          Icon(icon, size: 18),
-          const SizedBox(width: 8),
-          Text(label),
-        ],
-      ),
-    );
-  }
 }
 
 /// Overlay bottom bar: previous / position / next chapter.
 class _ChapterBar extends StatelessWidget {
   const _ChapterBar({
     required this.height,
+    required this.preset,
     required this.index,
     required this.total,
     required this.onPrevious,
@@ -658,6 +706,7 @@ class _ChapterBar extends StatelessWidget {
   });
 
   final double height;
+  final ReaderThemePreset preset;
   final int index;
   final int total;
   final VoidCallback onPrevious;
@@ -665,9 +714,9 @@ class _ChapterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Material(
-      color: theme.colorScheme.surface,
+      color: preset.background,
+      surfaceTintColor: Colors.transparent,
       elevation: 2,
       child: SizedBox(
         height: height,
@@ -677,6 +726,8 @@ class _ChapterBar extends StatelessWidget {
             children: [
               IconButton(
                 icon: const Icon(Icons.chevron_left),
+                color: preset.text,
+                disabledColor: preset.secondary,
                 tooltip: 'Previous chapter',
                 onPressed: index > 0 ? onPrevious : null,
               ),
@@ -684,14 +735,14 @@ class _ChapterBar extends StatelessWidget {
                 child: Center(
                   child: Text(
                     'Chapter ${index + 1} of $total',
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: theme.colorScheme.outline,
-                    ),
+                    style: TextStyle(color: preset.secondary, fontSize: 12),
                   ),
                 ),
               ),
               IconButton(
                 icon: const Icon(Icons.chevron_right),
+                color: preset.text,
+                disabledColor: preset.secondary,
                 tooltip: 'Next chapter',
                 onPressed: index < total - 1 ? onNext : null,
               ),

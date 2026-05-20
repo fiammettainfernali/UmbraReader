@@ -1,28 +1,38 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// How chapter content is laid out in the reader.
-enum ReadingMode {
-  /// Continuous vertical scrolling.
-  scroll,
+import '../models/reader_settings.dart';
 
-  /// Discrete pages, turned horizontally.
-  paged,
-}
-
-/// Persists reader preferences. Currently just the reading mode; Phase 4's
-/// theme engine will extend this with font, size, spacing and colours.
+/// Loads and saves the reader's [ReaderSettings] via [SharedPreferences].
 class ReaderPreferences {
   static const _kMode = 'reader_mode';
+  static const _kThemeId = 'reader_theme';
+  static const _kFontFamily = 'reader_font';
+  static const _kFontSize = 'reader_font_size';
+  static const _kLineHeight = 'reader_line_height';
+  static const _kMargin = 'reader_margin';
 
-  Future<ReadingMode> loadMode() async {
+  Future<ReaderSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_kMode) == 'paged'
-        ? ReadingMode.paged
-        : ReadingMode.scroll;
+    const d = ReaderSettings.defaults;
+    return ReaderSettings(
+      mode: prefs.getString(_kMode) == 'paged'
+          ? ReadingMode.paged
+          : ReadingMode.scroll,
+      themeId: prefs.getString(_kThemeId) ?? d.themeId,
+      fontFamily: prefs.getString(_kFontFamily) ?? d.fontFamily,
+      fontSize: prefs.getDouble(_kFontSize) ?? d.fontSize,
+      lineHeight: prefs.getDouble(_kLineHeight) ?? d.lineHeight,
+      margin: prefs.getDouble(_kMargin) ?? d.margin,
+    );
   }
 
-  Future<void> saveMode(ReadingMode mode) async {
+  Future<void> save(ReaderSettings settings) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kMode, mode.name);
+    await prefs.setString(_kMode, settings.mode.name);
+    await prefs.setString(_kThemeId, settings.themeId);
+    await prefs.setString(_kFontFamily, settings.fontFamily);
+    await prefs.setDouble(_kFontSize, settings.fontSize);
+    await prefs.setDouble(_kLineHeight, settings.lineHeight);
+    await prefs.setDouble(_kMargin, settings.margin);
   }
 }
