@@ -247,7 +247,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
     });
   }
 
-  void _toggleChrome() => setState(() => _chromeVisible = !_chromeVisible);
+  void _toggleChrome() {
+    // Remember the page so paged mode lands back on it after the content
+    // area resizes (and re-paginates) for the new chrome visibility.
+    final currentPage = _pageController.hasClients
+        ? (_pageController.page?.round() ?? 0)
+        : 0;
+    setState(() {
+      _chromeVisible = !_chromeVisible;
+      _pageJumpTarget = currentPage;
+    });
+  }
 
   Future<void> _applySettings(ReaderSettings next) async {
     final fontChanged = next.fontFamily != _settings.fontFamily;
@@ -445,6 +455,15 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final mq = MediaQuery.of(context);
     final topSpace = mq.padding.top + _topBarHeight;
     final bottomSpace = mq.padding.bottom + _bottomBarHeight;
+    // When the chrome is visible, the content sits between the bars. When it's
+    // hidden (immersive reading), the content expands to the full screen,
+    // clearing only the notch / home-indicator safe area.
+    final contentPadding = _chromeVisible
+        ? EdgeInsets.only(top: topSpace, bottom: bottomSpace)
+        : EdgeInsets.only(
+            top: mq.padding.top + 8,
+            bottom: mq.padding.bottom + 8,
+          );
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: preset.isLight
@@ -462,7 +481,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
               children: [
                 Positioned.fill(
                   child: Padding(
-                    padding: EdgeInsets.only(top: topSpace, bottom: bottomSpace),
+                    padding: contentPadding,
                     child: _settings.mode == ReadingMode.paged
                         ? _buildPaged(preset)
                         : _buildScroll(preset),
