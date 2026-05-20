@@ -11,6 +11,7 @@ import '../models/reader_theme.dart';
 import '../models/volume.dart';
 import '../services/epub_parser.dart';
 import '../services/library_storage.dart';
+import '../services/now_playing_service.dart';
 import '../services/reader_preferences.dart';
 import '../services/reading_progress_store.dart';
 import '../services/tts_service.dart';
@@ -147,6 +148,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   final _scrollController = ScrollController();
   final _pageController = PageController();
   final _ttsService = TtsService();
+  final _nowPlaying = NowPlayingService();
 
   EpubParser? _parser;
   EpubBook? _book;
@@ -203,6 +205,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void initState() {
     super.initState();
     _ttsService.onStateChanged = (state) {
+      _updateNowPlaying();
       if (!mounted) return;
       setState(() {
         if (state == TtsPlaybackState.stopped) {
@@ -213,6 +216,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
     };
     _ttsService.onWord = _onTtsWord;
     _ttsService.onChapterFinished = _onTtsChapterFinished;
+    _nowPlaying.onPlay = _remotePlay;
+    _nowPlaying.onPause = _remotePause;
+    _nowPlaying.onToggle = _toggleTts;
+    _nowPlaying.onNext = () => _remoteSkipChapter(1);
+    _nowPlaying.onPrevious = () => _remoteSkipChapter(-1);
     _open();
   }
 
@@ -220,6 +228,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void dispose() {
     _saveProgress();
     _sleepTimer?.cancel();
+    _nowPlaying.clear();
+    _nowPlaying.dispose();
     _ttsService.dispose();
     _scrollController.dispose();
     _pageController.dispose();
@@ -587,6 +597,58 @@ class _ReaderScreenState extends State<ReaderScreen> {
         if (mounted) setState(() => _sleepOption = SleepTimerOption.off);
       });
     }
+  }
+
+  // ── lock-screen / Control Center controls ───────────────────────────────
+
+  /// Publishes the current chapter and play state to the iOS lock screen, or
+  /// clears it when read-aloud is stopped.
+  void _updateNowPlaying() {
+    final book = _book;
+    if (book == null || _ttsService.state == TtsPlaybackState.stopped) {
+      _nowPlaying.clear();
+      return;
+    }
+    final title = (_chapterIndex >= 0 && _chapterIndex < book.chapters.length)
+        ? book.chapters[_chapterIndex].title
+        : widget.volume.title;
+    _nowPlaying.update(
+      title: title,
+      book: widget.volume.title,
+      isPlaying: _ttsService.state == TtsPlaybackState.playing,
+    );
+  }
+
+  /// Lock-screen "play": resume if paused, otherwise start from the top of
+  /// what's on screen.
+  void _remotePlay() {
+    switch (_ttsService.state) {
+      case TtsPlaybackState.paused:
+        _ttsService.resume(rate: _settings.speechRate);
+      case TtsPlaybackState.stopped:
+        _startTts();
+      case TtsPlaybackState.playing:
+        break;
+    }
+  }
+
+  /// Lock-screen "pause".
+  void _remotePause() {
+    if (_ttsService.state == TtsPlaybackState.playing) {
+      _ttsService.pause();
+    }
+  }
+
+  /// Lock-screen next/previous-track: jump a chapter and, if read-aloud was
+  /// active, keep reading from the new chapter's start.
+  void _remoteSkipChapter(int delta) {
+    final book = _book;
+    if (book == null) return;
+    final target = _chapterIndex + delta;
+    if (target < 0 || target >= book.chapters.length) return;
+    final wasActive = _ttsService.state != TtsPlaybackState.stopped;
+    _goToChapter(target, fromTts: wasActive);
+    if (wasActive) _startTts(fromCurrentPosition: false);
   }
 
   Future<void> _openSettings() async {
