@@ -5,9 +5,9 @@ import '../services/opds_client.dart';
 import '../services/settings_service.dart';
 import 'settings_screen.dart';
 
-/// The home screen — shows every series synced from the OPDS library.
+/// The home screen — a cover grid of every series synced from the OPDS library.
 ///
-/// Phase 3 milestone: connect to the server and list the library. Downloading
+/// Phase 3 milestone: connect to the server and browse the library. Downloading
 /// EPUBs for offline reading comes in the next step.
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -83,73 +83,108 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget build(BuildContext context) {
     final count = _library?.length;
     return Scaffold(
-      appBar: AppBar(
-        title: Text(count == null ? 'Library' : 'Library ($count)'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            tooltip: 'Server settings',
-            onPressed: _openSettings,
-          ),
-        ],
+      body: RefreshIndicator(
+        onRefresh: _sync,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverAppBar.large(
+              title: const Text('Library'),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.settings_outlined),
+                  tooltip: 'Server settings',
+                  onPressed: _openSettings,
+                ),
+              ],
+            ),
+            if (count != null && count > 0)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+                  child: Text(
+                    '$count series',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                  ),
+                ),
+              ),
+            _buildContentSliver(),
+          ],
+        ),
       ),
-      body: _buildBody(),
     );
   }
 
-  Widget _buildBody() {
-    if (_settings == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (!_settings!.isConfigured) {
-      return _MessageView(
-        icon: Icons.cloud_off_outlined,
-        title: 'Not connected',
-        message:
-            'Connect Umbra Reader to your Novel Grabber library to see your '
-            'books here.',
-        actionLabel: 'Connect',
-        onAction: _openSettings,
+  Widget _buildContentSliver() {
+    if (_settings == null || _loading) {
+      return const SliverFillRemaining(
+        hasScrollBody: false,
+        child: Center(child: CircularProgressIndicator()),
       );
     }
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
+    if (!_settings!.isConfigured) {
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: _MessageView(
+          icon: Icons.cloud_off_outlined,
+          title: 'Not connected',
+          message:
+              'Connect Umbra Reader to your Novel Grabber library to see your '
+              'books here.',
+          actionLabel: 'Connect',
+          onAction: _openSettings,
+        ),
+      );
     }
     if (_error != null) {
-      return _MessageView(
-        icon: Icons.error_outline,
-        title: 'Sync failed',
-        message: _error!,
-        actionLabel: 'Retry',
-        onAction: _sync,
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: _MessageView(
+          icon: Icons.error_outline,
+          title: 'Sync failed',
+          message: _error!,
+          actionLabel: 'Retry',
+          onAction: _sync,
+        ),
       );
     }
     final library = _library ?? const <Series>[];
     if (library.isEmpty) {
-      return _MessageView(
-        icon: Icons.library_books_outlined,
-        title: 'No books found',
-        message: 'The library is empty, or no series have a compiled EPUB yet.',
-        actionLabel: 'Refresh',
-        onAction: _sync,
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: _MessageView(
+          icon: Icons.library_books_outlined,
+          title: 'No books found',
+          message:
+              'The library is empty, or no series have a compiled EPUB yet.',
+          actionLabel: 'Refresh',
+          onAction: _sync,
+        ),
       );
     }
-    return RefreshIndicator(
-      onRefresh: _sync,
-      child: ListView.builder(
-        itemCount: library.length,
-        itemBuilder: (context, index) => _SeriesTile(
-          series: library[index],
-          imageHeaders: OpdsClient(_settings!).authHeaders,
+    final imageHeaders = OpdsClient(_settings!).authHeaders;
+    return SliverPadding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      sliver: SliverGrid.builder(
+        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: 160,
+          childAspectRatio: 0.52,
+          crossAxisSpacing: 16,
+          mainAxisSpacing: 20,
         ),
+        itemCount: library.length,
+        itemBuilder: (context, index) =>
+            _SeriesCard(series: library[index], imageHeaders: imageHeaders),
       ),
     );
   }
 }
 
-/// A single row in the library list: cover, title, author, progress.
-class _SeriesTile extends StatelessWidget {
-  const _SeriesTile({required this.series, required this.imageHeaders});
+/// A single cover in the library grid: cover art, title, author.
+class _SeriesCard extends StatelessWidget {
+  const _SeriesCard({required this.series, required this.imageHeaders});
 
   final Series series;
   final Map<String, String> imageHeaders;
@@ -157,84 +192,131 @@ class _SeriesTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      leading: SizedBox(
-        width: 48,
-        height: 64,
-        child: _Cover(url: series.coverUrl, headers: imageHeaders),
-      ),
-      title: Text(
-        series.title,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 2),
-          Text(
-            series.author,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall,
-          ),
-          const SizedBox(height: 2),
-          Text(
-            '${series.downloadedChapters} / ${series.totalChapters} chapters'
-            '  ·  ${series.readingStatus}',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.outline,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.4),
+                  blurRadius: 6,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  _CoverImage(series: series, headers: imageHeaders),
+                  if (series.hasMultipleVolumes)
+                    const Positioned(top: 6, right: 6, child: _VolumeBadge()),
+                ],
+              ),
             ),
           ),
-        ],
-      ),
-      trailing: series.hasMultipleVolumes
-          ? Tooltip(
-              message: 'Multiple volumes',
-              child: Icon(
-                Icons.collections_bookmark_outlined,
-                size: 20,
-                color: theme.colorScheme.outline,
-              ),
-            )
-          : null,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          series.title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+            height: 1.2,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          series.author,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.outline,
+          ),
+        ),
+      ],
     );
   }
 }
 
-/// Cover thumbnail with graceful fallbacks for missing / failed images.
-class _Cover extends StatelessWidget {
-  const _Cover({required this.url, required this.headers});
+/// Cover art for a series — the network image, or a titled gradient fallback
+/// when there is no cover or it fails to load.
+class _CoverImage extends StatelessWidget {
+  const _CoverImage({required this.series, required this.headers});
 
-  final String? url;
+  final Series series;
   final Map<String, String> headers;
 
   @override
   Widget build(BuildContext context) {
-    final placeholder = ColoredBox(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Icon(
-        Icons.menu_book_outlined,
-        size: 22,
-        color: Theme.of(context).colorScheme.outline,
+    final coverUrl = series.coverUrl;
+    if (coverUrl == null) return _fallback(context);
+    return Image.network(
+      coverUrl,
+      headers: headers,
+      fit: BoxFit.cover,
+      errorBuilder: (_, _, _) => _fallback(context),
+      loadingBuilder: (context, child, progress) {
+        if (progress == null) return child;
+        return ColoredBox(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        );
+      },
+    );
+  }
+
+  /// A gradient panel showing the title — looks intentional, not broken.
+  Widget _fallback(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [scheme.primaryContainer, scheme.surfaceContainerHighest],
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Center(
+          child: Text(
+            series.title,
+            textAlign: TextAlign.center,
+            maxLines: 5,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: scheme.onPrimaryContainer,
+              height: 1.25,
+            ),
+          ),
+        ),
       ),
     );
-    final coverUrl = url;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(4),
-      child: coverUrl == null
-          ? placeholder
-          : Image.network(
-              coverUrl,
-              headers: headers,
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) => placeholder,
-              loadingBuilder: (context, child, progress) {
-                if (progress == null) return child;
-                return placeholder;
-              },
-            ),
+  }
+}
+
+/// Small corner badge marking a series that has more than one volume.
+class _VolumeBadge extends StatelessWidget {
+  const _VolumeBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: const Icon(
+        Icons.collections_bookmark,
+        size: 13,
+        color: Colors.white,
+      ),
     );
   }
 }

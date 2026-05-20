@@ -14,7 +14,9 @@ void main() {
     // Let the async settings load settle.
     await tester.pumpAndSettle();
 
-    expect(find.text('Library'), findsOneWidget);
+    // SliverAppBar.large keeps both a collapsed and an expanded title in the
+    // tree, so 'Library' legitimately appears more than once.
+    expect(find.text('Library'), findsWidgets);
     expect(find.text('Not connected'), findsOneWidget);
     expect(find.text('Connect'), findsOneWidget);
   });
