@@ -174,6 +174,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// can't trigger a second (skipped-chapter) cross.
   DateTime _lastChapterChange = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// Block index to restore to on open; consumed once the content lays out.
+  int? _pendingRestoreBlock;
+
+  /// Content width (screen minus margins), cached each build so progress can
+  /// be measured without a MediaQuery lookup (e.g. during dispose).
+  double _lastContentWidth = 0;
+
   @override
   void initState() {
     super.initState();
@@ -186,6 +193,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
   @override
   void dispose() {
+    _saveProgress();
     _ttsService.dispose();
     _scrollController.dispose();
     _pageController.dispose();
@@ -207,18 +215,27 @@ class _ReaderScreenState extends State<ReaderScreen> {
         _fail('No readable chapters were found in this book.');
         return;
       }
-      final saved = await _progressStore.chapterIndexFor(widget.volume);
-      final index = saved.clamp(0, book.chapters.length - 1);
-      final blocks = parser.parseChapter(book.chapters[index]);
+      final progress = await _progressStore.load(widget.volume);
+      final chapterIndex = progress.chapterIndex.clamp(
+        0,
+        book.chapters.length - 1,
+      );
+      final blocks = parser.parseChapter(book.chapters[chapterIndex]);
       if (!mounted) return;
       setState(() {
         _parser = parser;
         _book = book;
-        _chapterIndex = index;
+        _chapterIndex = chapterIndex;
         _blocks = blocks;
         _settings = settings;
+        _pendingRestoreBlock = blocks.isEmpty
+            ? 0
+            : progress.blockIndex.clamp(0, blocks.length - 1);
         _loading = false;
       });
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _restoreScrollPosition(),
+      );
     } on EpubException catch (e) {
       _fail(e.message);
     }
@@ -263,12 +280,88 @@ class _ReaderScreenState extends State<ReaderScreen> {
       _pageKey = null;
       _pageJumpTarget = landOnLastPage ? _lastPage : 0;
     });
-    _progressStore.saveChapterIndex(widget.volume, clamped);
+    _progressStore.save(
+      widget.volume,
+      ReadingProgress(chapterIndex: clamped, blockIndex: 0),
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_settings.mode == ReadingMode.scroll && _scrollController.hasClients) {
         _scrollController.jumpTo(0);
       }
     });
+  }
+
+  // ── reading-position memory ──────────────────────────────────────────────
+
+  /// Cumulative pixel offset of [blockIndex] in scroll mode.
+  double _blockOffset(int blockIndex) {
+    final blocks = _blocks ?? const <ContentBlock>[];
+    var offset = _contentVPad;
+    for (var i = 0; i < blockIndex && i < blocks.length; i++) {
+      offset += _measureBlockHeight(blocks[i], _lastContentWidth, _settings);
+    }
+    return offset;
+  }
+
+  /// Index of the block at the top of the viewport in scroll mode.
+  int _scrollTopBlockIndex() {
+    final blocks = _blocks ?? const <ContentBlock>[];
+    if (blocks.isEmpty || !_scrollController.hasClients) return 0;
+    final target = _scrollController.offset;
+    var acc = _contentVPad;
+    for (var i = 0; i < blocks.length; i++) {
+      acc += _measureBlockHeight(blocks[i], _lastContentWidth, _settings);
+      if (acc > target) return i;
+    }
+    return blocks.length - 1;
+  }
+
+  /// Index of the first block on the current page in paged mode.
+  int _pagedTopBlockIndex() {
+    final pages = _pages;
+    if (pages == null || pages.isEmpty || !_pageController.hasClients) return 0;
+    final page = (_pageController.page?.round() ?? 0).clamp(
+      0,
+      pages.length - 1,
+    );
+    var index = 0;
+    for (var i = 0; i < page; i++) {
+      index += pages[i].length;
+    }
+    return index;
+  }
+
+  /// The page that contains [blockIndex] in paged mode.
+  int _pageForBlock(int blockIndex) {
+    final pages = _pages ?? const <List<ContentBlock>>[];
+    var acc = 0;
+    for (var i = 0; i < pages.length; i++) {
+      acc += pages[i].length;
+      if (blockIndex < acc) return i;
+    }
+    return pages.isEmpty ? 0 : pages.length - 1;
+  }
+
+  void _saveProgress() {
+    final block = _settings.mode == ReadingMode.paged
+        ? _pagedTopBlockIndex()
+        : _scrollTopBlockIndex();
+    _progressStore.save(
+      widget.volume,
+      ReadingProgress(chapterIndex: _chapterIndex, blockIndex: block),
+    );
+  }
+
+  /// Restores the saved scroll-mode position once the list has laid out.
+  /// (Paged-mode restore is handled when pages are computed in `_buildPaged`.)
+  void _restoreScrollPosition() {
+    final block = _pendingRestoreBlock;
+    if (block == null || _settings.mode != ReadingMode.scroll) return;
+    if (!_scrollController.hasClients) return;
+    _pendingRestoreBlock = null;
+    _scrollController.jumpTo(
+      _blockOffset(block).clamp(0.0, _scrollController.position.maxScrollExtent),
+    );
   }
 
   void _toggleChrome() {
@@ -402,6 +495,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
         _goToChapter(_chapterIndex + 1);
       } else if (amount < -90) {
         _goToChapter(_chapterIndex - 1, landOnLastPage: true);
+      } else {
+        // Settled within the chapter — record the reading position.
+        _saveProgress();
       }
     }
     return false;
@@ -573,6 +669,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final book = _book!;
     final preset = _settings.theme;
     final mq = MediaQuery.of(context);
+    _lastContentWidth = mq.size.width - 2 * _settings.margin;
     final topSpace = mq.padding.top + _topBarHeight;
     final bottomSpace = mq.padding.bottom + _bottomBarHeight;
     // When the chrome is visible, the content sits between the bars. When it's
@@ -684,12 +781,20 @@ class _ReaderScreenState extends State<ReaderScreen> {
         if (key != _pageKey) {
           _pageKey = key;
           _pages = _paginate(_blocks ?? const [], width, height, _settings);
-          final target = _pageJumpTarget;
+          final pageCount = _pages?.length ?? 1;
+          final int wanted;
+          if (_pendingRestoreBlock != null) {
+            wanted = _pageForBlock(_pendingRestoreBlock!);
+            _pendingRestoreBlock = null;
+          } else if (_pageJumpTarget == _lastPage) {
+            wanted = pageCount - 1;
+          } else {
+            wanted = _pageJumpTarget;
+          }
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted || !_pageController.hasClients) return;
-            final pageCount = _pages?.length ?? 1;
-            final wanted = target == _lastPage ? pageCount - 1 : target;
             _pageController.jumpToPage(wanted.clamp(0, pageCount - 1));
+            _saveProgress();
           });
         }
         final pages = _pages ?? const <List<ContentBlock>>[];

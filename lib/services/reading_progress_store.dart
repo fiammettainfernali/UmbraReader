@@ -2,25 +2,42 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/volume.dart';
 
-/// Remembers which chapter the reader last had open, per volume.
+/// A saved reading position within a volume.
+class ReadingProgress {
+  const ReadingProgress({required this.chapterIndex, required this.blockIndex});
+
+  final int chapterIndex;
+
+  /// Index of the paragraph/heading block at the top of the view.
+  final int blockIndex;
+
+  static const start = ReadingProgress(chapterIndex: 0, blockIndex: 0);
+}
+
+/// Remembers the reading position per volume.
 ///
-/// This is intentionally lightweight (chapter index only). Finer-grained
-/// position (scroll offset within a chapter) and library-wide reading stats
-/// can move to a proper database in a later step.
+/// Position is stored as a chapter index plus a block (paragraph) index —
+/// not a pixel offset or page number — so it stays correct across font,
+/// margin, screen-size and reading-mode changes.
 class ReadingProgressStore {
-  static const _prefix = 'reading_chapter:';
+  static const _chapterPrefix = 'reading_chapter:';
+  static const _blockPrefix = 'reading_block:';
 
-  String _key(Volume volume) =>
-      '$_prefix${volume.seriesOpdsId}/${volume.fileName}';
+  String _key(Volume volume) => '${volume.seriesOpdsId}/${volume.fileName}';
 
-  /// The last-read chapter index for [volume], or 0 if never opened.
-  Future<int> chapterIndexFor(Volume volume) async {
+  Future<ReadingProgress> load(Volume volume) async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt(_key(volume)) ?? 0;
+    final key = _key(volume);
+    return ReadingProgress(
+      chapterIndex: prefs.getInt('$_chapterPrefix$key') ?? 0,
+      blockIndex: prefs.getInt('$_blockPrefix$key') ?? 0,
+    );
   }
 
-  Future<void> saveChapterIndex(Volume volume, int index) async {
+  Future<void> save(Volume volume, ReadingProgress progress) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_key(volume), index);
+    final key = _key(volume);
+    await prefs.setInt('$_chapterPrefix$key', progress.chapterIndex);
+    await prefs.setInt('$_blockPrefix$key', progress.blockIndex);
   }
 }
