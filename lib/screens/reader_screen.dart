@@ -163,8 +163,8 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// now-correct metrics.
   int _fontToken = 0;
 
-  /// Overscroll accumulated past a content edge during the current drag —
-  /// used to cross into the previous/next chapter on a swipe past the end.
+  /// Peak distance the drag travelled past a content edge (signed: positive
+  /// past the end, negative past the start) — used to cross chapters.
   double _edgeOverscroll = 0;
 
   @override
@@ -303,14 +303,28 @@ class _ReaderScreenState extends State<ReaderScreen> {
 
     if (notification is ScrollStartNotification) {
       _edgeOverscroll = 0;
-    } else if (notification is OverscrollNotification) {
-      _edgeOverscroll += notification.overscroll;
-    } else if (notification is ScrollEndNotification) {
+      return false;
+    }
+
+    // iOS bouncing physics moves the position *past* the extent rather than
+    // emitting OverscrollNotifications, so watch the metrics directly and
+    // record how far past either edge the drag travelled.
+    final m = notification.metrics;
+    final pastEnd = m.pixels - m.maxScrollExtent;
+    final pastStart = m.pixels - m.minScrollExtent;
+    if (pastEnd > 0 && pastEnd > _edgeOverscroll) {
+      _edgeOverscroll = pastEnd;
+    }
+    if (pastStart < 0 && pastStart < _edgeOverscroll) {
+      _edgeOverscroll = pastStart;
+    }
+
+    if (notification is ScrollEndNotification) {
       final amount = _edgeOverscroll;
       _edgeOverscroll = 0;
-      if (amount > 90) {
+      if (amount > 50) {
         _goToChapter(_chapterIndex + 1);
-      } else if (amount < -90) {
+      } else if (amount < -50) {
         _goToChapter(_chapterIndex - 1, landOnLastPage: true);
       }
     }
