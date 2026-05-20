@@ -5,10 +5,32 @@ import '../services/opds_client.dart';
 import '../services/settings_service.dart';
 import 'settings_screen.dart';
 
-/// The home screen — a cover grid of every series synced from the OPDS library.
+/// How the library grid is ordered.
+enum LibrarySort {
+  titleAsc('Title (A–Z)'),
+  recentlyUpdated('Recently updated'),
+  author('Author'),
+  readingStatus('Reading status');
+
+  const LibrarySort(this.label);
+
+  /// Human-readable label shown in the sort menu.
+  final String label;
+}
+
+/// Sort rank for reading statuses — active series first, finished/abandoned last.
+int _statusRank(String status) => switch (status.toLowerCase()) {
+  'ongoing' => 0,
+  'hiatus' => 1,
+  'completed' => 2,
+  'dropped' => 3,
+  _ => 4,
+};
+
+/// The home screen — a searchable, sortable cover grid of the OPDS library.
 ///
-/// Phase 3 milestone: connect to the server and browse the library. Downloading
-/// EPUBs for offline reading comes in the next step.
+/// Phase 3 milestone: connect, browse, search and sort. Downloading EPUBs for
+/// offline reading comes in the next step.
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
 
@@ -18,6 +40,7 @@ class LibraryScreen extends StatefulWidget {
 
 class _LibraryScreenState extends State<LibraryScreen> {
   final _settingsService = SettingsService();
+  final _searchController = TextEditingController();
 
   /// Null until the initial settings load finishes.
   OpdsSettings? _settings;
@@ -25,10 +48,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
   bool _loading = false;
   String? _error;
 
+  String _searchQuery = '';
+  LibrarySort _sort = LibrarySort.titleAsc;
+
   @override
   void initState() {
     super.initState();
     _initialize();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _initialize() async {
@@ -49,9 +81,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     });
     try {
       final library = await OpdsClient(settings).fetchLibrary();
-      library.sort(
-        (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
-      );
       if (!mounted) return;
       setState(() {
         _library = library;
@@ -79,9 +108,56 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (settings.isConfigured) await _sync();
   }
 
+  /// The library after applying the current search filter and sort order.
+  List<Series> get _visibleLibrary {
+    final all = _library ?? const <Series>[];
+    final query = _searchQuery.trim().toLowerCase();
+    final filtered = query.isEmpty
+        ? all.toList()
+        : all
+              .where(
+                (s) =>
+                    s.title.toLowerCase().contains(query) ||
+                    s.author.toLowerCase().contains(query),
+              )
+              .toList();
+    filtered.sort(_comparatorFor(_sort));
+    return filtered;
+  }
+
+  Comparator<Series> _comparatorFor(LibrarySort sort) {
+    int byTitle(Series a, Series b) =>
+        a.title.toLowerCase().compareTo(b.title.toLowerCase());
+    return switch (sort) {
+      LibrarySort.titleAsc => byTitle,
+      LibrarySort.recentlyUpdated => (a, b) {
+        final at = a.updatedAt;
+        final bt = b.updatedAt;
+        if (at == null && bt == null) return byTitle(a, b);
+        if (at == null) return 1; // undated series sink to the bottom
+        if (bt == null) return -1;
+        return bt.compareTo(at); // newest first
+      },
+      LibrarySort.author => (a, b) {
+        final c = a.author.toLowerCase().compareTo(b.author.toLowerCase());
+        return c != 0 ? c : byTitle(a, b);
+      },
+      LibrarySort.readingStatus => (a, b) {
+        final c = _statusRank(
+          a.readingStatus,
+        ).compareTo(_statusRank(b.readingStatus));
+        return c != 0 ? c : byTitle(a, b);
+      },
+    };
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() => _searchQuery = '');
+  }
+
   @override
   Widget build(BuildContext context) {
-    final count = _library?.length;
     return Scaffold(
       body: RefreshIndicator(
         onRefresh: _sync,
@@ -98,85 +174,171 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
               ],
             ),
-            if (count != null && count > 0)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-                  child: Text(
-                    '$count series',
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.outline,
-                    ),
-                  ),
-                ),
-              ),
-            _buildContentSliver(),
+            ..._buildContentSlivers(),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildContentSliver() {
-    if (_settings == null || _loading) {
-      return const SliverFillRemaining(
-        hasScrollBody: false,
-        child: Center(child: CircularProgressIndicator()),
-      );
+  List<Widget> _buildContentSlivers() {
+    // Initial load — full-screen spinner. A refresh of an already-loaded
+    // library keeps the grid visible (the RefreshIndicator shows progress).
+    if (_settings == null || (_loading && _library == null)) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ];
     }
     if (!_settings!.isConfigured) {
-      return SliverFillRemaining(
-        hasScrollBody: false,
-        child: _MessageView(
-          icon: Icons.cloud_off_outlined,
-          title: 'Not connected',
-          message:
-              'Connect Umbra Reader to your Novel Grabber library to see your '
-              'books here.',
-          actionLabel: 'Connect',
-          onAction: _openSettings,
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: _MessageView(
+            icon: Icons.cloud_off_outlined,
+            title: 'Not connected',
+            message:
+                'Connect Umbra Reader to your Novel Grabber library to see '
+                'your books here.',
+            actionLabel: 'Connect',
+            onAction: _openSettings,
+          ),
         ),
-      );
+      ];
     }
     if (_error != null) {
-      return SliverFillRemaining(
-        hasScrollBody: false,
-        child: _MessageView(
-          icon: Icons.error_outline,
-          title: 'Sync failed',
-          message: _error!,
-          actionLabel: 'Retry',
-          onAction: _sync,
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: _MessageView(
+            icon: Icons.error_outline,
+            title: 'Sync failed',
+            message: _error!,
+            actionLabel: 'Retry',
+            onAction: _sync,
+          ),
         ),
-      );
+      ];
     }
-    final library = _library ?? const <Series>[];
-    if (library.isEmpty) {
-      return SliverFillRemaining(
-        hasScrollBody: false,
-        child: _MessageView(
-          icon: Icons.library_books_outlined,
-          title: 'No books found',
-          message:
-              'The library is empty, or no series have a compiled EPUB yet.',
-          actionLabel: 'Refresh',
-          onAction: _sync,
+    final all = _library ?? const <Series>[];
+    if (all.isEmpty) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: _MessageView(
+            icon: Icons.library_books_outlined,
+            title: 'No books found',
+            message:
+                'The library is empty, or no series have a compiled EPUB yet.',
+            actionLabel: 'Refresh',
+            onAction: _sync,
+          ),
         ),
-      );
+      ];
     }
-    final imageHeaders = OpdsClient(_settings!).authHeaders;
-    return SliverPadding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-      sliver: SliverGrid.builder(
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 160,
-          childAspectRatio: 0.52,
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 20,
+
+    final visible = _visibleLibrary;
+    return [
+      SliverToBoxAdapter(child: _buildControls(all.length, visible.length)),
+      if (visible.isEmpty)
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: _MessageView(
+            icon: Icons.search_off_outlined,
+            title: 'No matches',
+            message: 'No series match “$_searchQuery”.',
+            actionLabel: 'Clear search',
+            onAction: _clearSearch,
+          ),
+        )
+      else
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+          sliver: SliverGrid.builder(
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 160,
+              childAspectRatio: 0.52,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 20,
+            ),
+            itemCount: visible.length,
+            itemBuilder: (context, index) => _SeriesCard(
+              series: visible[index],
+              imageHeaders: OpdsClient(_settings!).authHeaders,
+            ),
+          ),
         ),
-        itemCount: library.length,
-        itemBuilder: (context, index) =>
-            _SeriesCard(series: library[index], imageHeaders: imageHeaders),
+    ];
+  }
+
+  /// The search field, sort menu, and result-count line.
+  Widget _buildControls(int total, int visible) {
+    final theme = Theme.of(context);
+    final searching = _searchQuery.trim().isNotEmpty;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: SearchBar(
+                  controller: _searchController,
+                  hintText: 'Search by title or author',
+                  leading: const Icon(Icons.search),
+                  padding: const WidgetStatePropertyAll(
+                    EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                  trailing: [
+                    if (searching)
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        tooltip: 'Clear',
+                        onPressed: _clearSearch,
+                      ),
+                  ],
+                  onChanged: (value) => setState(() => _searchQuery = value),
+                ),
+              ),
+              const SizedBox(width: 4),
+              PopupMenuButton<LibrarySort>(
+                icon: const Icon(Icons.sort),
+                tooltip: 'Sort',
+                initialValue: _sort,
+                onSelected: (value) => setState(() => _sort = value),
+                itemBuilder: (context) => [
+                  for (final option in LibrarySort.values)
+                    PopupMenuItem<LibrarySort>(
+                      value: option,
+                      child: Row(
+                        children: [
+                          SizedBox(
+                            width: 28,
+                            child: option == _sort
+                                ? const Icon(Icons.check, size: 18)
+                                : null,
+                          ),
+                          Text(option.label),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            searching
+                ? '$visible of $total series  ·  ${_sort.label}'
+                : '$total series  ·  ${_sort.label}',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -322,7 +484,7 @@ class _VolumeBadge extends StatelessWidget {
 }
 
 /// A centered icon + message + action button, used for the empty / error /
-/// not-connected states.
+/// not-connected / no-matches states.
 class _MessageView extends StatelessWidget {
   const _MessageView({
     required this.icon,
