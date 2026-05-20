@@ -78,19 +78,26 @@ double _measureBlockHeight(ContentBlock block, double width) {
   }
 }
 
-/// Greedily packs whole blocks into pages no taller than [height]. Blocks are
-/// never split, so lines are never cut across a page boundary.
+/// Greedily packs whole blocks into pages. Blocks are never split, so a line
+/// is never cut across a page boundary.
+///
+/// Block-height estimation isn't pixel-exact, so pages are packed to only a
+/// fraction of the real height — the headroom guarantees content fits rather
+/// than overflowing into a scroll, at the cost of a little bottom margin
+/// (which reads fine, like a normal page margin).
 List<List<ContentBlock>> _paginate(
   List<ContentBlock> blocks,
   double width,
   double height,
 ) {
+  const fillFactor = 0.88;
+  final budget = height * fillFactor;
   final pages = <List<ContentBlock>>[];
   var current = <ContentBlock>[];
   var used = 0.0;
   for (final block in blocks) {
     final blockHeight = _measureBlockHeight(block, width);
-    if (current.isNotEmpty && used + blockHeight > height) {
+    if (current.isNotEmpty && used + blockHeight > budget) {
       pages.add(current);
       current = <ContentBlock>[];
       used = 0;
