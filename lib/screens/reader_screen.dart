@@ -163,6 +163,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// now-correct metrics.
   int _fontToken = 0;
 
+  /// Overscroll accumulated past a content edge during the current drag —
+  /// used to cross into the previous/next chapter on a swipe past the end.
+  double _edgeOverscroll = 0;
+
   @override
   void initState() {
     super.initState();
@@ -286,6 +290,32 @@ class _ReaderScreenState extends State<ReaderScreen> {
   }
 
   // ── navigation ───────────────────────────────────────────────────────────
+
+  /// Crosses into the adjacent chapter when the reader is swiped/scrolled
+  /// firmly past its first or last page.
+  bool _onScrollNotification(ScrollNotification notification) {
+    // Paged mode scrolls horizontally; scroll mode vertically. Ignore the
+    // other axis (e.g. an over-tall page's own vertical scroll view).
+    final wantAxis = _settings.mode == ReadingMode.paged
+        ? Axis.horizontal
+        : Axis.vertical;
+    if (notification.metrics.axis != wantAxis) return false;
+
+    if (notification is ScrollStartNotification) {
+      _edgeOverscroll = 0;
+    } else if (notification is OverscrollNotification) {
+      _edgeOverscroll += notification.overscroll;
+    } else if (notification is ScrollEndNotification) {
+      final amount = _edgeOverscroll;
+      _edgeOverscroll = 0;
+      if (amount > 90) {
+        _goToChapter(_chapterIndex + 1);
+      } else if (amount < -90) {
+        _goToChapter(_chapterIndex - 1, landOnLastPage: true);
+      }
+    }
+    return false;
+  }
 
   void _advance({required bool forward}) {
     if (_settings.mode == ReadingMode.paged) {
@@ -482,9 +512,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 Positioned.fill(
                   child: Padding(
                     padding: contentPadding,
-                    child: _settings.mode == ReadingMode.paged
-                        ? _buildPaged(preset)
-                        : _buildScroll(preset),
+                    child: NotificationListener<ScrollNotification>(
+                      onNotification: _onScrollNotification,
+                      child: _settings.mode == ReadingMode.paged
+                          ? _buildPaged(preset)
+                          : _buildScroll(preset),
+                    ),
                   ),
                 ),
                 Positioned(
