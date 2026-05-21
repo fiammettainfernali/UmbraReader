@@ -106,35 +106,205 @@ double _measureBlockHeight(ContentBlock block, double width, ReaderSettings s) {
   }
 }
 
-/// Greedily packs whole blocks into pages. Blocks are never split, so a line
-/// is never cut across a page boundary.
+/// One renderable slice on a page.
 ///
-/// Block-height estimation isn't pixel-exact, so pages are packed to only a
-/// fraction of the real height — the headroom guarantees content fits rather
-/// than overflowing into a scroll, at the cost of a little bottom margin.
-List<List<ContentBlock>> _paginate(
+/// For a whole block, [block] is the original block and [charOffset] is 0.
+/// For a paragraph split across pages, [block] is a [ParagraphBlock] holding
+/// only that slice's runs, [originIndex] points back to the parent block in
+/// the chapter's block list, and [charOffset] is where the slice's text
+/// begins within the parent paragraph.
+class _PageBlock {
+  const _PageBlock({
+    required this.block,
+    required this.originIndex,
+    this.charOffset = 0,
+  });
+
+  final ContentBlock block;
+  final int originIndex;
+  final int charOffset;
+}
+
+/// Total character length of a run list.
+int _runsLength(List<TextRun> runs) {
+  var total = 0;
+  for (final run in runs) {
+    total += run.text.length;
+  }
+  return total;
+}
+
+/// Lays out a paragraph's runs at [width] for measurement.
+TextPainter _layoutParagraph(
+  List<TextRun> runs,
+  double width,
+  ReaderSettings s,
+) {
+  return TextPainter(
+    text: _runSpan(runs, _paragraphStyle(s, const Color(0xFF000000))),
+    textDirection: TextDirection.ltr,
+    textScaler: TextScaler.noScaling,
+  )..layout(maxWidth: width);
+}
+
+/// Splits a run list into the runs before [offset] and the runs from [offset]
+/// onward, cutting a straddling run in two. Character-exact: the two halves
+/// concatenated equal the input.
+(List<TextRun>, List<TextRun>) _splitRuns(List<TextRun> runs, int offset) {
+  final head = <TextRun>[];
+  final tail = <TextRun>[];
+  var pos = 0;
+  for (final run in runs) {
+    final start = pos;
+    final end = pos + run.text.length;
+    pos = end;
+    if (end <= offset) {
+      head.add(run);
+    } else if (start >= offset) {
+      tail.add(run);
+    } else {
+      final cut = offset - start;
+      head.add(
+        TextRun(run.text.substring(0, cut), bold: run.bold, italic: run.italic),
+      );
+      tail.add(
+        TextRun(run.text.substring(cut), bold: run.bold, italic: run.italic),
+      );
+    }
+  }
+  return (head, tail);
+}
+
+/// Character offset at which the line centred on [centreY] begins.
+int _lineStartOffsetAt(TextPainter painter, double centreY) {
+  final pos = painter.getPositionForOffset(Offset(1, centreY));
+  return painter.getLineBoundary(pos).start;
+}
+
+/// Packs blocks into pages, splitting a paragraph across a page boundary when
+/// it doesn't fully fit — so every page bar a chapter's last fills close to
+/// the bottom. Headings and dividers are never split.
+List<List<_PageBlock>> _paginate(
   List<ContentBlock> blocks,
   double width,
   double height,
   ReaderSettings settings,
 ) {
-  const fillFactor = 0.93;
-  final budget = height * fillFactor;
-  final pages = <List<ContentBlock>>[];
-  var current = <ContentBlock>[];
+  final budget = height;
+  final pages = <List<_PageBlock>>[];
+  var current = <_PageBlock>[];
   var used = 0.0;
-  for (final block in blocks) {
-    final blockHeight = _measureBlockHeight(block, width, settings);
-    if (current.isNotEmpty && used + blockHeight > budget) {
+
+  void flush() {
+    if (current.isNotEmpty) {
       pages.add(current);
-      current = <ContentBlock>[];
+      current = <_PageBlock>[];
       used = 0;
     }
-    current.add(block);
-    used += blockHeight;
   }
-  if (current.isNotEmpty) pages.add(current);
-  if (pages.isEmpty) pages.add(const <ContentBlock>[]);
+
+  for (var i = 0; i < blocks.length; i++) {
+    final block = blocks[i];
+
+    if (block is! ParagraphBlock) {
+      final h = _measureBlockHeight(block, width, settings);
+      if (current.isNotEmpty && used + h > budget) flush();
+      current.add(_PageBlock(block: block, originIndex: i));
+      used += h;
+      continue;
+    }
+
+    // A paragraph: placed whole, or split across one or more page breaks.
+    var runs = block.runs;
+    var charBase = 0;
+    while (true) {
+      final painter = _layoutParagraph(runs, width, settings);
+      final lines = painter.computeLineMetrics();
+      if (lines.isEmpty) break;
+      final totalText = painter.height;
+      final remaining = budget - used;
+
+      if (totalText + _paragraphGap <= remaining) {
+        current.add(
+          _PageBlock(
+            block: ParagraphBlock(runs),
+            originIndex: i,
+            charOffset: charBase,
+          ),
+        );
+        used += totalText + _paragraphGap;
+        break;
+      }
+
+      // How many whole lines fit in the space left on this page?
+      var fitHeight = 0.0;
+      var fitLines = 0;
+      for (final line in lines) {
+        if (fitHeight + line.height > remaining) break;
+        fitHeight += line.height;
+        fitLines++;
+      }
+
+      if (fitLines == 0) {
+        if (used == 0) {
+          // A single line taller than the whole page — place it regardless.
+          fitLines = 1;
+          fitHeight = lines.first.height;
+        } else {
+          flush();
+          continue;
+        }
+      }
+
+      if (fitLines >= lines.length) {
+        // All the lines fit; only the trailing gap didn't — place gapless.
+        current.add(
+          _PageBlock(
+            block: ParagraphBlock(runs),
+            originIndex: i,
+            charOffset: charBase,
+          ),
+        );
+        used += totalText;
+        break;
+      }
+
+      // Split after the last line that fits.
+      final centreY = fitHeight + lines[fitLines].height / 2;
+      final splitOffset = _lineStartOffsetAt(painter, centreY);
+      if (splitOffset <= 0 || splitOffset >= _runsLength(runs)) {
+        // No usable split point — move the whole fragment to a fresh page.
+        if (used == 0) {
+          current.add(
+            _PageBlock(
+              block: ParagraphBlock(runs),
+              originIndex: i,
+              charOffset: charBase,
+            ),
+          );
+          used += totalText + _paragraphGap;
+          break;
+        }
+        flush();
+        continue;
+      }
+      final parts = _splitRuns(runs, splitOffset);
+      current.add(
+        _PageBlock(
+          block: ParagraphBlock(parts.$1),
+          originIndex: i,
+          charOffset: charBase,
+        ),
+      );
+      used += fitHeight;
+      flush();
+      runs = parts.$2;
+      charBase += splitOffset;
+    }
+  }
+
+  flush();
+  if (pages.isEmpty) pages.add(<_PageBlock>[]);
   return pages;
 }
 
@@ -168,7 +338,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   bool _chromeVisible = true;
 
   // Paged-mode pagination cache.
-  List<List<ContentBlock>>? _pages;
+  List<List<_PageBlock>>? _pages;
   String? _pageKey;
   int _pageJumpTarget = 0;
 
@@ -204,6 +374,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// Last block that auto-follow moved to — so it only moves on a change.
   int _followedBlock = -1;
 
+  /// Last page that read-aloud auto-follow turned to (paged mode).
+  int _followedPage = -1;
+
   /// Active sleep-timer choice and its countdown.
   SleepTimerOption _sleepOption = SleepTimerOption.off;
   Timer? _sleepTimer;
@@ -223,6 +396,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         if (state == TtsPlaybackState.stopped) {
           _speakingBlock = null;
           _followedBlock = -1;
+          _followedPage = -1;
         }
       });
     };
@@ -381,21 +555,40 @@ class _ReaderScreenState extends State<ReaderScreen> {
       0,
       pages.length - 1,
     );
-    var index = 0;
-    for (var i = 0; i < page; i++) {
-      index += pages[i].length;
-    }
-    return index;
+    final pageBlocks = pages[page];
+    return pageBlocks.isEmpty ? 0 : pageBlocks.first.originIndex;
   }
 
-  /// The page that contains [blockIndex] in paged mode.
+  /// The first page that shows any part of [blockIndex] in paged mode.
   int _pageForBlock(int blockIndex) {
-    final pages = _pages ?? const <List<ContentBlock>>[];
-    var acc = 0;
+    final pages = _pages ?? const <List<_PageBlock>>[];
     for (var i = 0; i < pages.length; i++) {
-      acc += pages[i].length;
-      if (blockIndex < acc) return i;
+      for (final pb in pages[i]) {
+        if (pb.originIndex == blockIndex) return i;
+      }
     }
+    return pages.isEmpty ? 0 : pages.length - 1;
+  }
+
+  /// The page showing block [blockIndex] at character [charOffset] — so
+  /// read-aloud follow stays correct for a paragraph that spans pages.
+  int _pageForBlockAt(int blockIndex, int charOffset) {
+    final pages = _pages ?? const <List<_PageBlock>>[];
+    var firstPage = -1;
+    for (var i = 0; i < pages.length; i++) {
+      for (final pb in pages[i]) {
+        if (pb.originIndex != blockIndex) continue;
+        if (firstPage < 0) firstPage = i;
+        final length = pb.block is ParagraphBlock
+            ? _runsLength((pb.block as ParagraphBlock).runs)
+            : 0;
+        if (charOffset >= pb.charOffset &&
+            charOffset < pb.charOffset + length) {
+          return i;
+        }
+      }
+    }
+    if (firstPage >= 0) return firstPage;
     return pages.isEmpty ? 0 : pages.length - 1;
   }
 
@@ -554,6 +747,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     }
     _ttsBlockForChunk = blockForChunk;
     _followedBlock = -1;
+    _followedPage = -1;
     _ttsService.start(
       texts,
       from: fromChunk,
@@ -582,30 +776,36 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// Scrolls/pages so the block being read stays visible — only when the
   /// block changes, so it doesn't fight the reader within a paragraph.
   void _followSpeaking(int blockIndex) {
-    if (blockIndex == _followedBlock) return;
-    _followedBlock = blockIndex;
     if (_settings.mode == ReadingMode.paged) {
       if (!_pageController.hasClients) return;
-      final page = _pageForBlock(blockIndex);
-      if ((_pageController.page?.round() ?? 0) != page) {
+      // Follow by page (not block) so a paragraph split across pages is
+      // tracked as read-aloud moves through it.
+      final page = _pageForBlockAt(blockIndex, _speakingStart);
+      final currentPage = _pageController.page?.round() ?? 0;
+      if (page != currentPage && page != _followedPage) {
+        _followedPage = page;
         _pageController.animateToPage(
           page,
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeInOut,
         );
       }
-    } else {
-      if (!_scrollController.hasClients) return;
-      final target = (_blockOffset(blockIndex) - 80).clamp(
-        0.0,
-        _scrollController.position.maxScrollExtent,
-      );
-      _scrollController.animateTo(
-        target,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
+      return;
     }
+    // Scroll mode: only move when the block changes, so it doesn't fight the
+    // reader within a paragraph.
+    if (blockIndex == _followedBlock) return;
+    _followedBlock = blockIndex;
+    if (!_scrollController.hasClients) return;
+    final target = (_blockOffset(blockIndex) - 80).clamp(
+      0.0,
+      _scrollController.position.maxScrollExtent,
+    );
+    _scrollController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+    );
   }
 
   /// The character range of the sentence containing [offset] in [text].
@@ -734,6 +934,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
+      // Cap the height so the sheet never fully covers the screen — a scrim
+      // strip stays visible (and tappable) above it to get back to the book.
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.85,
+      ),
       builder: (_) => ReaderSettingsSheet(
         initial: _settings,
         voices: voices,
@@ -1168,17 +1373,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
             _saveProgress();
           });
         }
-        final pages = _pages ?? const <List<ContentBlock>>[];
+        final pages = _pages ?? const <List<_PageBlock>>[];
         return PageView.builder(
           controller: _pageController,
           itemCount: pages.length,
           itemBuilder: (context, pageIndex) {
-            // Global block index of the first block on this page, so the
-            // read-aloud highlight can be matched.
-            var globalIndex = 0;
-            for (var p = 0; p < pageIndex; p++) {
-              globalIndex += pages[p].length;
-            }
             final pageBlocks = pages[pageIndex];
             return SingleChildScrollView(
               padding: EdgeInsets.symmetric(
@@ -1190,14 +1389,18 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 children: [
                   for (var j = 0; j < pageBlocks.length; j++)
                     _BlockView(
-                      block: pageBlocks[j],
+                      block: pageBlocks[j].block,
                       settings: _settings,
                       preset: preset,
-                      highlightStart: (globalIndex + j) == _speakingBlock
-                          ? _speakingStart
+                      isLast: j == pageBlocks.length - 1,
+                      // The highlight range is in parent-block coordinates;
+                      // shift it into this slice's own coordinates.
+                      highlightStart:
+                          pageBlocks[j].originIndex == _speakingBlock
+                          ? _speakingStart - pageBlocks[j].charOffset
                           : null,
-                      highlightEnd: (globalIndex + j) == _speakingBlock
-                          ? _speakingEnd
+                      highlightEnd: pageBlocks[j].originIndex == _speakingBlock
+                          ? _speakingEnd - pageBlocks[j].charOffset
                           : null,
                     ),
                 ],
@@ -1216,6 +1419,7 @@ class _BlockView extends StatelessWidget {
     required this.block,
     required this.settings,
     required this.preset,
+    this.isLast = false,
     this.highlightStart,
     this.highlightEnd,
   });
@@ -1223,6 +1427,10 @@ class _BlockView extends StatelessWidget {
   final ContentBlock block;
   final ReaderSettings settings;
   final ReaderThemePreset preset;
+
+  /// True for the last block on a page — its trailing gap is dropped so the
+  /// content can sit flush against the page bottom.
+  final bool isLast;
 
   /// Character range to highlight (the sentence being read aloud), or null.
   final int? highlightStart;
@@ -1233,7 +1441,7 @@ class _BlockView extends StatelessWidget {
     switch (block) {
       case ParagraphBlock paragraph:
         return Padding(
-          padding: const EdgeInsets.only(bottom: _paragraphGap),
+          padding: EdgeInsets.only(bottom: isLast ? 0 : _paragraphGap),
           child: Text.rich(
             TextSpan(
               children: _spansFor(
@@ -1249,9 +1457,9 @@ class _BlockView extends StatelessWidget {
         );
       case HeadingBlock heading:
         return Padding(
-          padding: const EdgeInsets.only(
+          padding: EdgeInsets.only(
             top: _headingTopGap,
-            bottom: _headingBottomGap,
+            bottom: isLast ? 0 : _headingBottomGap,
           ),
           child: Text.rich(
             TextSpan(

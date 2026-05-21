@@ -83,6 +83,24 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Reader settings',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Done',
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
             _label(theme, 'Layout'),
             SegmentedButton<ReadingMode>(
               segments: const [
