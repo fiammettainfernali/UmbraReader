@@ -200,6 +200,24 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
               onChanged: (on) =>
                   _update(_settings.copyWith(italicText: on)),
             ),
+            const SizedBox(height: 12),
+            SegmentedButton<ReaderTextAlign>(
+              segments: const [
+                ButtonSegment(
+                  value: ReaderTextAlign.left,
+                  label: Text('Left'),
+                  icon: Icon(Icons.format_align_left),
+                ),
+                ButtonSegment(
+                  value: ReaderTextAlign.justify,
+                  label: Text('Justified'),
+                  icon: Icon(Icons.format_align_justify),
+                ),
+              ],
+              selected: {_settings.textAlign},
+              onSelectionChanged: (selection) =>
+                  _update(_settings.copyWith(textAlign: selection.first)),
+            ),
             const SizedBox(height: 16),
 
             _label(theme, 'Read aloud'),

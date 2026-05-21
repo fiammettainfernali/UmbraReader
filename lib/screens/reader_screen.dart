@@ -1241,6 +1241,9 @@ class _BlockView extends StatelessWidget {
                 _paragraphStyle(settings, preset.text),
               ),
             ),
+            textAlign: settings.textAlign == ReaderTextAlign.justify
+                ? TextAlign.justify
+                : TextAlign.left,
             textScaler: TextScaler.noScaling,
           ),
         );

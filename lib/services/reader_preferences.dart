@@ -16,6 +16,7 @@ class ReaderPreferences {
   static const _kBoldText = 'reader_bold_text';
   static const _kItalicText = 'reader_italic_text';
   static const _kBrightness = 'reader_brightness';
+  static const _kTextAlign = 'reader_text_align';
 
   Future<ReaderSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -35,6 +36,10 @@ class ReaderPreferences {
       boldText: prefs.getBool(_kBoldText) ?? d.boldText,
       italicText: prefs.getBool(_kItalicText) ?? d.italicText,
       brightness: prefs.getDouble(_kBrightness) ?? d.brightness,
+      textAlign: ReaderTextAlign.values.firstWhere(
+        (a) => a.name == prefs.getString(_kTextAlign),
+        orElse: () => d.textAlign,
+      ),
     );
   }
 
@@ -52,5 +57,6 @@ class ReaderPreferences {
     await prefs.setBool(_kBoldText, settings.boldText);
     await prefs.setBool(_kItalicText, settings.italicText);
     await prefs.setDouble(_kBrightness, settings.brightness);
+    await prefs.setString(_kTextAlign, settings.textAlign.name);
   }
 }

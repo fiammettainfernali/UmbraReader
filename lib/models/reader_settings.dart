@@ -9,6 +9,15 @@ enum ReadingMode {
   paged,
 }
 
+/// Horizontal alignment of body text in the reader.
+enum ReaderTextAlign {
+  /// A ragged right edge.
+  left,
+
+  /// Spread to both margins.
+  justify,
+}
+
 /// All reader preferences: layout mode, colour theme, and typography.
 class ReaderSettings {
   const ReaderSettings({
@@ -24,6 +33,7 @@ class ReaderSettings {
     required this.boldText,
     required this.italicText,
     required this.brightness,
+    required this.textAlign,
   });
 
   final ReadingMode mode;
@@ -60,6 +70,9 @@ class ReaderSettings {
   /// darkens the page — useful for night reading below the system minimum.
   final double brightness;
 
+  /// Horizontal alignment of body paragraphs.
+  final ReaderTextAlign textAlign;
+
   static const defaults = ReaderSettings(
     mode: ReadingMode.scroll,
     themeId: 'dark',
@@ -73,6 +86,7 @@ class ReaderSettings {
     boldText: false,
     italicText: false,
     brightness: 1.0,
+    textAlign: ReaderTextAlign.left,
   );
 
   ReaderThemePreset get theme => readerThemeById(themeId);
@@ -90,6 +104,7 @@ class ReaderSettings {
     bool? boldText,
     bool? italicText,
     double? brightness,
+    ReaderTextAlign? textAlign,
   }) {
     return ReaderSettings(
       mode: mode ?? this.mode,
@@ -104,6 +119,7 @@ class ReaderSettings {
       boldText: boldText ?? this.boldText,
       italicText: italicText ?? this.italicText,
       brightness: brightness ?? this.brightness,
+      textAlign: textAlign ?? this.textAlign,
     );
   }
 }
