@@ -51,6 +51,10 @@ class LibraryScreen extends StatefulWidget {
 class _LibraryScreenState extends State<LibraryScreen> {
   final _settingsService = SettingsService();
   final _searchController = TextEditingController();
+  final _scrollController = ScrollController();
+
+  /// True when the grid is scrolled far enough to offer a "back to top" jump.
+  bool _showBackToTop = false;
 
   /// Null until the initial settings load finishes.
   OpdsSettings? _settings;
@@ -83,13 +87,34 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     _initialize();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Shows the "back to top" button once the grid is scrolled a few screens
+  /// down, and hides it again near the top.
+  void _onScroll() {
+    final show = _scrollController.hasClients &&
+        _scrollController.offset > 1200;
+    if (show != _showBackToTop) {
+      setState(() => _showBackToTop = show);
+    }
+  }
+
+  void _scrollToTop() {
+    if (!_scrollController.hasClients) return;
+    _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   Future<void> _initialize() async {
@@ -410,9 +435,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final canDownloadAll =
         (_library?.isNotEmpty ?? false) && !_offline && !_bulkDownloading;
     return Scaffold(
+      floatingActionButton: _showBackToTop
+          ? FloatingActionButton.small(
+              tooltip: 'Back to top',
+              onPressed: _scrollToTop,
+              child: const Icon(Icons.arrow_upward),
+            )
+          : null,
       body: RefreshIndicator(
         onRefresh: _sync,
         child: CustomScrollView(
+          controller: _scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
             SliverAppBar.large(
