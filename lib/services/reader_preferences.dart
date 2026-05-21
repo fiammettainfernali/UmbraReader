@@ -15,6 +15,7 @@ class ReaderPreferences {
   static const _kVoiceLocale = 'reader_voice_locale';
   static const _kBoldText = 'reader_bold_text';
   static const _kItalicText = 'reader_italic_text';
+  static const _kBrightness = 'reader_brightness';
 
   Future<ReaderSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -33,6 +34,7 @@ class ReaderPreferences {
       voiceLocale: prefs.getString(_kVoiceLocale) ?? d.voiceLocale,
       boldText: prefs.getBool(_kBoldText) ?? d.boldText,
       italicText: prefs.getBool(_kItalicText) ?? d.italicText,
+      brightness: prefs.getDouble(_kBrightness) ?? d.brightness,
     );
   }
 
@@ -49,5 +51,6 @@ class ReaderPreferences {
     await prefs.setString(_kVoiceLocale, settings.voiceLocale);
     await prefs.setBool(_kBoldText, settings.boldText);
     await prefs.setBool(_kItalicText, settings.italicText);
+    await prefs.setDouble(_kBrightness, settings.brightness);
   }
 }

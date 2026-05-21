@@ -23,6 +23,7 @@ class ReaderSettings {
     required this.voiceLocale,
     required this.boldText,
     required this.italicText,
+    required this.brightness,
   });
 
   final ReadingMode mode;
@@ -55,6 +56,10 @@ class ReaderSettings {
   /// When true, all body text is rendered italic.
   final bool italicText;
 
+  /// Screen brightness for the reader, 0.15–1.0. Below 1.0 a dimming overlay
+  /// darkens the page — useful for night reading below the system minimum.
+  final double brightness;
+
   static const defaults = ReaderSettings(
     mode: ReadingMode.scroll,
     themeId: 'dark',
@@ -67,6 +72,7 @@ class ReaderSettings {
     voiceLocale: '',
     boldText: false,
     italicText: false,
+    brightness: 1.0,
   );
 
   ReaderThemePreset get theme => readerThemeById(themeId);
@@ -83,6 +89,7 @@ class ReaderSettings {
     String? voiceLocale,
     bool? boldText,
     bool? italicText,
+    double? brightness,
   }) {
     return ReaderSettings(
       mode: mode ?? this.mode,
@@ -96,6 +103,7 @@ class ReaderSettings {
       voiceLocale: voiceLocale ?? this.voiceLocale,
       boldText: boldText ?? this.boldText,
       italicText: italicText ?? this.italicText,
+      brightness: brightness ?? this.brightness,
     );
   }
 }

@@ -481,6 +481,20 @@ class _ReaderScreenState extends State<ReaderScreen> {
     });
   }
 
+  /// Routes a tap on the page: the left and right edges turn the page, while
+  /// the centre toggles the reading chrome.
+  void _onContentTap(TapUpDetails details) {
+    final width = MediaQuery.of(context).size.width;
+    final x = details.globalPosition.dx;
+    if (x < width * 0.28) {
+      _advance(forward: false);
+    } else if (x > width * 0.72) {
+      _advance(forward: true);
+    } else {
+      _toggleChrome();
+    }
+  }
+
   Future<void> _applySettings(ReaderSettings next) async {
     final fontChanged = next.fontFamily != _settings.fontFamily;
     final rateChanged = next.speechRate != _settings.speechRate;
@@ -1029,7 +1043,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
           autofocus: true,
           onKeyEvent: _handleKey,
           child: GestureDetector(
-            onTap: _toggleChrome,
+            onTapUp: _onContentTap,
             behavior: HitTestBehavior.opaque,
             child: Stack(
               children: [
@@ -1080,6 +1094,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     ),
                   ),
                 ),
+                if (_settings.brightness < 1.0)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: ColoredBox(
+                        color: Colors.black.withValues(
+                          alpha: (1 - _settings.brightness).clamp(0.0, 0.85),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),

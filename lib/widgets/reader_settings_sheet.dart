@@ -169,6 +169,16 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
               display: _settings.margin.round().toString(),
               onChanged: (v) => _update(_settings.copyWith(margin: v)),
             ),
+            _slider(
+              theme,
+              label: 'Brightness',
+              value: _settings.brightness,
+              min: 0.15,
+              max: 1.0,
+              divisions: 17,
+              display: '${(_settings.brightness * 100).round()}%',
+              onChanged: (v) => _update(_settings.copyWith(brightness: v)),
+            ),
             const SizedBox(height: 16),
 
             _label(theme, 'Text style'),
