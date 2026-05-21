@@ -69,6 +69,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// Books that have been started but not finished, newest first.
   List<ReadingEntry> _reading = const [];
 
+  /// Download records, used to flag series with content newer than what's
+  /// been downloaded. Null until first loaded.
+  DownloadStore? _downloads;
+
   // ── library-wide "download everything" state ─────────────────────────────
   bool _bulkDownloading = false;
   bool _bulkCancel = false;
@@ -100,6 +104,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       if (cache.series.isNotEmpty) _library = cache.series;
     });
     await _loadReading();
+    await _loadDownloads();
     if (settings.isConfigured) {
       await _sync();
     }
@@ -113,6 +118,34 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
     if (!mounted) return;
     setState(() => _reading = entries.take(12).toList());
+  }
+
+  /// Reloads the download manifest so the "update available" badges reflect
+  /// the latest downloads.
+  Future<void> _loadDownloads() async {
+    final store = DownloadStore(LibraryStorage());
+    await store.load();
+    if (!mounted) return;
+    setState(() => _downloads = store);
+  }
+
+  /// True when a series has content newer than what's been downloaded — its
+  /// latest volume was re-compiled, or a newer volume exists.
+  bool _seriesHasUpdate(Series series) {
+    final downloads = _downloads;
+    final seriesUpdated = series.updatedAt;
+    if (downloads == null || seriesUpdated == null) return false;
+    DateTime? newestDownloaded;
+    for (final record in downloads.recordsForSeries(series.opdsId)) {
+      final t = record.volumeUpdatedAt;
+      if (t != null &&
+          (newestDownloaded == null || t.isAfter(newestDownloaded))) {
+        newestDownloaded = t;
+      }
+    }
+    // Nothing downloaded — there's no "update", just an undownloaded series.
+    if (newestDownloaded == null) return false;
+    return seriesUpdated.isAfter(newestDownloaded);
   }
 
   Future<void> _sync() async {
@@ -216,6 +249,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       ),
     );
     await _loadReading();
+    await _loadDownloads();
   }
 
   void _openStats() {
@@ -346,6 +380,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _bulkDownloading = false;
       _bulkCurrent = null;
     });
+    await _loadDownloads();
+    await _loadReading();
 
     final String message;
     if (cancelled) {
@@ -456,6 +492,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 imageHeaders: _settings!.isConfigured
                     ? OpdsClient(_settings!).authHeaders
                     : const {},
+                updateAvailable: _seriesHasUpdate(visible[index]),
                 onTap: () => _openSeries(visible[index]),
               ),
             ),
@@ -720,11 +757,15 @@ class _SeriesCard extends StatelessWidget {
   const _SeriesCard({
     required this.series,
     required this.imageHeaders,
+    required this.updateAvailable,
     required this.onTap,
   });
 
   final Series series;
   final Map<String, String> imageHeaders;
+
+  /// True when the series has content newer than what's been downloaded.
+  final bool updateAvailable;
   final VoidCallback onTap;
 
   @override
@@ -756,6 +797,12 @@ class _SeriesCard extends StatelessWidget {
                     _CoverImage(series: series, headers: imageHeaders),
                     if (series.hasMultipleVolumes)
                       const Positioned(top: 6, right: 6, child: _VolumeBadge()),
+                    if (updateAvailable)
+                      const Positioned(
+                        top: 6,
+                        left: 6,
+                        child: _UpdateBadge(),
+                      ),
                   ],
                 ),
               ),
@@ -978,6 +1025,23 @@ class _VolumeBadge extends StatelessWidget {
         size: 13,
         color: Colors.white,
       ),
+    );
+  }
+}
+
+/// Corner badge marking a series with content newer than what's downloaded.
+class _UpdateBadge extends StatelessWidget {
+  const _UpdateBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: const BoxDecoration(
+        color: Colors.orange,
+        shape: BoxShape.circle,
+      ),
+      child: const Icon(Icons.update, size: 15, color: Colors.white),
     );
   }
 }

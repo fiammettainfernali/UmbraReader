@@ -101,6 +101,15 @@ class DownloadStore {
 
   bool isDownloaded(Volume volume) => recordFor(volume) != null;
 
+  /// Every download record belonging to a series.
+  Iterable<DownloadRecord> recordsForSeries(int seriesId) {
+    final prefix = '$seriesId/';
+    return [
+      for (final entry in _records.entries)
+        if (entry.key.startsWith(prefix)) entry.value,
+    ];
+  }
+
   Future<void> put(Volume volume, DownloadRecord record) async {
     _records[_key(volume.seriesOpdsId, volume.fileName)] = record;
     await _flush();

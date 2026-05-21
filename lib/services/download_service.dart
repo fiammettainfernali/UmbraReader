@@ -4,8 +4,10 @@ import 'package:http/http.dart' as http;
 
 import '../models/download_record.dart';
 import '../models/volume.dart';
+import 'epub_parser.dart';
 import 'library_storage.dart';
 import 'opds_client.dart';
+import 'reading_progress_store.dart';
 import 'settings_service.dart';
 
 /// Raised when a volume download fails. [message] is safe to show to the user.
@@ -86,6 +88,8 @@ class DownloadService {
           etag: response.headers['etag'],
         ),
       );
+
+      await _refreshReadingProgress(volume, epubFile);
     } on DownloadException {
       rethrow;
     } on Exception catch (e) {
@@ -111,5 +115,36 @@ class DownloadService {
   Future<void> delete(Volume volume) async {
     await storage.deleteEpub(volume);
     await store.remove(volume);
+  }
+
+  /// After a (re)download, refreshes the saved reading position's chapter
+  /// count from the new EPUB. If a re-compiled volume gained chapters, a book
+  /// that was marked finished stops being finished — so it returns to the
+  /// "Continue reading" shelf. Best-effort: any failure leaves progress as-is.
+  Future<void> _refreshReadingProgress(Volume volume, File epubFile) async {
+    try {
+      final progressStore = ReadingProgressStore();
+      final progress = await progressStore.load(volume);
+      // Nothing has been read — there is no position to refresh.
+      if (!progress.isStarted) return;
+      final book = await EpubParser().open(epubFile);
+      if (book.chapters.isEmpty ||
+          book.chapters.length == progress.chapterCount) {
+        return;
+      }
+      await progressStore.save(
+        volume,
+        ReadingProgress(
+          chapterIndex: progress.chapterIndex.clamp(
+            0,
+            book.chapters.length - 1,
+          ),
+          blockIndex: progress.blockIndex,
+          chapterCount: book.chapters.length,
+        ),
+      );
+    } on Exception {
+      // Best-effort — the download itself already succeeded.
+    }
   }
 }
