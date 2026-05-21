@@ -9,6 +9,7 @@ import '../services/library_storage.dart';
 import '../services/opds_client.dart';
 import '../services/reading_progress_store.dart';
 import '../services/settings_service.dart';
+import '../widgets/cached_cover.dart';
 import 'reader_screen.dart';
 import 'series_detail_screen.dart';
 import 'settings_screen.dart';
@@ -922,19 +923,11 @@ class _CoverImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final coverUrl = series.coverUrl;
-    if (coverUrl == null) return _fallback(context);
-    return Image.network(
-      coverUrl,
+    return CachedCover(
+      seriesId: series.opdsId,
+      coverUrl: series.coverUrl,
       headers: headers,
-      fit: BoxFit.cover,
-      errorBuilder: (_, _, _) => _fallback(context),
-      loadingBuilder: (context, child, progress) {
-        if (progress == null) return child;
-        return ColoredBox(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        );
-      },
+      fallback: _fallback(context),
     );
   }
 

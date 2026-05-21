@@ -43,6 +43,12 @@ class LibraryStorage {
     return '${root.path}/library_cache.json';
   }
 
+  /// Absolute path of the cached cover image for a series.
+  Future<String> coverPath(int seriesId) async {
+    final root = await _libraryRoot();
+    return '${root.path}/covers/$seriesId';
+  }
+
   /// Deletes a volume's EPUB, and its series folder if that leaves it empty.
   Future<void> deleteEpub(Volume volume) async {
     final file = await epubFile(volume);
