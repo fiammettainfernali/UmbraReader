@@ -3,6 +3,7 @@ import 'dart:math';
 import '../models/series.dart';
 import '../models/volume.dart';
 import 'reading_progress_store.dart';
+import 'recommendation_feedback_store.dart';
 
 /// One recommended series with the score that produced it.
 class Recommendation {
@@ -48,10 +49,12 @@ class RecommendationEngine {
   final int keywordsPerSeries;
 
   /// Returns the top-scored series the user hasn't engaged with, best first.
-  /// [now] is overridable for tests.
+  /// [feedback] folds in explicit "no thanks" signals (dismissed cards, reset
+  /// reading progress) as negative weight. [now] is overridable for tests.
   List<Recommendation> recommend({
     required List<Series> allSeries,
     required List<ReadingEntry> readingEntries,
+    Map<int, RecommendationFeedback>? feedback,
     DateTime? now,
   }) {
     final clock = now ?? DateTime.now();
@@ -75,17 +78,9 @@ class RecommendationEngine {
     for (final series in allSeries) {
       final status = series.readingStatus.trim().toLowerCase();
       final entries = entriesBySeries[series.opdsId];
-      double signed;
-      if (entries == null) {
-        // No reading entry — only the explicit "dropped" status carries any
-        // signal here, and it's a negative one.
-        if (status == 'dropped') {
-          signed = -0.5;
-          engagedIds.add(series.opdsId);
-        } else {
-          continue;
-        }
-      } else {
+      final userFeedback = feedback?[series.opdsId];
+      double? signed;
+      if (entries != null) {
         // Sum per-volume like weights, then dampen with √n so a 10-volume
         // binge doesn't drown out single-volume favourites.
         var aggregated = 0.0;
@@ -100,13 +95,25 @@ class RecommendationEngine {
           // chapter-count guess says otherwise.
           if (aggregated < 1.0) aggregated = 1.0;
         }
-        if (status == 'dropped') {
-          // User-marked dropped → flip to negative signal.
-          aggregated = -(aggregated.abs().clamp(0.5, double.infinity));
-        }
         signed = aggregated;
       }
-      if (signed != 0) signedSeries[series.opdsId] = signed;
+      if (status == 'dropped') {
+        // User-marked dropped → flip to a negative signal.
+        signed = -(((signed ?? 0).abs()).clamp(0.5, double.infinity));
+        engagedIds.add(series.opdsId);
+      }
+      // Explicit per-card feedback overrides everything else: reset is the
+      // strongest "no thanks", dismiss is a milder one.
+      if (userFeedback == RecommendationFeedback.reset) {
+        signed = -0.7;
+        engagedIds.add(series.opdsId);
+      } else if (userFeedback == RecommendationFeedback.dismissed) {
+        signed = -0.3;
+        engagedIds.add(series.opdsId);
+      }
+      if (signed != null && signed != 0) {
+        signedSeries[series.opdsId] = signed;
+      }
     }
 
     // Cold start: nothing engaged → recommend recently-updated series so the
@@ -272,6 +279,7 @@ class RecommendationEngine {
     required Series source,
     required List<Series> allSeries,
     int maxResults = 6,
+    Map<int, RecommendationFeedback>? feedback,
     DateTime? now,
   }) {
     final clock = now ?? DateTime.now();
@@ -294,6 +302,7 @@ class RecommendationEngine {
     final picks = recommend(
       allSeries: allSeries,
       readingEntries: [fakeEntry],
+      feedback: feedback,
       now: clock,
     );
     if (picks.length <= maxResults) return picks;

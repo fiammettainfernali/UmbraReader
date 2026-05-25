@@ -10,6 +10,7 @@ import '../services/library_storage.dart';
 import '../services/opds_client.dart';
 import '../services/reading_progress_store.dart';
 import '../services/recommendation_engine.dart';
+import '../services/recommendation_feedback_store.dart';
 import '../services/settings_service.dart';
 import '../widgets/cached_cover.dart';
 import 'reader_screen.dart';
@@ -68,9 +69,11 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     await store.load();
     await cache.load();
     if (!mounted) return;
+    final feedback = await RecommendationFeedbackStore().load();
     final similar = const RecommendationEngine().similarTo(
       source: widget.series,
       allSeries: cache.series,
+      feedback: feedback,
     );
     setState(() {
       _store = store;
@@ -228,7 +231,24 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     );
     if (confirmed != true) return;
     await ReadingProgressStore().clear(volume);
+    // Treat reset as a strong "I'm done with this series" signal so it stops
+    // surfacing in recommendations until the user re-engages.
+    await RecommendationFeedbackStore().recordReset(volume.seriesOpdsId);
     _snack('Reading progress reset for “${volume.title}”.');
+  }
+
+  /// Records a dismiss on a "More like this" pick and refreshes the shelf.
+  Future<void> _dismissSimilar(Series series) async {
+    await RecommendationFeedbackStore().recordDismiss(series.opdsId);
+    if (!_ready) return;
+    final feedback = await RecommendationFeedbackStore().load();
+    final updated = const RecommendationEngine().similarTo(
+      source: widget.series,
+      allSeries: _libraryCache.series,
+      feedback: feedback,
+    );
+    if (!mounted) return;
+    setState(() => _similar = updated);
   }
 
   void _openReader(Volume volume) {
@@ -329,6 +349,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
                     ),
                   );
                 },
+                onDismiss: () => _dismissSimilar(series),
               );
             },
           ),
@@ -807,17 +828,20 @@ String _formatBytes(int bytes) {
   return '${size.toStringAsFixed(decimals)} ${units[unit]}';
 }
 
-/// A card on the "More like this" shelf: cover, title, author.
+/// A card on the "More like this" shelf: cover, title, author, plus a ✕ to
+/// dismiss the recommendation as a "not interested" signal.
 class _SimilarCard extends StatelessWidget {
   const _SimilarCard({
     required this.series,
     required this.imageHeaders,
     required this.onTap,
+    required this.onDismiss,
   });
 
   final Series series;
   final Map<String, String> imageHeaders;
   final VoidCallback onTap;
+  final VoidCallback onDismiss;
 
   @override
   Widget build(BuildContext context) {
@@ -846,11 +870,34 @@ class _SimilarCard extends StatelessWidget {
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: CachedCover(
-                    seriesId: series.opdsId,
-                    coverUrl: series.coverUrl,
-                    headers: imageHeaders,
-                    fallback: _SimilarFallback(title: series.title),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      CachedCover(
+                        seriesId: series.opdsId,
+                        coverUrl: series.coverUrl,
+                        headers: imageHeaders,
+                        fallback: _SimilarFallback(title: series.title),
+                      ),
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: Material(
+                          color: Colors.black.withValues(alpha: 0.55),
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: onDismiss,
+                            child: const Padding(
+                              padding: EdgeInsets.all(4),
+                              child: Icon(
+                                Icons.close, size: 14, color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),

@@ -5,6 +5,7 @@ import 'package:umbra_reader/models/series.dart';
 import 'package:umbra_reader/models/volume.dart';
 import 'package:umbra_reader/services/reading_progress_store.dart';
 import 'package:umbra_reader/services/recommendation_engine.dart';
+import 'package:umbra_reader/services/recommendation_feedback_store.dart';
 
 Series _series({
   required int id,
@@ -358,6 +359,61 @@ void main() {
       now: today,
     );
     expect(recs.first.series.opdsId, 3);
+  });
+
+  test('a dismissed recommendation is suppressed and softens its tags', () {
+    final library = [
+      _series(id: 1, title: 'Loved', genres: ['Action'], author: 'A'),
+      _series(id: 2, title: 'Dismissed', genres: ['Action'], author: 'B'),
+      _series(id: 3, title: 'Other Action', genres: ['Action'], author: 'C'),
+    ];
+    final recs = engine.recommend(
+      allSeries: library,
+      readingEntries: [
+        _entry(
+          seriesId: 1,
+          progress: ReadingProgress(
+            chapterIndex: 99,
+            blockIndex: 0,
+            chapterCount: 100,
+            updatedAt: today,
+          ),
+        ),
+      ],
+      feedback: const {2: RecommendationFeedback.dismissed},
+      now: today,
+    );
+    // Dismissed series never appears in the result.
+    expect(recs.any((r) => r.series.opdsId == 2), isFalse);
+    // The other Action series still shows up — dismiss is a soft signal.
+    expect(recs.any((r) => r.series.opdsId == 3), isTrue);
+  });
+
+  test('a reset series overrides a positive reading-history signal', () {
+    final library = [
+      _series(id: 1, title: 'Finished Then Reset', genres: ['Mecha'],
+          author: 'A'),
+      _series(id: 2, title: 'Other Mecha', genres: ['Mecha'], author: 'B'),
+    ];
+    final recs = engine.recommend(
+      allSeries: library,
+      readingEntries: [
+        _entry(
+          seriesId: 1,
+          progress: ReadingProgress(
+            chapterIndex: 99,
+            blockIndex: 0,
+            chapterCount: 100,
+            updatedAt: today,
+          ),
+        ),
+      ],
+      feedback: const {1: RecommendationFeedback.reset},
+      now: today,
+    );
+    // Reset turns the Mecha tag negative, so the other Mecha series is
+    // suppressed too.
+    expect(recs.any((r) => r.series.opdsId == 2), isFalse);
   });
 
   test('similarTo finds picks resembling the given series', () {

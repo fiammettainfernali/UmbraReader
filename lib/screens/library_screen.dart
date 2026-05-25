@@ -11,6 +11,7 @@ import '../services/library_storage.dart';
 import '../services/opds_client.dart';
 import '../services/reading_progress_store.dart';
 import '../services/recommendation_engine.dart';
+import '../services/recommendation_feedback_store.dart';
 import '../services/settings_service.dart';
 import '../widgets/cached_cover.dart';
 import 'reader_screen.dart';
@@ -154,6 +155,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// from the saved reading positions and the current library.
   Future<void> _loadReading() async {
     final entries = await ReadingProgressStore().allEntries();
+    final feedback = await RecommendationFeedbackStore().load();
     final inProgress = entries
         .where((e) => e.progress.isStarted && !e.progress.isFinished)
         .take(12)
@@ -161,6 +163,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final recs = const RecommendationEngine(maxResults: 40).recommend(
       allSeries: _library ?? const <Series>[],
       readingEntries: entries,
+      feedback: feedback,
     );
     if (!mounted) return;
     setState(() {
@@ -168,6 +171,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _recommendations = recs;
       _recommendOffset = 0;
     });
+  }
+
+  /// Records a "not interested" on a recommendation and refreshes the shelf
+  /// without the dismissed pick.
+  Future<void> _dismissRecommendation(Series series) async {
+    await RecommendationFeedbackStore().recordDismiss(series.opdsId);
+    await _loadReading();
   }
 
   /// Advances the visible recommendation window so "Show me different" gives
@@ -765,6 +775,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 series: series,
                 imageHeaders: headers,
                 onTap: () => _openSeries(series),
+                onDismiss: () => _dismissRecommendation(series),
               );
             },
           ),
@@ -1080,17 +1091,20 @@ class _ContinueCard extends StatelessWidget {
   }
 }
 
-/// A card on the "Recommended for you" shelf: cover, title, author.
+/// A card on the "Recommended for you" shelf: cover, title, author, plus a
+/// small ✕ button to dismiss the recommendation as a "not interested" signal.
 class _RecommendCard extends StatelessWidget {
   const _RecommendCard({
     required this.series,
     required this.imageHeaders,
     required this.onTap,
+    required this.onDismiss,
   });
 
   final Series series;
   final Map<String, String> imageHeaders;
   final VoidCallback onTap;
+  final VoidCallback onDismiss;
 
   @override
   Widget build(BuildContext context) {
@@ -1119,11 +1133,21 @@ class _RecommendCard extends StatelessWidget {
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: CachedCover(
-                    seriesId: series.opdsId,
-                    coverUrl: series.coverUrl,
-                    headers: imageHeaders,
-                    fallback: _TitleCover(title: series.title),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      CachedCover(
+                        seriesId: series.opdsId,
+                        coverUrl: series.coverUrl,
+                        headers: imageHeaders,
+                        fallback: _TitleCover(title: series.title),
+                      ),
+                      Positioned(
+                        top: 4,
+                        right: 4,
+                        child: _DismissChip(onPressed: onDismiss),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -1256,6 +1280,30 @@ class _VolumeBadge extends StatelessWidget {
         Icons.collections_bookmark,
         size: 13,
         color: Colors.white,
+      ),
+    );
+  }
+}
+
+/// A small "not interested" ✕ button overlaid on a recommendation card. Taps
+/// dismiss the recommendation and feed a soft-negative back to the engine.
+class _DismissChip extends StatelessWidget {
+  const _DismissChip({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black.withValues(alpha: 0.55),
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onPressed,
+        child: const Padding(
+          padding: EdgeInsets.all(4),
+          child: Icon(Icons.close, size: 14, color: Colors.white),
+        ),
       ),
     );
   }
