@@ -9,6 +9,7 @@ import '../services/library_cache.dart';
 import '../services/library_storage.dart';
 import '../services/opds_client.dart';
 import '../services/reading_progress_store.dart';
+import '../services/recommendation_engine.dart';
 import '../services/settings_service.dart';
 import '../widgets/cached_cover.dart';
 import 'reader_screen.dart';
@@ -50,6 +51,10 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   final Map<String, double> _progress = {};
   bool _downloadingAll = false;
 
+  /// "More like this" suggestions from the user's library based on this
+  /// series' genres, author, length and description keywords.
+  List<Recommendation> _similar = const [];
+
   @override
   void initState() {
     super.initState();
@@ -63,6 +68,10 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     await store.load();
     await cache.load();
     if (!mounted) return;
+    final similar = const RecommendationEngine().similarTo(
+      source: widget.series,
+      allSeries: cache.series,
+    );
     setState(() {
       _store = store;
       _libraryCache = cache;
@@ -71,6 +80,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
         storage: storage,
         store: store,
       );
+      _similar = similar;
       _ready = true;
     });
     await _loadVolumes();
@@ -272,8 +282,58 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
           const Divider(),
           const SizedBox(height: 8),
           _buildVolumesSection(),
+          if (_similar.isNotEmpty) ...[
+            const SizedBox(height: 24),
+            const Divider(),
+            const SizedBox(height: 8),
+            _buildSimilarSection(),
+          ],
         ],
       ),
+    );
+  }
+
+  /// A horizontal shelf of "if you like this, try…" suggestions drawn from
+  /// the library based on this series' content tags.
+  Widget _buildSimilarSection() {
+    final theme = Theme.of(context);
+    final headers = OpdsClient(widget.settings).authHeaders;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'More like this',
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 226,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: _similar.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 14),
+            itemBuilder: (context, index) {
+              final series = _similar[index].series;
+              return _SimilarCard(
+                series: series,
+                imageHeaders: headers,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => SeriesDetailScreen(
+                        series: series,
+                        settings: widget.settings,
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 
@@ -745,6 +805,118 @@ String _formatBytes(int bytes) {
   }
   final decimals = (unit == 0 || size >= 100) ? 0 : 1;
   return '${size.toStringAsFixed(decimals)} ${units[unit]}';
+}
+
+/// A card on the "More like this" shelf: cover, title, author.
+class _SimilarCard extends StatelessWidget {
+  const _SimilarCard({
+    required this.series,
+    required this.imageHeaders,
+    required this.onTap,
+  });
+
+  final Series series;
+  final Map<String, String> imageHeaders;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: 124,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 124,
+              height: 165,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.4),
+                      blurRadius: 6,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: CachedCover(
+                    seriesId: series.opdsId,
+                    coverUrl: series.coverUrl,
+                    headers: imageHeaders,
+                    fallback: _SimilarFallback(title: series.title),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 32,
+              child: Text(
+                series.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  height: 1.25,
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              series.author,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Gradient panel shown on a "More like this" card when there's no cover.
+class _SimilarFallback extends StatelessWidget {
+  const _SimilarFallback({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [scheme.primaryContainer, scheme.surfaceContainerHighest],
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Center(
+          child: Text(
+            title,
+            textAlign: TextAlign.center,
+            maxLines: 5,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: scheme.onPrimaryContainer,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Formats a date as e.g. `May 5, 2026`.

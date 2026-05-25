@@ -77,8 +77,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
   List<ReadingEntry> _reading = const [];
 
   /// "Recommended for you" — rebuilt whenever reading history or the library
-  /// changes so it tracks current taste with no manual training step.
+  /// changes so it tracks current taste with no manual training step. We
+  /// hold a wider pool (~40) and show one window of it; the shuffle button
+  /// rotates through the rest.
   List<Recommendation> _recommendations = const [];
+
+  /// Window offset into [_recommendations] for the displayed shelf.
+  int _recommendOffset = 0;
+
+  /// Number of recommendations on screen at one time.
+  static const int _recommendWindow = 10;
 
   /// Download records, used to flag series with content newer than what's
   /// been downloaded. Null until first loaded.
@@ -150,7 +158,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         .where((e) => e.progress.isStarted && !e.progress.isFinished)
         .take(12)
         .toList();
-    final recs = const RecommendationEngine().recommend(
+    final recs = const RecommendationEngine(maxResults: 40).recommend(
       allSeries: _library ?? const <Series>[],
       readingEntries: entries,
     );
@@ -158,6 +166,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
     setState(() {
       _reading = inProgress;
       _recommendations = recs;
+      _recommendOffset = 0;
+    });
+  }
+
+  /// Advances the visible recommendation window so "Show me different" gives
+  /// you the next batch; wraps to the start when the pool runs out.
+  void _rotateRecommendations() {
+    if (_recommendations.length <= _recommendWindow) return;
+    setState(() {
+      _recommendOffset =
+          (_recommendOffset + _recommendWindow) % _recommendations.length;
     });
   }
 
@@ -693,16 +712,44 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final headers = (_settings?.isConfigured ?? false)
         ? OpdsClient(_settings!).authHeaders
         : const <String, String>{};
+    // Slice the pool into a visible window; wrap past the end so the shuffle
+    // button can cycle.
+    final pool = _recommendations;
+    final List<Recommendation> visible;
+    if (pool.length <= _recommendWindow) {
+      visible = pool;
+    } else {
+      final start = _recommendOffset % pool.length;
+      final take = pool.skip(start).take(_recommendWindow).toList();
+      if (take.length < _recommendWindow) {
+        take.addAll(pool.take(_recommendWindow - take.length));
+      }
+      visible = take;
+    }
+    final canRotate = pool.length > _recommendWindow;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-          child: Text(
-            'Recommended for you',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Recommended for you',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (canRotate)
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  tooltip: 'Show me different',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _rotateRecommendations,
+                ),
+            ],
           ),
         ),
         SizedBox(
@@ -710,10 +757,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: _recommendations.length,
+            itemCount: visible.length,
             separatorBuilder: (_, _) => const SizedBox(width: 14),
             itemBuilder: (context, index) {
-              final series = _recommendations[index].series;
+              final series = visible[index].series;
               return _RecommendCard(
                 series: series,
                 imageHeaders: headers,

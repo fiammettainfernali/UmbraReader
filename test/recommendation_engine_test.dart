@@ -360,6 +360,33 @@ void main() {
     expect(recs.first.series.opdsId, 3);
   });
 
+  test('similarTo finds picks resembling the given series', () {
+    final source = _series(
+      id: 1, title: 'Source', author: 'A', genres: ['Cultivation', 'Action'],
+      totalChapters: 1500,
+    );
+    final library = [
+      source,
+      _series(
+        id: 2, title: 'Cultivation Match', author: 'B',
+        genres: ['Cultivation', 'Action'], totalChapters: 1400,
+      ),
+      _series(
+        id: 3, title: 'Unrelated', author: 'C', genres: ['Romance'],
+        totalChapters: 200,
+      ),
+    ];
+    final picks = engine.similarTo(
+      source: source,
+      allSeries: library,
+      now: today,
+    );
+    expect(picks, isNotEmpty);
+    expect(picks.first.series.opdsId, 2);
+    // The source itself is never suggested.
+    expect(picks.any((p) => p.series.opdsId == 1), isFalse);
+  });
+
   test('a 10-volume binge does not drown out a single-volume favourite', () {
     final library = [
       _series(id: 1, title: 'Binge', genres: ['Wuxia'], author: 'Binge Author'),
