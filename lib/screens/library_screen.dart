@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 
 import '../models/download_record.dart';
@@ -8,6 +10,7 @@ import '../services/library_cache.dart';
 import '../services/library_storage.dart';
 import '../services/opds_client.dart';
 import '../services/reading_progress_store.dart';
+import '../services/recommendation_engine.dart';
 import '../services/settings_service.dart';
 import '../widgets/cached_cover.dart';
 import 'reader_screen.dart';
@@ -73,6 +76,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// Books that have been started but not finished, newest first.
   List<ReadingEntry> _reading = const [];
 
+  /// "Recommended for you" — rebuilt whenever reading history or the library
+  /// changes so it tracks current taste with no manual training step.
+  List<Recommendation> _recommendations = const [];
+
   /// Download records, used to flag series with content newer than what's
   /// been downloaded. Null until first loaded.
   DownloadStore? _downloads;
@@ -135,14 +142,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
-  /// Refreshes the "Continue reading" shelf from saved reading positions.
+  /// Refreshes the "Continue reading" shelf and the recommendation engine
+  /// from the saved reading positions and the current library.
   Future<void> _loadReading() async {
     final entries = await ReadingProgressStore().allEntries();
-    entries.removeWhere(
-      (e) => !e.progress.isStarted || e.progress.isFinished,
+    final inProgress = entries
+        .where((e) => e.progress.isStarted && !e.progress.isFinished)
+        .take(12)
+        .toList();
+    final recs = const RecommendationEngine().recommend(
+      allSeries: _library ?? const <Series>[],
+      readingEntries: entries,
     );
     if (!mounted) return;
-    setState(() => _reading = entries.take(12).toList());
+    setState(() {
+      _reading = inProgress;
+      _recommendations = recs;
+    });
   }
 
   /// Reloads the download manifest so the "update available" badges reflect
@@ -189,6 +205,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
         _offline = false;
         _loading = false;
       });
+      // Recompute "Continue reading" + recommendations against the fresh
+      // series list (its updatedAt advances after a recompile, etc.).
+      await _loadReading();
     } on OpdsException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -281,6 +300,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
     Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => const StatsScreen()),
     );
+  }
+
+  /// Opens a randomly chosen series — quick discovery for big libraries.
+  void _openRandom() {
+    final library = _library;
+    if (library == null || library.isEmpty) return;
+    final pick = library[Random().nextInt(library.length)];
+    _openSeries(pick);
   }
 
   /// Opens a volume straight into the reader (from a "Continue reading" card).
@@ -451,6 +478,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
             SliverAppBar.large(
               title: const Text('Library'),
               actions: [
+                if ((_library?.isNotEmpty ?? false))
+                  IconButton(
+                    icon: const Icon(Icons.shuffle),
+                    tooltip: 'Open a random book',
+                    onPressed: _openRandom,
+                  ),
                 if (canDownloadAll)
                   IconButton(
                     icon: const Icon(Icons.download_for_offline_outlined),
@@ -498,6 +531,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
         SliverToBoxAdapter(child: _buildControls(all.length, visible.length)),
         if (_reading.isNotEmpty && _searchQuery.trim().isEmpty)
           SliverToBoxAdapter(child: _buildContinueShelf()),
+        if (_recommendations.isNotEmpty && _searchQuery.trim().isEmpty)
+          SliverToBoxAdapter(child: _buildRecommendedShelf()),
         if (visible.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
@@ -643,6 +678,46 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 series: seriesById[entry.volume.seriesOpdsId],
                 imageHeaders: headers,
                 onTap: () => _openVolume(entry.volume),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  /// Horizontal shelf of "you might like" suggestions from the engine.
+  Widget _buildRecommendedShelf() {
+    final theme = Theme.of(context);
+    final headers = (_settings?.isConfigured ?? false)
+        ? OpdsClient(_settings!).authHeaders
+        : const <String, String>{};
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+          child: Text(
+            'Recommended for you',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 226,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: _recommendations.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 14),
+            itemBuilder: (context, index) {
+              final series = _recommendations[index].series;
+              return _RecommendCard(
+                series: series,
+                imageHeaders: headers,
+                onTap: () => _openSeries(series),
               );
             },
           ),
@@ -945,6 +1020,83 @@ class _ContinueCard extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               chapterLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A card on the "Recommended for you" shelf: cover, title, author.
+class _RecommendCard extends StatelessWidget {
+  const _RecommendCard({
+    required this.series,
+    required this.imageHeaders,
+    required this.onTap,
+  });
+
+  final Series series;
+  final Map<String, String> imageHeaders;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: 124,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 124,
+              height: 165,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.4),
+                      blurRadius: 6,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: CachedCover(
+                    seriesId: series.opdsId,
+                    coverUrl: series.coverUrl,
+                    headers: imageHeaders,
+                    fallback: _TitleCover(title: series.title),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 32,
+              child: Text(
+                series.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  height: 1.25,
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              series.author,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.labelSmall?.copyWith(
