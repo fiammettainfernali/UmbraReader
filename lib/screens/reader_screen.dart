@@ -1216,6 +1216,28 @@ class _ReaderScreenState extends State<ReaderScreen>
     return false;
   }
 
+  /// Jumps to [fraction] (0..1) within the current chapter — driven by the
+  /// scrubber overlay on the chapter bar.
+  void _seekChapter(double fraction) {
+    final clamped = fraction.clamp(0.0, 1.0);
+    if (_settings.mode == ReadingMode.paged) {
+      final pages = _pages;
+      if (pages == null || pages.isEmpty || !_pageController.hasClients) {
+        return;
+      }
+      final target =
+          (clamped * (pages.length - 1)).round().clamp(0, pages.length - 1);
+      _pageController.jumpToPage(target);
+    } else {
+      if (!_scrollController.hasClients) return;
+      final pos = _scrollController.position;
+      _scrollController.jumpTo(clamped * pos.maxScrollExtent);
+    }
+    // Update the displayed fraction immediately so the bar tracks the
+    // drag, even before the scroll listener catches up.
+    setState(() => _chapterFraction = clamped);
+  }
+
   void _advance({required bool forward}) {
     if (_settings.mode == ReadingMode.paged) {
       final pages = _pages ?? const [];
@@ -1462,6 +1484,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                           _chapterWordCount * (1 - _chapterFraction) / 220.0,
                       onPrevious: () => _goToChapter(_chapterIndex - 1),
                       onNext: () => _goToChapter(_chapterIndex + 1),
+                      onSeek: _seekChapter,
                     ),
                   ),
                 ),
@@ -1821,6 +1844,7 @@ class _ChapterBar extends StatelessWidget {
     required this.minutesLeft,
     required this.onPrevious,
     required this.onNext,
+    required this.onSeek,
   });
 
   final double height;
@@ -1836,6 +1860,10 @@ class _ChapterBar extends StatelessWidget {
 
   final VoidCallback onPrevious;
   final VoidCallback onNext;
+
+  /// Tap or drag along the progress bar to scrub to that fraction of the
+  /// current chapter.
+  final ValueChanged<double> onSeek;
 
   /// A short human label for the time left in the chapter.
   String get _timeLabel {
@@ -1855,11 +1883,36 @@ class _ChapterBar extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            LinearProgressIndicator(
-              value: progress.clamp(0.0, 1.0),
-              minHeight: 3,
-              backgroundColor: preset.secondary.withValues(alpha: 0.25),
-              color: preset.text.withValues(alpha: 0.55),
+            // Tap / drag along the bar to scrub through the current chapter.
+            // Expanded vertically to make the touch target comfortable while
+            // the actual visible bar stays a thin 3px line.
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final width = constraints.maxWidth;
+                void seek(double localX) {
+                  if (width <= 0) return;
+                  onSeek((localX / width).clamp(0.0, 1.0));
+                }
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTapDown: (d) => seek(d.localPosition.dx),
+                  onHorizontalDragStart: (d) => seek(d.localPosition.dx),
+                  onHorizontalDragUpdate: (d) => seek(d.localPosition.dx),
+                  child: SizedBox(
+                    height: 16,
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child: LinearProgressIndicator(
+                        value: progress.clamp(0.0, 1.0),
+                        minHeight: 3,
+                        backgroundColor:
+                            preset.secondary.withValues(alpha: 0.25),
+                        color: preset.text.withValues(alpha: 0.55),
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
             Expanded(
               child: SafeArea(
