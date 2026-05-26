@@ -2,9 +2,14 @@ import 'package:flutter/material.dart';
 
 import 'screens/library_screen.dart';
 import 'screens/onboarding_screen.dart';
+import 'services/custom_theme_store.dart';
 import 'services/settings_service.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Load user-defined reading themes into the in-memory registry so
+  // readerThemeById can find them synchronously.
+  await CustomThemeStore().initialize();
   runApp(const UmbraReaderApp());
 }
 

@@ -70,9 +70,22 @@ const List<ReaderThemePreset> kReaderThemes = [
   ),
 ];
 
+/// User-defined themes loaded at app start, searched in addition to the
+/// built-ins by [readerThemeById]. Populated via [setAdditionalThemes] from
+/// the custom-theme store; kept here so the lookup stays synchronous.
+List<ReaderThemePreset> _additionalThemes = const [];
+
+/// Replaces the registered list of user-defined themes.
+void setAdditionalThemes(List<ReaderThemePreset> themes) {
+  _additionalThemes = themes;
+}
+
 /// Looks up a theme by id, defaulting to Dark.
 ReaderThemePreset readerThemeById(String id) {
   for (final theme in kReaderThemes) {
+    if (theme.id == id) return theme;
+  }
+  for (final theme in _additionalThemes) {
     if (theme.id == id) return theme;
   }
   return kReaderThemes[2];

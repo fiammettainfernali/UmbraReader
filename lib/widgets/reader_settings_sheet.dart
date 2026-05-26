@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/reader_settings.dart';
 import '../models/reader_theme.dart';
+import '../services/custom_theme_store.dart';
 import '../services/tts_service.dart';
 
 /// Font choices offered in the reader. An empty string is the system font.
@@ -126,7 +127,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  for (final preset in kReaderThemes)
+                  for (final preset in CustomThemeStore.all)
                     Padding(
                       padding: const EdgeInsets.only(right: 12),
                       child: _ThemeSwatch(
@@ -134,8 +135,15 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                         selected: preset.id == _settings.themeId,
                         onTap: () =>
                             _update(_settings.copyWith(themeId: preset.id)),
+                        onLongPress: preset.id.startsWith('custom-')
+                            ? () => _confirmDeleteTheme(preset)
+                            : null,
                       ),
                     ),
+                  Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: _NewThemeTile(onTap: _createCustomTheme),
+                  ),
                 ],
               ),
             ),
@@ -364,6 +372,51 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
     );
   }
 
+  /// Opens the colour-editor dialog and, on save, persists the new custom
+  /// theme + selects it as the active one.
+  Future<void> _createCustomTheme() async {
+    final base = readerThemeById(_settings.themeId);
+    final result = await showDialog<ReaderThemePreset>(
+      context: context,
+      builder: (_) => _CustomThemeEditor(base: base),
+    );
+    if (result == null) return;
+    await CustomThemeStore().save(result);
+    if (!mounted) return;
+    setState(() {});
+    _update(_settings.copyWith(themeId: result.id));
+  }
+
+  /// Confirms then deletes a user-created theme. If the deleted theme was
+  /// the active one, falls back to "dark".
+  Future<void> _confirmDeleteTheme(ReaderThemePreset preset) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: Text('Delete "${preset.name}"?'),
+        content: const Text('This removes the custom theme. The built-in '
+            'themes are not affected.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await CustomThemeStore().delete(preset.id);
+    if (!mounted) return;
+    setState(() {});
+    if (_settings.themeId == preset.id) {
+      _update(_settings.copyWith(themeId: 'dark'));
+    }
+  }
+
   Widget _slider(
     ThemeData theme, {
     required String label,
@@ -409,17 +462,20 @@ class _ThemeSwatch extends StatelessWidget {
     required this.preset,
     required this.selected,
     required this.onTap,
+    this.onLongPress,
   });
 
   final ReaderThemePreset preset;
   final bool selected;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       child: Column(
         children: [
           Container(
@@ -450,4 +506,226 @@ class _ThemeSwatch extends StatelessWidget {
       ),
     );
   }
+}
+
+/// "+ New theme" tile rendered alongside the theme swatches.
+class _NewThemeTile extends StatelessWidget {
+  const _NewThemeTile({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          DottedSquare(
+            color: theme.colorScheme.outline,
+            child: Icon(
+              Icons.add,
+              color: theme.colorScheme.outline,
+              size: 24,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text('New', style: theme.textTheme.labelSmall),
+        ],
+      ),
+    );
+  }
+}
+
+/// A 56×56 rounded-square placeholder with a dashed border — visual cue for
+/// the "add a new theme" tile next to the existing swatches.
+class DottedSquare extends StatelessWidget {
+  const DottedSquare({super.key, required this.color, required this.child});
+
+  final Color color;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withValues(alpha: 0.5), width: 1.5),
+      ),
+      child: Center(child: child),
+    );
+  }
+}
+
+/// Hex-input editor for a custom reader theme. Pops the saved
+/// [ReaderThemePreset] when the user taps Save, or null on cancel.
+class _CustomThemeEditor extends StatefulWidget {
+  const _CustomThemeEditor({required this.base});
+
+  /// Starting colours — usually the user's currently-selected theme.
+  final ReaderThemePreset base;
+
+  @override
+  State<_CustomThemeEditor> createState() => _CustomThemeEditorState();
+}
+
+class _CustomThemeEditorState extends State<_CustomThemeEditor> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _bgController;
+  late final TextEditingController _textController;
+  late final TextEditingController _secondaryController;
+  late final TextEditingController _highlightController;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: 'My theme');
+    _bgController = TextEditingController(text: _formatHex(widget.base.background));
+    _textController = TextEditingController(text: _formatHex(widget.base.text));
+    _secondaryController =
+        TextEditingController(text: _formatHex(widget.base.secondary));
+    _highlightController =
+        TextEditingController(text: _formatHex(widget.base.highlight));
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _bgController.dispose();
+    _textController.dispose();
+    _secondaryController.dispose();
+    _highlightController.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final name = _nameController.text.trim();
+    final bg = _parseHex(_bgController.text);
+    final text = _parseHex(_textController.text);
+    final secondary = _parseHex(_secondaryController.text);
+    final highlight = _parseHex(_highlightController.text);
+    if (name.isEmpty) {
+      setState(() => _error = 'Give the theme a name.');
+      return;
+    }
+    if (bg == null || text == null || secondary == null || highlight == null) {
+      setState(() => _error = 'Each colour needs a 6-digit hex (#RRGGBB).');
+      return;
+    }
+    final id = 'custom-${DateTime.now().microsecondsSinceEpoch}';
+    Navigator.of(context).pop(
+      ReaderThemePreset(
+        id: id,
+        name: name,
+        background: bg,
+        text: text,
+        secondary: secondary,
+        highlight: highlight,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: const Text('New theme'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(
+                labelText: 'Name',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            _hexRow('Background', _bgController),
+            const SizedBox(height: 8),
+            _hexRow('Text', _textController),
+            const SizedBox(height: 8),
+            _hexRow('Accent', _secondaryController),
+            const SizedBox(height: 8),
+            _hexRow('Highlight', _highlightController),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _error!,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.error,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _save, child: const Text('Save')),
+      ],
+    );
+  }
+
+  Widget _hexRow(String label, TextEditingController controller) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        SizedBox(width: 92, child: Text(label)),
+        Expanded(
+          child: TextField(
+            controller: controller,
+            decoration: const InputDecoration(
+              hintText: '#1a1a2e',
+              isDense: true,
+              border: OutlineInputBorder(),
+            ),
+            onChanged: (_) => setState(() => _error = null),
+          ),
+        ),
+        const SizedBox(width: 8),
+        ListenableBuilder(
+          listenable: controller,
+          builder: (context, _) {
+            final c = _parseHex(controller.text);
+            return Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: c ?? Colors.transparent,
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: Colors.black26),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+/// Parses a CSS-style hex colour string into a Color. Accepts optional
+/// leading `#`, 6 or 8 hex digits. Returns null for anything malformed.
+Color? _parseHex(String input) {
+  var s = input.trim().toLowerCase();
+  if (s.startsWith('#')) s = s.substring(1);
+  if (s.length != 6 && s.length != 8) return null;
+  final value = int.tryParse(s, radix: 16);
+  if (value == null) return null;
+  if (s.length == 6) return Color(0xFF000000 | value);
+  return Color(value);
+}
+
+/// Formats a [Color] as `#rrggbb`.
+String _formatHex(Color c) {
+  final v = c.toARGB32() & 0xFFFFFF;
+  return '#${v.toRadixString(16).padLeft(6, '0')}';
 }
