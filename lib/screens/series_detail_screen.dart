@@ -14,6 +14,7 @@ import '../services/recommendation_feedback_store.dart';
 import '../services/settings_service.dart';
 import '../widgets/add_to_collection_sheet.dart';
 import '../widgets/cached_cover.dart';
+import 'filtered_series_screen.dart';
 import 'reader_screen.dart';
 
 /// Download state of a single volume, derived per build.
@@ -258,6 +259,42 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     );
   }
 
+  void _openAuthor(String author) {
+    final trimmed = author.trim();
+    if (trimmed.isEmpty) return;
+    final needle = trimmed.toLowerCase();
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => FilteredSeriesScreen(
+          title: 'By $trimmed',
+          settings: widget.settings,
+          predicate: (s) => s.author.trim().toLowerCase() == needle,
+          emptyMessage:
+              'No other series by this author are in your library yet.',
+        ),
+      ),
+    );
+  }
+
+  void _openGenre(String genre) {
+    final trimmed = genre.trim();
+    if (trimmed.isEmpty) return;
+    final needle = trimmed.toLowerCase();
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => FilteredSeriesScreen(
+          title: 'Genre: $trimmed',
+          settings: widget.settings,
+          predicate: (s) => s.genres
+              .map((g) => g.trim().toLowerCase())
+              .contains(needle),
+          emptyMessage:
+              'No other series tagged with this genre yet.',
+        ),
+      ),
+    );
+  }
+
   Future<void> _addToCollection() async {
     await showModalBottomSheet<void>(
       context: context,
@@ -303,6 +340,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
           _Header(
             series: series,
             imageHeaders: OpdsClient(widget.settings).authHeaders,
+            onAuthorTap: () => _openAuthor(series.author),
           ),
           if (series.genres.isNotEmpty) ...[
             const SizedBox(height: 20),
@@ -310,7 +348,11 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                for (final genre in series.genres) Chip(label: Text(genre)),
+                for (final genre in series.genres)
+                  ActionChip(
+                    label: Text(genre),
+                    onPressed: () => _openGenre(genre),
+                  ),
               ],
             ),
           ],
@@ -498,10 +540,15 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
 
 /// Cover + title + author + status + chapter progress.
 class _Header extends StatelessWidget {
-  const _Header({required this.series, required this.imageHeaders});
+  const _Header({
+    required this.series,
+    required this.imageHeaders,
+    required this.onAuthorTap,
+  });
 
   final Series series;
   final Map<String, String> imageHeaders;
+  final VoidCallback onAuthorTap;
 
   @override
   Widget build(BuildContext context) {
@@ -542,10 +589,19 @@ class _Header extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 6),
-              Text(
-                series.author,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+              InkWell(
+                onTap: onAuthorTap,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Text(
+                    series.author,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.primary,
+                      decoration: TextDecoration.underline,
+                      decorationColor:
+                          theme.colorScheme.primary.withValues(alpha: 0.4),
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
