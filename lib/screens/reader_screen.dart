@@ -1634,6 +1634,7 @@ class _BlockView extends StatelessWidget {
           child: Text.rich(
             TextSpan(
               children: _spansFor(
+                context,
                 paragraph.runs,
                 _paragraphStyle(settings, preset.text),
               ),
@@ -1653,6 +1654,7 @@ class _BlockView extends StatelessWidget {
           child: Text.rich(
             TextSpan(
               children: _spansFor(
+                context,
                 heading.runs,
                 _headingStyle(settings, heading.level, preset.text),
               ),
@@ -1699,7 +1701,11 @@ class _BlockView extends StatelessWidget {
 
   /// Builds the run spans, giving the highlighted character range a
   /// background colour (splitting runs at the highlight boundaries).
-  List<InlineSpan> _spansFor(List<TextRun> runs, TextStyle base) {
+  List<InlineSpan> _spansFor(
+    BuildContext context,
+    List<TextRun> runs,
+    TextStyle base,
+  ) {
     final hs = highlightStart;
     final he = highlightEnd;
     final spans = <InlineSpan>[];
@@ -1712,6 +1718,31 @@ class _BlockView extends StatelessWidget {
         fontWeight: run.bold ? FontWeight.bold : null,
         fontStyle: run.italic ? FontStyle.italic : null,
       );
+      // Footnote: emit a tappable inline widget that pops the note body in
+      // a bottom sheet. Highlight handling is skipped — the marker is short.
+      final footnote = run.footnoteBody;
+      if (footnote != null) {
+        spans.add(
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            baseline: TextBaseline.alphabetic,
+            child: GestureDetector(
+              onTap: () => _showFootnote(context, run.text, footnote),
+              behavior: HitTestBehavior.opaque,
+              child: Text(
+                run.text,
+                style: style.copyWith(
+                  color: preset.text.withValues(alpha: 0.85),
+                  fontSize: (style.fontSize ?? 16) * 0.85,
+                  decoration: TextDecoration.underline,
+                  decorationColor: preset.text.withValues(alpha: 0.45),
+                ),
+              ),
+            ),
+          ),
+        );
+        continue;
+      }
       if (hs == null || he == null || he <= runStart || hs >= runEnd) {
         spans.add(TextSpan(text: run.text, style: style));
         continue;
@@ -1732,6 +1763,36 @@ class _BlockView extends StatelessWidget {
       }
     }
     return spans;
+  }
+
+  /// Pops a small bottom sheet with the translator-note body when the
+  /// inline marker is tapped.
+  void _showFootnote(BuildContext context, String marker, String body) {
+    final theme = Theme.of(context);
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetCtx) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Translator note  $marker',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(body, style: theme.textTheme.bodyMedium),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

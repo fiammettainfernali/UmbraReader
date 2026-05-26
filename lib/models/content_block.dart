@@ -6,11 +6,21 @@ import 'dart:typed_data';
 /// the active theme (font, size, colour) at render time — and so a later
 /// read-aloud feature can highlight individual runs.
 class TextRun {
-  const TextRun(this.text, {this.bold = false, this.italic = false});
+  const TextRun(
+    this.text, {
+    this.bold = false,
+    this.italic = false,
+    this.footnoteBody,
+  });
 
   final String text;
   final bool bold;
   final bool italic;
+
+  /// Body of the translator/footnote attached to this run, or null. When
+  /// set, [text] is the inline marker (e.g. "[1]") and the renderer shows
+  /// the body in a popup on tap.
+  final String? footnoteBody;
 }
 
 /// A renderable block of chapter content. Sealed so the reader can switch over

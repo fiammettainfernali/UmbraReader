@@ -122,6 +122,11 @@ class EpubParser {
     return EpubBook(title: title, author: author, chapters: chapters);
   }
 
+  /// Footnote bodies for the chapter currently being parsed, keyed by the
+  /// trailing index of the `fn-…-N` anchor id. Set by [parseChapter] and
+  /// read inside [_collectInline] to attach bodies to inline note refs.
+  final Map<int, String> _currentNotes = {};
+
   /// Extracts and parses one chapter into renderable content blocks.
   List<ContentBlock> parseChapter(EpubChapter chapter) {
     final bytes = _findBytes(chapter.zipPath);
@@ -133,6 +138,7 @@ class EpubParser {
     final document = html_parser.parse(_decode(bytes));
     final body = document.body;
     if (body == null) return const [];
+    _extractFootnotes(body);
     final blocks = <ContentBlock>[];
     _walkBlocks(body, blocks, _dirOf(chapter.zipPath));
     if (blocks.isEmpty) {
@@ -141,6 +147,34 @@ class EpubParser {
       ];
     }
     return blocks;
+  }
+
+  /// Pulls every `<aside epub:type="footnote">` out of [body] into
+  /// [_currentNotes] and removes them from the DOM so they don't render as
+  /// regular paragraphs (the inline note refs will pop them up on tap
+  /// instead).
+  void _extractFootnotes(dom.Element body) {
+    _currentNotes.clear();
+    final asides = body.querySelectorAll('aside');
+    for (final aside in asides) {
+      final cls = aside.className;
+      final epubType = aside.attributes['epub:type'] ?? '';
+      if (epubType != 'footnote' && !cls.contains('footnote')) continue;
+      final id = aside.id;
+      final match = RegExp(r'-(\d+)$').firstMatch(id);
+      if (match == null) continue;
+      final index = int.parse(match.group(1)!);
+      // Body text minus the leading "[N]" marker and the back-link arrow.
+      var text = aside.text.trim();
+      text = text.replaceFirst(RegExp(r'^\s*\[\d+\]\s*'), '');
+      text = text.replaceAll('↩', '').trim();
+      if (text.isNotEmpty) _currentNotes[index] = text;
+      aside.remove();
+    }
+    // Also strip an empty endnotes section so it doesn't render as blank.
+    for (final section in body.querySelectorAll('section.footnotes')) {
+      section.remove();
+    }
   }
 
   // ── archive helpers ──────────────────────────────────────────────────────
@@ -424,6 +458,26 @@ class EpubParser {
           _collectInline(child, bold: true, italic: italic, out: out);
         } else if (tag == 'i' || tag == 'em') {
           _collectInline(child, bold: bold, italic: true, out: out);
+        } else if (tag == 'sup' && child.className.contains('noteref')) {
+          // Footnote / translator-note reference: keep the [N] marker as the
+          // visible run text and attach the body so the reader can pop it up.
+          final markerText = child.text.trim();
+          final match = RegExp(r'\[(\d+)\]').firstMatch(markerText);
+          final body = match != null
+              ? _currentNotes[int.parse(match.group(1)!)]
+              : null;
+          if (body != null && body.isNotEmpty) {
+            out.add(
+              TextRun(
+                markerText,
+                bold: bold,
+                italic: italic,
+                footnoteBody: body,
+              ),
+            );
+          } else if (markerText.isNotEmpty) {
+            out.add(TextRun(markerText, bold: bold, italic: italic));
+          }
         } else {
           _collectInline(child, bold: bold, italic: italic, out: out);
         }
