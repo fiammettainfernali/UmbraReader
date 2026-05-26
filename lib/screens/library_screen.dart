@@ -14,6 +14,7 @@ import '../services/recommendation_engine.dart';
 import '../services/recommendation_feedback_store.dart';
 import '../services/settings_service.dart';
 import '../widgets/cached_cover.dart';
+import 'collections_screen.dart';
 import 'reader_screen.dart';
 import 'series_detail_screen.dart';
 import 'settings_screen.dart';
@@ -384,6 +385,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  void _openCollections() {
+    final settings = _settings;
+    if (settings == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => CollectionsScreen(settings: settings),
+      ),
+    );
+  }
+
   /// Opens a randomly chosen series — quick discovery for big libraries.
   void _openRandom() {
     final library = _library;
@@ -572,15 +583,45 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     tooltip: 'Download whole library',
                     onPressed: _confirmDownloadEverything,
                   ),
-                IconButton(
-                  icon: const Icon(Icons.insights_outlined),
-                  tooltip: 'Reading stats',
-                  onPressed: _openStats,
-                ),
-                IconButton(
-                  icon: const Icon(Icons.settings_outlined),
-                  tooltip: 'Server settings',
-                  onPressed: _openSettings,
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert),
+                  tooltip: 'More',
+                  onSelected: (action) {
+                    switch (action) {
+                      case 'collections':
+                        _openCollections();
+                      case 'stats':
+                        _openStats();
+                      case 'settings':
+                        _openSettings();
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: 'collections',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.collections_bookmark_outlined),
+                        title: Text('Collections'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'stats',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.insights_outlined),
+                        title: Text('Reading stats'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'settings',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.settings_outlined),
+                        title: Text('Server settings'),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

@@ -12,6 +12,7 @@ import '../services/reading_progress_store.dart';
 import '../services/recommendation_engine.dart';
 import '../services/recommendation_feedback_store.dart';
 import '../services/settings_service.dart';
+import '../widgets/add_to_collection_sheet.dart';
 import '../widgets/cached_cover.dart';
 import 'reader_screen.dart';
 
@@ -257,6 +258,21 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     );
   }
 
+  Future<void> _addToCollection() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.85,
+      ),
+      builder: (_) => AddToCollectionSheet(
+        seriesId: widget.series.opdsId,
+        seriesTitle: widget.series.title,
+      ),
+    );
+  }
+
   void _snack(String message, {bool isError = false}) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -271,7 +287,16 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   Widget build(BuildContext context) {
     final series = widget.series;
     return Scaffold(
-      appBar: AppBar(title: Text(series.title)),
+      appBar: AppBar(
+        title: Text(series.title),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.collections_bookmark_outlined),
+            tooltip: 'Add to collection',
+            onPressed: _addToCollection,
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         children: [
