@@ -4,11 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../models/bookmark.dart';
 import '../models/content_block.dart';
 import '../models/epub_book.dart';
 import '../models/reader_settings.dart';
 import '../models/reader_theme.dart';
 import '../models/volume.dart';
+import '../services/bookmark_store.dart';
 import '../services/epub_parser.dart';
 import '../services/library_storage.dart';
 import '../services/now_playing_service.dart';
@@ -949,6 +951,51 @@ class _ReaderScreenState extends State<ReaderScreen> {
     );
   }
 
+  // ── bookmarks ────────────────────────────────────────────────────────────
+
+  /// Opens the bookmarks sheet for this volume, and jumps to a chosen
+  /// bookmark when one is tapped.
+  Future<void> _openBookmarks() async {
+    final book = _book;
+    final blocks = _blocks;
+    if (book == null || blocks == null) return;
+    final topBlock = _settings.mode == ReadingMode.paged
+        ? _pagedTopBlockIndex()
+        : _scrollTopBlockIndex();
+    final clampedTop = blocks.isEmpty
+        ? 0
+        : topBlock.clamp(0, blocks.length - 1);
+    final chapterTitle = book.chapters[_chapterIndex].title;
+    final snippet = blocks.isEmpty
+        ? ''
+        : _shortSnippet(_blockText(blocks[clampedTop]));
+    final picked = await showModalBottomSheet<Bookmark>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.85,
+      ),
+      builder: (_) => _BookmarksSheet(
+        volume: widget.volume,
+        currentChapterIndex: _chapterIndex,
+        currentBlockIndex: clampedTop,
+        currentChapterTitle: chapterTitle,
+        currentSnippet: snippet,
+      ),
+    );
+    if (picked == null || !mounted) return;
+    _jumpToSearchHit(picked.chapterIndex, picked.blockIndex);
+  }
+
+  /// Trims a block's text to a short, single-line preview for bookmarks /
+  /// search snippets.
+  String _shortSnippet(String text) {
+    final flat = text.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (flat.length <= 80) return flat;
+    return '${flat.substring(0, 77)}…';
+  }
+
   // ── in-book search ───────────────────────────────────────────────────────
 
   /// Opens the full-text search screen and jumps to the chosen result.
@@ -1291,6 +1338,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
                       onOpenSettings: _openSettings,
                       onShowContents: _showTableOfContents,
                       onSearch: _openSearch,
+                      onBookmarks: _openBookmarks,
                     ),
                   ),
                 ),
@@ -1547,6 +1595,7 @@ class _TopBar extends StatelessWidget {
     required this.onOpenSettings,
     required this.onShowContents,
     required this.onSearch,
+    required this.onBookmarks,
   });
 
   final double height;
@@ -1558,6 +1607,7 @@ class _TopBar extends StatelessWidget {
   final VoidCallback onOpenSettings;
   final VoidCallback onShowContents;
   final VoidCallback onSearch;
+  final VoidCallback onBookmarks;
 
   @override
   Widget build(BuildContext context) {
@@ -1604,6 +1654,12 @@ class _TopBar extends StatelessWidget {
                 color: preset.text,
                 tooltip: 'Search in book',
                 onPressed: onSearch,
+              ),
+              IconButton(
+                icon: const Icon(Icons.bookmark_outline),
+                color: preset.text,
+                tooltip: 'Bookmarks',
+                onPressed: onBookmarks,
               ),
               IconButton(
                 icon: const Icon(Icons.text_fields),
@@ -2005,6 +2061,166 @@ class _BookSearchScreenState extends State<_BookSearchScreen> {
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Bottom sheet listing this volume's bookmarks, with an "Add bookmark here"
+/// button at the top. Pops with the [Bookmark] the user tapped, or null if
+/// they only added/removed entries.
+class _BookmarksSheet extends StatefulWidget {
+  const _BookmarksSheet({
+    required this.volume,
+    required this.currentChapterIndex,
+    required this.currentBlockIndex,
+    required this.currentChapterTitle,
+    required this.currentSnippet,
+  });
+
+  final Volume volume;
+  final int currentChapterIndex;
+  final int currentBlockIndex;
+  final String currentChapterTitle;
+  final String currentSnippet;
+
+  @override
+  State<_BookmarksSheet> createState() => _BookmarksSheetState();
+}
+
+class _BookmarksSheetState extends State<_BookmarksSheet> {
+  final _store = BookmarkStore();
+  List<Bookmark>? _bookmarks;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final list = await _store.list(widget.volume);
+    if (!mounted) return;
+    setState(() => _bookmarks = list);
+  }
+
+  Future<void> _addHere() async {
+    final mark = Bookmark(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      chapterIndex: widget.currentChapterIndex,
+      blockIndex: widget.currentBlockIndex,
+      chapterTitle: widget.currentChapterTitle,
+      snippet: widget.currentSnippet,
+      createdAt: DateTime.now(),
+    );
+    await _store.add(widget.volume, mark);
+    await _load();
+  }
+
+  Future<void> _remove(String id) async {
+    await _store.remove(widget.volume, id);
+    await _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final marks = _bookmarks;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Bookmarks',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Done',
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            FilledButton.icon(
+              onPressed: _addHere,
+              icon: const Icon(Icons.bookmark_add_outlined),
+              label: const Text('Add bookmark here'),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 4, left: 4),
+              child: Text(
+                'In: ${widget.currentChapterTitle}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Divider(height: 1),
+            Flexible(
+              child: marks == null
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 32),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  : marks.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 32),
+                      child: Center(
+                        child: Text(
+                          'No bookmarks yet.',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                    )
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: marks.length,
+                      separatorBuilder: (_, _) => const Divider(height: 1),
+                      itemBuilder: (context, index) {
+                        final mark = marks[index];
+                        return ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            mark.chapterTitle,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            mark.snippet,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.outline,
+                            ),
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete_outline),
+                            tooltip: 'Delete bookmark',
+                            onPressed: () => _remove(mark.id),
+                          ),
+                          onTap: () => Navigator.of(context).pop(mark),
+                        );
+                      },
+                    ),
             ),
           ],
         ),
