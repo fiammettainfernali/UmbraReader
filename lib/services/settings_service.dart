@@ -58,6 +58,7 @@ class SettingsService {
   static const _kBaseUrl = 'opds_base_url';
   static const _kUsername = 'opds_username';
   static const _kPassword = 'opds_password';
+  static const _kOnboardingDone = 'onboarding_done';
 
   Future<OpdsSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -73,5 +74,17 @@ class SettingsService {
     await prefs.setString(_kBaseUrl, settings.baseUrl);
     await prefs.setString(_kUsername, settings.username);
     await prefs.setString(_kPassword, settings.password);
+  }
+
+  /// True once the user has been through (or skipped) the first-launch
+  /// onboarding welcome flow.
+  Future<bool> hasSeenOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kOnboardingDone) ?? false;
+  }
+
+  Future<void> markOnboardingSeen() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kOnboardingDone, true);
   }
 }

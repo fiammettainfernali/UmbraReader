@@ -20,11 +20,16 @@ void main() {
   testWidgets('App builds and shows the Library screen', (
     WidgetTester tester,
   ) async {
-    SharedPreferences.setMockInitialValues(<String, Object>{});
+    // onboarding_done = true so the gate falls through to the library
+    // immediately instead of stopping at the first-launch welcome screen.
+    SharedPreferences.setMockInitialValues(
+      <String, Object>{'onboarding_done': true},
+    );
     PathProviderPlatform.instance = _FakePathProvider();
 
     await tester.pumpWidget(const UmbraReaderApp());
     await tester.pump();
+    await tester.pump(); // resolve the root gate's async lookup
 
     // The library app bar renders on the first frame, before the async
     // library load completes. pumpAndSettle is deliberately not used — the
@@ -32,5 +37,18 @@ void main() {
     // SliverAppBar.large keeps a collapsed and an expanded title, so
     // 'Library' legitimately appears more than once.
     expect(find.text('Library'), findsWidgets);
+  });
+
+  testWidgets('A fresh install lands on the onboarding welcome screen', (
+    WidgetTester tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    PathProviderPlatform.instance = _FakePathProvider();
+
+    await tester.pumpWidget(const UmbraReaderApp());
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('Welcome to Umbra Reader'), findsOneWidget);
   });
 }
