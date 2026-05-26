@@ -14,6 +14,7 @@ import '../services/recommendation_engine.dart';
 import '../services/recommendation_feedback_store.dart';
 import '../services/settings_service.dart';
 import '../widgets/cached_cover.dart';
+import 'backup_screen.dart';
 import 'collections_screen.dart';
 import 'reader_screen.dart';
 import 'series_detail_screen.dart';
@@ -395,6 +396,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  void _openBackup() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const BackupScreen()),
+    );
+  }
+
   /// Opens a randomly chosen series — quick discovery for big libraries.
   void _openRandom() {
     final library = _library;
@@ -592,6 +599,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         _openCollections();
                       case 'stats':
                         _openStats();
+                      case 'backup':
+                        _openBackup();
                       case 'settings':
                         _openSettings();
                     }
@@ -611,6 +620,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         contentPadding: EdgeInsets.zero,
                         leading: Icon(Icons.insights_outlined),
                         title: Text('Reading stats'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'backup',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.cloud_upload_outlined),
+                        title: Text('Backup & restore'),
                       ),
                     ),
                     PopupMenuItem(

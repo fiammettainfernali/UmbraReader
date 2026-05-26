@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -8,6 +9,7 @@ import '../models/collection.dart';
 /// etc.). Stored as a single JSON list in SharedPreferences.
 class CollectionStore {
   static const _key = 'collections';
+  static final _rng = Random();
 
   /// All collections, ordered by creation time (oldest first).
   Future<List<Collection>> list() async {
@@ -33,8 +35,12 @@ class CollectionStore {
   /// Creates a new collection with [name] and returns it.
   Future<Collection> create(String name) async {
     final clean = name.trim();
+    // Microseconds + a random suffix so two creates fired within the same
+    // clock tick still get distinct ids.
+    final id = '${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}'
+        '-${_rng.nextInt(1 << 32).toRadixString(16)}';
     final mark = Collection(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      id: id,
       name: clean.isEmpty ? 'Untitled' : clean,
       seriesIds: const [],
       createdAt: DateTime.now(),
