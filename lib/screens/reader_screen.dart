@@ -383,6 +383,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
   SleepTimerOption _sleepOption = SleepTimerOption.off;
   Timer? _sleepTimer;
 
+  /// Periodic timer driving the hands-free auto-scroll, when enabled.
+  Timer? _autoScrollTimer;
+
   /// Progress through the current chapter (0..1) and its total word count —
   /// drive the reading-progress bar and the "time left" estimate.
   double _chapterFraction = 0;
@@ -418,6 +421,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void dispose() {
     _saveProgress();
     _sleepTimer?.cancel();
+    _autoScrollTimer?.cancel();
     _nowPlaying.clear();
     _nowPlaying.dispose();
     _ttsService.dispose();
@@ -460,9 +464,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
             : progress.blockIndex.clamp(0, blocks.length - 1);
         _loading = false;
       });
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _restoreScrollPosition(),
-      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _restoreScrollPosition();
+        if (_settings.autoScroll) _startAutoScroll();
+      });
     } on EpubException catch (e) {
       _fail(e.message);
     }
@@ -696,6 +701,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final voiceChanged =
         next.voiceName != _settings.voiceName ||
         next.voiceLocale != _settings.voiceLocale;
+    final autoScrollChanged =
+        next.autoScroll != _settings.autoScroll ||
+        next.mode != _settings.mode;
     final currentPage = _pageController.hasClients
         ? (_pageController.page?.round() ?? 0)
         : 0;
@@ -709,6 +717,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
     if (fontChanged) {
       await _preloadFont(next.fontFamily);
       if (mounted) setState(() => _fontToken++);
+    }
+    if (autoScrollChanged) {
+      if (next.autoScroll && next.mode == ReadingMode.scroll) {
+        _startAutoScroll();
+      } else {
+        _stopAutoScroll();
+      }
     }
   }
 
@@ -875,6 +890,59 @@ class _ReaderScreenState extends State<ReaderScreen> {
         if (mounted) setState(() => _sleepOption = SleepTimerOption.off);
       });
     }
+  }
+
+  // ── auto-scroll ──────────────────────────────────────────────────────────
+
+  /// Pixels added to the scroll offset on each tick. ~32px/sec at the 50ms
+  /// tick rate — a comfortable reading pace; tune later as a slider if
+  /// users want it.
+  static const double _autoScrollPxPerTick = 1.6;
+
+  /// Starts the auto-scroll timer if the setting is on and the reader is in
+  /// scroll mode. No-op otherwise. Safe to call repeatedly — it tears down
+  /// any existing timer first.
+  void _startAutoScroll() {
+    _autoScrollTimer?.cancel();
+    _autoScrollTimer = null;
+    if (!_settings.autoScroll) return;
+    if (_settings.mode != ReadingMode.scroll) return;
+    _autoScrollTimer = Timer.periodic(
+      const Duration(milliseconds: 50),
+      (_) => _autoScrollTick(),
+    );
+  }
+
+  void _stopAutoScroll() {
+    _autoScrollTimer?.cancel();
+    _autoScrollTimer = null;
+  }
+
+  void _autoScrollTick() {
+    if (!mounted ||
+        !_scrollController.hasClients ||
+        !_settings.autoScroll ||
+        _settings.mode != ReadingMode.scroll) {
+      _stopAutoScroll();
+      return;
+    }
+    final pos = _scrollController.position;
+    if (pos.pixels >= pos.maxScrollExtent - 1) {
+      // End of chapter — pause briefly, then roll into the next one.
+      _stopAutoScroll();
+      final book = _book;
+      if (book != null && _chapterIndex < book.chapters.length - 1) {
+        Timer(const Duration(milliseconds: 600), () {
+          if (!mounted) return;
+          _goToChapter(_chapterIndex + 1);
+          _startAutoScroll();
+        });
+      }
+      return;
+    }
+    _scrollController.jumpTo(
+      (pos.pixels + _autoScrollPxPerTick).clamp(0.0, pos.maxScrollExtent),
+    );
   }
 
   // ── lock-screen / Control Center controls ───────────────────────────────

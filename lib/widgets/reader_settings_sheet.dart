@@ -236,6 +236,17 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
               onSelectionChanged: (selection) =>
                   _update(_settings.copyWith(textAlign: selection.first)),
             ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text('Auto-scroll'),
+              subtitle: const Text(
+                'Slowly scrolls scroll-mode for hands-free reading',
+              ),
+              value: _settings.autoScroll,
+              onChanged: (on) =>
+                  _update(_settings.copyWith(autoScroll: on)),
+            ),
             const SizedBox(height: 16),
 
             _label(theme, 'Read aloud'),

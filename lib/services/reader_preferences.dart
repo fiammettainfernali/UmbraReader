@@ -17,6 +17,7 @@ class ReaderPreferences {
   static const _kItalicText = 'reader_italic_text';
   static const _kBrightness = 'reader_brightness';
   static const _kTextAlign = 'reader_text_align';
+  static const _kAutoScroll = 'reader_auto_scroll';
 
   Future<ReaderSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -40,6 +41,7 @@ class ReaderPreferences {
         (a) => a.name == prefs.getString(_kTextAlign),
         orElse: () => d.textAlign,
       ),
+      autoScroll: prefs.getBool(_kAutoScroll) ?? d.autoScroll,
     );
   }
 
@@ -58,5 +60,6 @@ class ReaderPreferences {
     await prefs.setBool(_kItalicText, settings.italicText);
     await prefs.setDouble(_kBrightness, settings.brightness);
     await prefs.setString(_kTextAlign, settings.textAlign.name);
+    await prefs.setBool(_kAutoScroll, settings.autoScroll);
   }
 }

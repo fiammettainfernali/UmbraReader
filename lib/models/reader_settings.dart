@@ -34,6 +34,7 @@ class ReaderSettings {
     required this.italicText,
     required this.brightness,
     required this.textAlign,
+    required this.autoScroll,
   });
 
   final ReadingMode mode;
@@ -73,6 +74,10 @@ class ReaderSettings {
   /// Horizontal alignment of body paragraphs.
   final ReaderTextAlign textAlign;
 
+  /// Whether the scroll-mode reader slowly auto-scrolls for hands-free
+  /// reading. Crosses chapters automatically when it reaches the bottom.
+  final bool autoScroll;
+
   static const defaults = ReaderSettings(
     mode: ReadingMode.scroll,
     themeId: 'dark',
@@ -87,6 +92,7 @@ class ReaderSettings {
     italicText: false,
     brightness: 1.0,
     textAlign: ReaderTextAlign.left,
+    autoScroll: false,
   );
 
   ReaderThemePreset get theme => readerThemeById(themeId);
@@ -105,6 +111,7 @@ class ReaderSettings {
     bool? italicText,
     double? brightness,
     ReaderTextAlign? textAlign,
+    bool? autoScroll,
   }) {
     return ReaderSettings(
       mode: mode ?? this.mode,
@@ -120,6 +127,7 @@ class ReaderSettings {
       italicText: italicText ?? this.italicText,
       brightness: brightness ?? this.brightness,
       textAlign: textAlign ?? this.textAlign,
+      autoScroll: autoScroll ?? this.autoScroll,
     );
   }
 }
