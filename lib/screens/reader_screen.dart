@@ -15,6 +15,7 @@ import '../services/epub_parser.dart';
 import '../services/library_storage.dart';
 import '../services/now_playing_service.dart';
 import '../services/reader_preferences.dart';
+import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
 import '../services/tts_service.dart';
 import '../widgets/reader_settings_sheet.dart';
@@ -322,7 +323,8 @@ class ReaderScreen extends StatefulWidget {
   State<ReaderScreen> createState() => _ReaderScreenState();
 }
 
-class _ReaderScreenState extends State<ReaderScreen> {
+class _ReaderScreenState extends State<ReaderScreen>
+    with WidgetsBindingObserver {
   final _progressStore = ReadingProgressStore();
   final _scrollController = ScrollController();
   final _pageController = PageController();
@@ -386,6 +388,12 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// Periodic timer driving the hands-free auto-scroll, when enabled.
   Timer? _autoScrollTimer;
 
+  /// Persists per-day and per-volume reading-time totals.
+  final _activityStore = ReadingActivityStore();
+
+  /// When the current foreground reading session started; null when paused.
+  DateTime? _sessionStart;
+
   /// Progress through the current chapter (0..1) and its total word count —
   /// drive the reading-progress bar and the "time left" estimate.
   double _chapterFraction = 0;
@@ -414,12 +422,37 @@ class _ReaderScreenState extends State<ReaderScreen> {
     _nowPlaying.onPrevious = () => _remoteSkipChapter(-1);
     _scrollController.addListener(_onPositionTick);
     _pageController.addListener(_onPositionTick);
+    WidgetsBinding.instance.addObserver(this);
+    _sessionStart = DateTime.now();
     _open();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _sessionStart ??= DateTime.now();
+    } else {
+      _flushReadingSession();
+    }
+  }
+
+  /// Records the time spent in the foreground reader since the last flush.
+  void _flushReadingSession() {
+    final start = _sessionStart;
+    if (start == null) return;
+    _sessionStart = null;
+    final delta = DateTime.now().difference(start);
+    if (delta.inSeconds <= 0) return;
+    // Fire-and-forget — losing the last fractional second on an app kill is
+    // acceptable.
+    _activityStore.record(widget.volume, delta);
   }
 
   @override
   void dispose() {
     _saveProgress();
+    _flushReadingSession();
+    WidgetsBinding.instance.removeObserver(this);
     _sleepTimer?.cancel();
     _autoScrollTimer?.cancel();
     _nowPlaying.clear();

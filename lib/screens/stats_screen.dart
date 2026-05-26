@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
 
-/// Shows reading statistics derived from saved reading positions: how many
-/// books have been started, are in progress or finished, total chapters
-/// reached, and a per-book breakdown.
+/// Shows reading statistics derived from saved reading positions and
+/// reading-time activity: books started / in progress / finished / chapters
+/// reached, time spent reading (total + this week + current streak), a
+/// last-30-days heatmap, and a per-book breakdown.
 class StatsScreen extends StatefulWidget {
   const StatsScreen({super.key});
 
@@ -15,6 +17,7 @@ class StatsScreen extends StatefulWidget {
 class _StatsScreenState extends State<StatsScreen> {
   /// Null while loading.
   List<ReadingEntry>? _entries;
+  ReadingActivity _activity = ReadingActivity.empty;
 
   @override
   void initState() {
@@ -24,8 +27,12 @@ class _StatsScreenState extends State<StatsScreen> {
 
   Future<void> _load() async {
     final entries = await ReadingProgressStore().allEntries();
+    final activity = await ReadingActivityStore().load();
     if (!mounted) return;
-    setState(() => _entries = entries);
+    setState(() {
+      _entries = entries;
+      _activity = activity;
+    });
   }
 
   @override
@@ -35,7 +42,7 @@ class _StatsScreenState extends State<StatsScreen> {
       appBar: AppBar(title: const Text('Reading stats')),
       body: entries == null
           ? const Center(child: CircularProgressIndicator())
-          : entries.isEmpty
+          : entries.isEmpty && _activity.totalSeconds == 0
           ? _buildEmpty(context)
           : _buildContent(context, entries),
     );
@@ -80,6 +87,9 @@ class _StatsScreenState extends State<StatsScreen> {
     for (final entry in entries) {
       chaptersRead += entry.progress.chapterIndex + 1;
     }
+    final totalTime = _formatDuration(_activity.totalSeconds);
+    final weekTime = _formatDuration(_activity.weekSeconds());
+    final streak = _activity.currentStreak();
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -123,6 +133,42 @@ class _StatsScreenState extends State<StatsScreen> {
             ),
           ],
         ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _StatCard(
+                icon: Icons.schedule,
+                value: totalTime,
+                label: 'Time read',
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _StatCard(
+                icon: Icons.local_fire_department_outlined,
+                value: streak == 0 ? '—' : '$streak',
+                label: streak == 1 ? 'day streak' : 'day streak',
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+        Text(
+          'Last 30 days',
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 8),
+        _Heatmap(dailySeconds: _activity.dailySeconds),
+        const SizedBox(height: 6),
+        Text(
+          'This week: $weekTime',
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: theme.colorScheme.outline,
+          ),
+        ),
         const SizedBox(height: 28),
         Text(
           'By book',
@@ -131,7 +177,12 @@ class _StatsScreenState extends State<StatsScreen> {
           ),
         ),
         const SizedBox(height: 4),
-        for (final entry in entries) _BookRow(entry: entry),
+        for (final entry in entries)
+          _BookRow(
+            entry: entry,
+            seconds: _activity.perVolumeSeconds[
+                '${entry.volume.seriesOpdsId}/${entry.volume.fileName}'] ?? 0,
+          ),
       ],
     );
   }
@@ -182,11 +233,66 @@ class _StatCard extends StatelessWidget {
   }
 }
 
-/// A per-book row: progress ring, title, chapter position and last-read date.
+/// A compact 30-cell horizontal bar where each cell is a day, colored by
+/// how much was read that day. Today is the rightmost cell.
+class _Heatmap extends StatelessWidget {
+  const _Heatmap({required this.dailySeconds});
+
+  final Map<String, int> dailySeconds;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final today = DateTime.now();
+    final days = <(String, int)>[
+      for (var i = 29; i >= 0; i--)
+        () {
+          final d = today.subtract(Duration(days: i));
+          final key = _dateKey(d);
+          return (key, dailySeconds[key] ?? 0);
+        }(),
+    ];
+    var maxSec = 0;
+    for (final (_, s) in days) {
+      if (s > maxSec) maxSec = s;
+    }
+    final empty = theme.colorScheme.surfaceContainerHighest;
+    final accent = theme.colorScheme.primary;
+    return SizedBox(
+      height: 28,
+      child: Row(
+        children: [
+          for (final (_, seconds) in days)
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: seconds == 0
+                        ? empty
+                        : accent.withValues(
+                            alpha: maxSec == 0
+                                ? 0.4
+                                : (seconds / maxSec).clamp(0.2, 1.0),
+                          ),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A per-book row: progress ring, title, chapter position, time spent, and
+/// last-read date.
 class _BookRow extends StatelessWidget {
-  const _BookRow({required this.entry});
+  const _BookRow({required this.entry, required this.seconds});
 
   final ReadingEntry entry;
+  final int seconds;
 
   @override
   Widget build(BuildContext context) {
@@ -196,6 +302,7 @@ class _BookRow extends StatelessWidget {
     final chapterLabel = progress.chapterCount > 0
         ? 'Chapter ${progress.chapterIndex + 1} of ${progress.chapterCount}'
         : 'Chapter ${progress.chapterIndex + 1}';
+    final timeText = seconds > 0 ? '  ·  ${_formatDuration(seconds)} read' : '';
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: SizedBox(
@@ -225,7 +332,8 @@ class _BookRow extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
       ),
       subtitle: Text(
-        '$chapterLabel  ·  ${finished ? 'Finished' : 'Last read'} '
+        '$chapterLabel$timeText  ·  '
+        '${finished ? 'Finished' : 'Last read'} '
         '${_formatDate(progress.updatedAt)}',
         style: theme.textTheme.bodySmall?.copyWith(
           color: theme.colorScheme.outline,
@@ -251,4 +359,24 @@ String _formatDate(DateTime? date) {
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
   ];
   return '${months[local.month - 1]} ${local.day}';
+}
+
+/// Formats a duration in seconds as a short human string.
+String _formatDuration(int seconds) {
+  if (seconds <= 0) return '0m';
+  final minutes = seconds ~/ 60;
+  if (minutes < 60) return '${minutes}m';
+  final hours = minutes ~/ 60;
+  final rem = minutes % 60;
+  if (hours < 24) return rem == 0 ? '${hours}h' : '${hours}h ${rem}m';
+  final days = hours ~/ 24;
+  final remH = hours % 24;
+  return remH == 0 ? '${days}d' : '${days}d ${remH}h';
+}
+
+String _dateKey(DateTime date) {
+  final local = date.toLocal();
+  final m = local.month.toString().padLeft(2, '0');
+  final d = local.day.toString().padLeft(2, '0');
+  return '${local.year}-$m-$d';
 }
