@@ -1066,20 +1066,24 @@ class _ReaderScreenState extends State<ReaderScreen> {
           (_pageController.hasClients ? _pageController.page : 0)?.round() ?? 0;
       if (forward) {
         if (current < pages.length - 1) {
+          HapticFeedback.lightImpact();
           _pageController.nextPage(
             duration: const Duration(milliseconds: 220),
             curve: Curves.easeOut,
           );
         } else {
+          HapticFeedback.mediumImpact();
           _goToChapter(_chapterIndex + 1);
         }
       } else {
         if (current > 0) {
+          HapticFeedback.lightImpact();
           _pageController.previousPage(
             duration: const Duration(milliseconds: 220),
             curve: Curves.easeOut,
           );
         } else {
+          HapticFeedback.mediumImpact();
           _goToChapter(_chapterIndex - 1, landOnLastPage: true);
         }
       }
@@ -1090,8 +1094,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final step = pos.viewportDimension * 0.85;
     if (forward) {
       if (pos.pixels >= pos.maxScrollExtent - 4) {
+        HapticFeedback.mediumImpact();
         _goToChapter(_chapterIndex + 1);
       } else {
+        HapticFeedback.lightImpact();
         _scrollController.animateTo(
           (pos.pixels + step).clamp(0.0, pos.maxScrollExtent),
           duration: const Duration(milliseconds: 220),
@@ -1100,8 +1106,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
       }
     } else {
       if (pos.pixels <= 4) {
+        HapticFeedback.mediumImpact();
         _goToChapter(_chapterIndex - 1);
       } else {
+        HapticFeedback.lightImpact();
         _scrollController.animateTo(
           (pos.pixels - step).clamp(0.0, pos.maxScrollExtent),
           duration: const Duration(milliseconds: 220),
@@ -1257,9 +1265,14 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     padding: contentPadding,
                     child: NotificationListener<ScrollNotification>(
                       onNotification: _onScrollNotification,
-                      child: _settings.mode == ReadingMode.paged
-                          ? _buildPaged(preset)
-                          : _buildScroll(preset),
+                      // SelectionArea makes the body text selectable, which
+                      // gives long-press the iOS context menu — including
+                      // Look Up (dictionary), Translate, Share, and Copy.
+                      child: SelectionArea(
+                        child: _settings.mode == ReadingMode.paged
+                            ? _buildPaged(preset)
+                            : _buildScroll(preset),
+                      ),
                     ),
                   ),
                 ),
