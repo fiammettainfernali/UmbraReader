@@ -73,6 +73,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   String _searchQuery = '';
   LibrarySort _sort = LibrarySort.titleAsc;
+  LibraryFilters _filters = const LibraryFilters();
 
   /// Books that have been started but not finished, newest first.
   List<ReadingEntry> _reading = const [];
@@ -265,21 +266,73 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (settings.isConfigured) await _sync();
   }
 
-  /// The library after applying the current search filter and sort order.
+  /// The library after applying the active search, filter set, and sort.
   List<Series> get _visibleLibrary {
     final all = _library ?? const <Series>[];
     final query = _searchQuery.trim().toLowerCase();
-    final filtered = query.isEmpty
-        ? all.toList()
-        : all
-              .where(
-                (s) =>
-                    s.title.toLowerCase().contains(query) ||
-                    s.author.toLowerCase().contains(query),
-              )
-              .toList();
+    final downloads = _downloads;
+    final filtered = <Series>[];
+    for (final series in all) {
+      if (query.isNotEmpty) {
+        if (!series.title.toLowerCase().contains(query) &&
+            !series.author.toLowerCase().contains(query)) {
+          continue;
+        }
+      }
+      if (!_filters.matches(
+        series,
+        isDownloaded: downloads?.recordsForSeries(series.opdsId).isNotEmpty
+            ?? false,
+      )) {
+        continue;
+      }
+      filtered.add(series);
+    }
     filtered.sort(_comparatorFor(_sort));
     return filtered;
+  }
+
+  /// Every distinct genre tag present across the library — used to build the
+  /// filter sheet's genre chip set.
+  List<String> get _allGenres {
+    final set = <String>{};
+    for (final s in _library ?? const <Series>[]) {
+      for (final g in s.genres) {
+        final clean = g.trim();
+        if (clean.isNotEmpty) set.add(clean);
+      }
+    }
+    final list = set.toList()..sort();
+    return list;
+  }
+
+  /// Every distinct reading status the library uses.
+  List<String> get _allStatuses {
+    final set = <String>{};
+    for (final s in _library ?? const <Series>[]) {
+      final clean = s.readingStatus.trim().toLowerCase();
+      if (clean.isNotEmpty) set.add(clean);
+    }
+    final list = set.toList()..sort();
+    return list;
+  }
+
+  Future<void> _openFilters() async {
+    final next = await showModalBottomSheet<LibraryFilters>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.85,
+      ),
+      builder: (_) => _LibraryFilterSheet(
+        initial: _filters,
+        allGenres: _allGenres,
+        allStatuses: _allStatuses,
+      ),
+    );
+    if (next == null) return;
+    setState(() => _filters = next);
   }
 
   Comparator<Series> _comparatorFor(LibrarySort sort) {
@@ -560,6 +613,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
         SliverToBoxAdapter(child: _buildControls(all.length, visible.length)),
         if (_reading.isNotEmpty && _searchQuery.trim().isEmpty)
           SliverToBoxAdapter(child: _buildContinueShelf()),
+        if (_searchQuery.trim().isEmpty && _recentlyUpdated.isNotEmpty)
+          SliverToBoxAdapter(child: _buildRecentShelf()),
         if (_recommendations.isNotEmpty && _searchQuery.trim().isEmpty)
           SliverToBoxAdapter(child: _buildRecommendedShelf()),
         if (visible.isEmpty)
@@ -707,6 +762,59 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 series: seriesById[entry.volume.seriesOpdsId],
                 imageHeaders: headers,
                 onTap: () => _openVolume(entry.volume),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  /// The 10 most-recently-updated series in the library (most-recent first).
+  /// Used as the "Recently updated" shelf — Novel Grabber bumps a series'
+  /// updatedAt every time it recompiles a volume, so this surfaces what's
+  /// genuinely new.
+  List<Series> get _recentlyUpdated {
+    final all = _library ?? const <Series>[];
+    if (all.length < 3) return const [];
+    final dated = all.where((s) => s.updatedAt != null).toList()
+      ..sort((a, b) => b.updatedAt!.compareTo(a.updatedAt!));
+    if (dated.length < 3) return const [];
+    return dated.take(10).toList();
+  }
+
+  /// Horizontal shelf of the freshest series in the library.
+  Widget _buildRecentShelf() {
+    final theme = Theme.of(context);
+    final headers = (_settings?.isConfigured ?? false)
+        ? OpdsClient(_settings!).authHeaders
+        : const <String, String>{};
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+          child: Text(
+            'Recently updated',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        SizedBox(
+          height: 226,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: _recentlyUpdated.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 14),
+            itemBuilder: (context, index) {
+              final series = _recentlyUpdated[index];
+              return _RecommendCard(
+                series: series,
+                imageHeaders: headers,
+                onTap: () => _openSeries(series),
               );
             },
           ),
@@ -878,6 +986,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
               ),
               const SizedBox(width: 4),
+              IconButton(
+                icon: Badge(
+                  isLabelVisible: !_filters.isEmpty,
+                  smallSize: 8,
+                  child: const Icon(Icons.filter_list),
+                ),
+                tooltip: 'Filter library',
+                onPressed: _openFilters,
+              ),
               PopupMenuButton<LibrarySort>(
                 icon: const Icon(Icons.sort),
                 tooltip: 'Sort',
@@ -1091,20 +1208,21 @@ class _ContinueCard extends StatelessWidget {
   }
 }
 
-/// A card on the "Recommended for you" shelf: cover, title, author, plus a
-/// small ✕ button to dismiss the recommendation as a "not interested" signal.
+/// A card showing a series cover, title and author. Used by both the
+/// "Recommended for you" and "Recently updated" shelves; the ✕ dismiss
+/// button only appears when [onDismiss] is supplied.
 class _RecommendCard extends StatelessWidget {
   const _RecommendCard({
     required this.series,
     required this.imageHeaders,
     required this.onTap,
-    required this.onDismiss,
+    this.onDismiss,
   });
 
   final Series series;
   final Map<String, String> imageHeaders;
   final VoidCallback onTap;
-  final VoidCallback onDismiss;
+  final VoidCallback? onDismiss;
 
   @override
   Widget build(BuildContext context) {
@@ -1142,11 +1260,12 @@ class _RecommendCard extends StatelessWidget {
                         headers: imageHeaders,
                         fallback: _TitleCover(title: series.title),
                       ),
-                      Positioned(
-                        top: 4,
-                        right: 4,
-                        child: _DismissChip(onPressed: onDismiss),
-                      ),
+                      if (onDismiss != null)
+                        Positioned(
+                          top: 4,
+                          right: 4,
+                          child: _DismissChip(onPressed: onDismiss!),
+                        ),
                     ],
                   ),
                 ),
@@ -1370,4 +1489,256 @@ class _MessageView extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The active set of library filters, applied alongside search + sort.
+class LibraryFilters {
+  const LibraryFilters({
+    this.genres = const {},
+    this.statuses = const {},
+    this.downloaded,
+    this.multiVolume,
+  });
+
+  /// Genres the user wants to see; empty = no genre filter.
+  final Set<String> genres;
+
+  /// Reading statuses the user wants to see; empty = no status filter.
+  final Set<String> statuses;
+
+  /// null = either, true = only downloaded series, false = only not-downloaded.
+  final bool? downloaded;
+
+  /// null = either, true = only multi-volume, false = only single-volume.
+  final bool? multiVolume;
+
+  bool get isEmpty =>
+      genres.isEmpty &&
+      statuses.isEmpty &&
+      downloaded == null &&
+      multiVolume == null;
+
+  /// True when [series] satisfies every active filter clause.
+  bool matches(Series series, {required bool isDownloaded}) {
+    if (genres.isNotEmpty) {
+      final seriesGenres = {
+        for (final g in series.genres) g.trim(),
+      };
+      if (!seriesGenres.any(genres.contains)) return false;
+    }
+    if (statuses.isNotEmpty &&
+        !statuses.contains(series.readingStatus.trim().toLowerCase())) {
+      return false;
+    }
+    if (downloaded != null && isDownloaded != downloaded) return false;
+    if (multiVolume != null && series.hasMultipleVolumes != multiVolume) {
+      return false;
+    }
+    return true;
+  }
+
+  LibraryFilters copyWith({
+    Set<String>? genres,
+    Set<String>? statuses,
+    Object? downloaded = _unset,
+    Object? multiVolume = _unset,
+  }) {
+    return LibraryFilters(
+      genres: genres ?? this.genres,
+      statuses: statuses ?? this.statuses,
+      downloaded: identical(downloaded, _unset)
+          ? this.downloaded
+          : downloaded as bool?,
+      multiVolume: identical(multiVolume, _unset)
+          ? this.multiVolume
+          : multiVolume as bool?,
+    );
+  }
+
+  static const Object _unset = Object();
+}
+
+/// Bottom-sheet UI for picking [LibraryFilters]. Returns the new filter set
+/// when the user taps Apply, null when they cancel.
+class _LibraryFilterSheet extends StatefulWidget {
+  const _LibraryFilterSheet({
+    required this.initial,
+    required this.allGenres,
+    required this.allStatuses,
+  });
+
+  final LibraryFilters initial;
+  final List<String> allGenres;
+  final List<String> allStatuses;
+
+  @override
+  State<_LibraryFilterSheet> createState() => _LibraryFilterSheetState();
+}
+
+class _LibraryFilterSheetState extends State<_LibraryFilterSheet> {
+  late LibraryFilters _draft;
+
+  @override
+  void initState() {
+    super.initState();
+    _draft = widget.initial;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SafeArea(
+      top: false,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Filter library',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _draft.isEmpty
+                      ? null
+                      : () => setState(() => _draft = const LibraryFilters()),
+                  child: const Text('Reset'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (widget.allGenres.isNotEmpty) ...[
+              _sectionLabel(theme, 'Genre'),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final genre in widget.allGenres)
+                    FilterChip(
+                      label: Text(genre),
+                      selected: _draft.genres.contains(genre),
+                      onSelected: (selected) {
+                        final next = {..._draft.genres};
+                        if (selected) {
+                          next.add(genre);
+                        } else {
+                          next.remove(genre);
+                        }
+                        setState(
+                          () => _draft = _draft.copyWith(genres: next),
+                        );
+                      },
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
+            if (widget.allStatuses.isNotEmpty) ...[
+              _sectionLabel(theme, 'Reading status'),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final status in widget.allStatuses)
+                    FilterChip(
+                      label: Text(_titleCase(status)),
+                      selected: _draft.statuses.contains(status),
+                      onSelected: (selected) {
+                        final next = {..._draft.statuses};
+                        if (selected) {
+                          next.add(status);
+                        } else {
+                          next.remove(status);
+                        }
+                        setState(
+                          () => _draft = _draft.copyWith(statuses: next),
+                        );
+                      },
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
+            _sectionLabel(theme, 'Downloaded'),
+            _triStateRow(
+              value: _draft.downloaded,
+              labels: const ['Any', 'Downloaded', 'Not yet'],
+              onChanged: (v) => setState(
+                () => _draft = _draft.copyWith(downloaded: v),
+              ),
+            ),
+            const SizedBox(height: 16),
+            _sectionLabel(theme, 'Volumes'),
+            _triStateRow(
+              value: _draft.multiVolume,
+              labels: const ['Any', 'Multi-volume', 'Single volume'],
+              onChanged: (v) => setState(
+                () => _draft = _draft.copyWith(multiVolume: v),
+              ),
+            ),
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(context).pop(_draft),
+                    child: const Text('Apply'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sectionLabel(ThemeData theme, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        text,
+        style: theme.textTheme.titleSmall?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  /// A three-state segmented control: any / true / false.
+  Widget _triStateRow({
+    required bool? value,
+    required List<String> labels,
+    required ValueChanged<bool?> onChanged,
+  }) {
+    assert(labels.length == 3);
+    return SegmentedButton<int>(
+      segments: [
+        ButtonSegment(value: 0, label: Text(labels[0])),
+        ButtonSegment(value: 1, label: Text(labels[1])),
+        ButtonSegment(value: 2, label: Text(labels[2])),
+      ],
+      selected: {value == null ? 0 : (value ? 1 : 2)},
+      onSelectionChanged: (selection) {
+        final v = selection.first;
+        onChanged(v == 0 ? null : v == 1);
+      },
+    );
+  }
+
+  String _titleCase(String s) =>
+      s.isEmpty ? s : '${s[0].toUpperCase()}${s.substring(1)}';
 }
