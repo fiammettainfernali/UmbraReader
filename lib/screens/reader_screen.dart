@@ -1380,14 +1380,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
                     padding: contentPadding,
                     child: NotificationListener<ScrollNotification>(
                       onNotification: _onScrollNotification,
-                      // SelectionArea makes the body text selectable, which
-                      // gives long-press the iOS context menu — including
-                      // Look Up (dictionary), Translate, Share, and Copy.
-                      child: SelectionArea(
-                        child: _settings.mode == ReadingMode.paged
-                            ? _buildPaged(preset)
-                            : _buildScroll(preset),
-                      ),
+                      child: _settings.mode == ReadingMode.paged
+                          ? _buildPaged(preset)
+                          : _buildScroll(preset),
                     ),
                   ),
                 ),
