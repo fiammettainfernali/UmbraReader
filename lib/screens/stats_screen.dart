@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
+import '../services/settings_service.dart';
 
 /// Shows reading statistics derived from saved reading positions and
 /// reading-time activity: books started / in progress / finished / chapters
@@ -15,9 +16,12 @@ class StatsScreen extends StatefulWidget {
 }
 
 class _StatsScreenState extends State<StatsScreen> {
+  final _settingsService = SettingsService();
+
   /// Null while loading.
   List<ReadingEntry>? _entries;
   ReadingActivity _activity = ReadingActivity.empty;
+  int _dailyGoalMinutes = 0;
 
   @override
   void initState() {
@@ -28,11 +32,57 @@ class _StatsScreenState extends State<StatsScreen> {
   Future<void> _load() async {
     final entries = await ReadingProgressStore().allEntries();
     final activity = await ReadingActivityStore().load();
+    final goal = await _settingsService.readDailyMinuteGoal();
     if (!mounted) return;
     setState(() {
       _entries = entries;
       _activity = activity;
+      _dailyGoalMinutes = goal;
     });
+  }
+
+  Future<void> _editGoal() async {
+    final controller = TextEditingController(
+      text: _dailyGoalMinutes > 0 ? '$_dailyGoalMinutes' : '',
+    );
+    final result = await showDialog<int>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('Daily reading goal'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Minutes per day',
+            hintText: 'e.g. 20',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (value) =>
+              Navigator.of(dialogCtx).pop(int.tryParse(value) ?? 0),
+        ),
+        actions: [
+          if (_dailyGoalMinutes > 0)
+            TextButton(
+              onPressed: () => Navigator.of(dialogCtx).pop(0),
+              child: const Text('Clear goal'),
+            ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogCtx)
+                .pop(int.tryParse(controller.text) ?? 0),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (result == null) return;
+    await _settingsService.saveDailyMinuteGoal(result);
+    await _load();
   }
 
   @override
@@ -154,6 +204,12 @@ class _StatsScreenState extends State<StatsScreen> {
           ],
         ),
         const SizedBox(height: 24),
+        _GoalRow(
+          dailyGoalMinutes: _dailyGoalMinutes,
+          todaySeconds: _activity.dailySeconds[_todayKey()] ?? 0,
+          onEdit: _editGoal,
+        ),
+        const SizedBox(height: 24),
         Text(
           'Last 30 days',
           style: theme.textTheme.titleSmall?.copyWith(
@@ -233,6 +289,74 @@ class _StatCard extends StatelessWidget {
   }
 }
 
+/// Today's progress against the user's daily reading goal — a thin progress
+/// bar plus the minute count and an "Edit" / "Set goal" action.
+class _GoalRow extends StatelessWidget {
+  const _GoalRow({
+    required this.dailyGoalMinutes,
+    required this.todaySeconds,
+    required this.onEdit,
+  });
+
+  final int dailyGoalMinutes;
+  final int todaySeconds;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final todayMinutes = todaySeconds ~/ 60;
+    final hasGoal = dailyGoalMinutes > 0;
+    final ratio = hasGoal
+        ? (todayMinutes / dailyGoalMinutes).clamp(0.0, 1.0)
+        : 0.0;
+    final label = hasGoal
+        ? '$todayMinutes / $dailyGoalMinutes min today'
+        : '$todayMinutes min today  ·  no daily goal set';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: onEdit,
+              child: Text(hasGoal ? 'Edit goal' : 'Set goal'),
+            ),
+          ],
+        ),
+        if (hasGoal) ...[
+          const SizedBox(height: 6),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: ratio,
+              minHeight: 8,
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+            ),
+          ),
+          if (ratio >= 1.0) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Goal hit for today — nice.',
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: theme.colorScheme.primary,
+              ),
+            ),
+          ],
+        ],
+      ],
+    );
+  }
+}
+
 /// A compact 30-cell horizontal bar where each cell is a day, colored by
 /// how much was read that day. Today is the rightmost cell.
 class _Heatmap extends StatelessWidget {
@@ -303,6 +427,13 @@ class _BookRow extends StatelessWidget {
         ? 'Chapter ${progress.chapterIndex + 1} of ${progress.chapterCount}'
         : 'Chapter ${progress.chapterIndex + 1}';
     final timeText = seconds > 0 ? '  ·  ${_formatDuration(seconds)} read' : '';
+    // Reading pace, only shown after at least 5 minutes — shorter sessions
+    // skew the number wildly.
+    final hours = seconds / 3600;
+    final speedText = (seconds >= 300 && hours > 0)
+        ? '  ·  ${((progress.chapterIndex + 1) / hours).toStringAsFixed(1)}'
+              ' ch/hr'
+        : '';
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: SizedBox(
@@ -332,7 +463,7 @@ class _BookRow extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
       ),
       subtitle: Text(
-        '$chapterLabel$timeText  ·  '
+        '$chapterLabel$timeText$speedText  ·  '
         '${finished ? 'Finished' : 'Last read'} '
         '${_formatDate(progress.updatedAt)}',
         style: theme.textTheme.bodySmall?.copyWith(
@@ -380,3 +511,5 @@ String _dateKey(DateTime date) {
   final d = local.day.toString().padLeft(2, '0');
   return '${local.year}-$m-$d';
 }
+
+String _todayKey() => _dateKey(DateTime.now());

@@ -59,6 +59,7 @@ class SettingsService {
   static const _kUsername = 'opds_username';
   static const _kPassword = 'opds_password';
   static const _kOnboardingDone = 'onboarding_done';
+  static const _kDailyGoal = 'daily_minute_goal';
 
   Future<OpdsSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -86,5 +87,20 @@ class SettingsService {
   Future<void> markOnboardingSeen() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kOnboardingDone, true);
+  }
+
+  /// Daily reading-time goal in minutes. 0 means no goal set.
+  Future<int> readDailyMinuteGoal() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_kDailyGoal) ?? 0;
+  }
+
+  Future<void> saveDailyMinuteGoal(int minutes) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (minutes <= 0) {
+      await prefs.remove(_kDailyGoal);
+    } else {
+      await prefs.setInt(_kDailyGoal, minutes);
+    }
   }
 }
