@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
 import 'package:html/dom.dart' as dom;
@@ -133,7 +134,7 @@ class EpubParser {
     final body = document.body;
     if (body == null) return const [];
     final blocks = <ContentBlock>[];
-    _walkBlocks(body, blocks);
+    _walkBlocks(body, blocks, _dirOf(chapter.zipPath));
     if (blocks.isEmpty) {
       return const [
         ParagraphBlock([TextRun('(This chapter appears to be empty.)')]),
@@ -273,34 +274,128 @@ class EpubParser {
 
   // ── chapter content parsing ──────────────────────────────────────────────
 
-  void _walkBlocks(dom.Element parent, List<ContentBlock> out) {
+  void _walkBlocks(
+    dom.Element parent,
+    List<ContentBlock> out,
+    String baseDir,
+  ) {
     for (final node in parent.nodes) {
       if (node is! dom.Element) continue;
       final tag = node.localName?.toLowerCase() ?? '';
       if (tag == 'p') {
         final runs = _inlineRuns(node);
         if (_hasText(runs)) out.add(ParagraphBlock(runs));
+        // EPUBs commonly wrap chapter art in <p><img/></p>; pull every
+        // image out as its own block so the renderer can show it standalone.
+        for (final img in node.querySelectorAll('img')) {
+          final block = _readImage(img, baseDir);
+          if (block != null) out.add(block);
+        }
       } else if (tag.length == 2 && tag[0] == 'h' && '123456'.contains(tag[1])) {
         final runs = _inlineRuns(node);
         if (_hasText(runs)) out.add(HeadingBlock(int.parse(tag[1]), runs));
       } else if (tag == 'hr') {
         out.add(const DividerBlock());
-      } else if (tag == 'br' || tag == 'img' || tag == 'image') {
-        // Ignored in this version (chapters are text-first).
+      } else if (tag == 'img' || tag == 'image') {
+        final image = _readImage(node, baseDir);
+        if (image != null) out.add(image);
+      } else if (tag == 'br') {
+        // Line break between inline content — handled by _collectInline.
       } else if (tag == 'div' ||
           tag == 'section' ||
           tag == 'article' ||
           tag == 'main' ||
           tag == 'blockquote' ||
-          tag == 'body') {
-        _walkBlocks(node, out);
+          tag == 'body' ||
+          tag == 'figure') {
+        _walkBlocks(node, out, baseDir);
       } else if (node.children.isNotEmpty) {
-        _walkBlocks(node, out);
+        _walkBlocks(node, out, baseDir);
       } else {
         final runs = _inlineRuns(node);
         if (_hasText(runs)) out.add(ParagraphBlock(runs));
       }
     }
+  }
+
+  /// Loads the EPUB image referenced by [node] (an `<img>` or SVG `<image>`)
+  /// and parses its natural pixel dimensions from the PNG/JPEG header so
+  /// the reader can lay it out without an async decode.
+  ImageBlock? _readImage(dom.Element node, String baseDir) {
+    final src = node.attributes['src'] ??
+        node.attributes['xlink:href'] ??
+        node.attributes['href'] ??
+        '';
+    if (src.isEmpty) return null;
+    final path = _resolve(baseDir, src);
+    final raw = _findBytes(path);
+    if (raw == null) return null;
+    final bytes = Uint8List.fromList(raw);
+    final dims = _readImageDimensions(bytes);
+    return ImageBlock(
+      bytes: bytes,
+      width: dims?.$1 ?? 800,
+      height: dims?.$2 ?? 600,
+      alt: node.attributes['alt'] ?? '',
+    );
+  }
+
+  /// Reads natural (width, height) from a PNG or JPEG file header.
+  /// Returns null for unrecognised formats — the caller should fall back to
+  /// a reasonable aspect ratio.
+  (int, int)? _readImageDimensions(Uint8List bytes) {
+    // PNG: 8-byte signature, then IHDR chunk; width/height are big-endian
+    // 32-bit ints at offsets 16-23.
+    if (bytes.length > 24 &&
+        bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47) {
+      final w = (bytes[16] << 24) |
+          (bytes[17] << 16) |
+          (bytes[18] << 8) |
+          bytes[19];
+      final h = (bytes[20] << 24) |
+          (bytes[21] << 16) |
+          (bytes[22] << 8) |
+          bytes[23];
+      if (w > 0 && h > 0) return (w, h);
+    }
+    // JPEG: SOI \xFF\xD8 then a chain of segments; the SOFn marker carries
+    // height (offset +5..6) and width (offset +7..8) as big-endian 16-bit.
+    if (bytes.length > 4 && bytes[0] == 0xFF && bytes[1] == 0xD8) {
+      var i = 2;
+      while (i < bytes.length - 9) {
+        if (bytes[i] != 0xFF) {
+          i++;
+          continue;
+        }
+        // Skip fill bytes (0xFF chains).
+        while (i < bytes.length && bytes[i] == 0xFF) {
+          i++;
+        }
+        if (i >= bytes.length) break;
+        final marker = bytes[i];
+        i++;
+        // SOFn markers — but not DHT (C4), DAC (CC) or DNL (DC).
+        if (marker >= 0xC0 &&
+            marker <= 0xCF &&
+            marker != 0xC4 &&
+            marker != 0xC8 &&
+            marker != 0xCC) {
+          if (i + 6 >= bytes.length) break;
+          final h = (bytes[i + 3] << 8) | bytes[i + 4];
+          final w = (bytes[i + 5] << 8) | bytes[i + 6];
+          if (w > 0 && h > 0) return (w, h);
+          break;
+        }
+        if (i + 1 >= bytes.length) break;
+        final segLen = (bytes[i] << 8) | bytes[i + 1];
+        if (segLen < 2) break;
+        i += segLen;
+      }
+    }
+    return null;
   }
 
   List<TextRun> _inlineRuns(dom.Element element) {

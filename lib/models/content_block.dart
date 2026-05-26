@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 /// A run of chapter text with optional emphasis.
 ///
 /// Emphasis is stored as flags, not concrete styles, so the reader can apply
@@ -35,4 +37,23 @@ class HeadingBlock extends ContentBlock {
 /// A scene break / horizontal rule.
 class DividerBlock extends ContentBlock {
   const DividerBlock();
+}
+
+/// An inline image pulled from the EPUB archive — chapter art, character
+/// illustrations, volume splash pages. [width] / [height] are the image's
+/// natural pixel size (parsed from the PNG/JPEG header at parse time, with
+/// a 4:3 fallback for unrecognised formats); the renderer uses the ratio to
+/// keep aspect right at any column width.
+class ImageBlock extends ContentBlock {
+  const ImageBlock({
+    required this.bytes,
+    required this.width,
+    required this.height,
+    this.alt = '',
+  });
+
+  final Uint8List bytes;
+  final int width;
+  final int height;
+  final String alt;
 }

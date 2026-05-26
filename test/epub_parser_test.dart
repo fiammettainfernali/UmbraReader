@@ -64,8 +64,29 @@ const _ch2 = '''<?xml version="1.0" encoding="utf-8"?>
   <body>
     <h1>Second Chapter</h1>
     <p>The story continues.</p>
+    <p><img src="images/art.png" alt="Splash"/></p>
   </body>
 </html>''';
+
+/// A valid 1x1 RGBA PNG — enough to test src resolution + IHDR dimension
+/// parsing without bundling a real image asset.
+const List<int> _pixelPng = [
+  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // signature
+  0x00, 0x00, 0x00, 0x0D, // IHDR length
+  0x49, 0x48, 0x44, 0x52, // 'IHDR'
+  0x00, 0x00, 0x00, 0x01, // width 1
+  0x00, 0x00, 0x00, 0x01, // height 1
+  0x08, 0x06, // bit depth 8, RGBA
+  0x00, 0x00, 0x00, // compression/filter/interlace
+  0x1F, 0x15, 0xC4, 0x89, // CRC
+  0x00, 0x00, 0x00, 0x0A, // IDAT length
+  0x49, 0x44, 0x41, 0x54, // 'IDAT'
+  0x78, 0x9C, 0x62, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x01,
+  0x0D, 0x0A, 0x2D, 0xB4, // CRC
+  0x00, 0x00, 0x00, 0x00, // IEND length
+  0x49, 0x45, 0x4E, 0x44, // 'IEND'
+  0xAE, 0x42, 0x60, 0x82, // CRC
+];
 
 List<int> _buildEpub() {
   final archive = Archive();
@@ -79,6 +100,9 @@ List<int> _buildEpub() {
   add('OEBPS/nav.xhtml', _nav);
   add('OEBPS/ch1.xhtml', _ch1);
   add('OEBPS/ch2.xhtml', _ch2);
+  archive.addFile(
+    ArchiveFile('OEBPS/images/art.png', _pixelPng.length, _pixelPng),
+  );
   final encoded = ZipEncoder().encode(archive);
   if (encoded == null) throw StateError('Failed to encode the test EPUB.');
   return encoded;
@@ -140,6 +164,19 @@ void main() {
 
     expect(runs.any((r) => r.bold && r.text.contains('bold')), isTrue);
     expect(runs.any((r) => r.italic && r.text.contains('italic')), isTrue);
+  });
+
+  test('parseChapter pulls images and their natural dimensions', () async {
+    final parser = EpubParser();
+    final book = await parser.open(epubFile);
+    final blocks = parser.parseChapter(book.chapters[1]);
+
+    final images = blocks.whereType<ImageBlock>().toList();
+    expect(images, hasLength(1));
+    expect(images.first.width, 1);
+    expect(images.first.height, 1);
+    expect(images.first.alt, 'Splash');
+    expect(images.first.bytes, isNotEmpty);
   });
 
   test('a malformed file throws a friendly EpubException', () async {

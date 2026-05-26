@@ -106,6 +106,14 @@ double _measureBlockHeight(ContentBlock block, double width, ReaderSettings s) {
       return painter.height + _headingTopGap + _headingBottomGap;
     case DividerBlock _:
       return _dividerHeight;
+    case ImageBlock image:
+      // Scale the image to the column width and preserve its aspect ratio,
+      // capping height at 80% of a reasonable page so a tall illustration
+      // doesn't push everything else off the page in scroll mode.
+      final natural = image.width <= 0 ? 1 : image.width;
+      final aspect = image.height / natural;
+      final scaledHeight = (width * aspect).clamp(80.0, 900.0);
+      return scaledHeight + _paragraphGap;
   }
 }
 
@@ -768,6 +776,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     ParagraphBlock p => p.runs.map((r) => r.text).join(),
     HeadingBlock h => h.runs.map((r) => r.text).join(),
     DividerBlock _ => '',
+    ImageBlock _ => '',
   };
 
   void _startTts({bool fromCurrentPosition = true}) {
@@ -1635,6 +1644,30 @@ class _BlockView extends StatelessWidget {
             child: Text(
               '✶  ✶  ✶',
               style: TextStyle(color: preset.secondary, fontSize: 16),
+            ),
+          ),
+        );
+      case ImageBlock image:
+        return Padding(
+          padding: EdgeInsets.only(bottom: isLast ? 0 : _paragraphGap),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 900),
+            child: Image.memory(
+              image.bytes,
+              fit: BoxFit.contain,
+              alignment: Alignment.center,
+              filterQuality: FilterQuality.medium,
+              gaplessPlayback: true,
+              semanticLabel: image.alt.isEmpty ? null : image.alt,
+              errorBuilder: (_, _, _) => Container(
+                height: 80,
+                color: preset.secondary.withValues(alpha: 0.15),
+                alignment: Alignment.center,
+                child: Text(
+                  image.alt.isEmpty ? '[image]' : '[${image.alt}]',
+                  style: TextStyle(color: preset.secondary, fontSize: 12),
+                ),
+              ),
             ),
           ),
         );
