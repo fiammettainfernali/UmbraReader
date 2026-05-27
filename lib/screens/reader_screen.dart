@@ -12,6 +12,7 @@ import '../models/reader_theme.dart';
 import '../models/volume.dart';
 import '../services/bookmark_store.dart';
 import '../services/epub_parser.dart';
+import '../services/library_cache.dart';
 import '../services/library_storage.dart';
 import '../services/now_playing_service.dart';
 import '../services/reader_preferences.dart';
@@ -19,6 +20,7 @@ import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
 import '../services/tts_service.dart';
 import '../widgets/reader_settings_sheet.dart';
+import 'highlights_screen.dart';
 
 // Layout constants — shared by rendering and pagination so the two agree.
 const double _contentVPad = 8;
@@ -396,6 +398,16 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Periodic timer driving the hands-free auto-scroll, when enabled.
   Timer? _autoScrollTimer;
 
+  /// Block indices in the current chapter that have been highlighted,
+  /// mapped to the color the user chose so the renderer can paint each
+  /// passage with its own tint.
+  Map<int, HighlightColor> _highlightedBlocks = const {};
+
+  /// True once the end-of-volume prompt has fired this session, so the
+  /// dialog doesn't reappear every time the user re-taps "next" from the
+  /// last page.
+  bool _endOfVolumePrompted = false;
+
   /// Persists per-day and per-volume reading-time totals.
   final _activityStore = ReadingActivityStore();
 
@@ -406,6 +418,11 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// drive the reading-progress bar and the "time left" estimate.
   double _chapterFraction = 0;
   int _chapterWordCount = 0;
+
+  /// Word count per chapter, populated lazily as chapters are visited.
+  /// Used to estimate how long is left in the *book* — the unmeasured
+  /// chapters get the running average from what's been seen.
+  final Map<int, int> _chapterWordCounts = {};
 
   @override
   void initState() {
@@ -472,7 +489,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   Future<void> _open() async {
-    final settings = await ReaderPreferences().load();
+    final settings = await ReaderPreferences().load(volume: widget.volume);
     await _preloadFont(settings.fontFamily);
     try {
       final file = await LibraryStorage().epubFile(widget.volume);
@@ -499,6 +516,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         _chapterIndex = chapterIndex;
         _blocks = blocks;
         _chapterWordCount = _countWords(blocks);
+        _chapterWordCounts[_chapterIndex] = _chapterWordCount;
         _settings = settings;
         _pendingRestoreBlock = blocks.isEmpty
             ? 0
@@ -509,6 +527,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         _restoreScrollPosition();
         if (_settings.autoScroll) _startAutoScroll();
       });
+      _refreshHighlights();
     } on EpubException catch (e) {
       _fail(e.message);
     }
@@ -540,6 +559,17 @@ class _ReaderScreenState extends State<ReaderScreen>
     final book = _book;
     final parser = _parser;
     if (book == null || parser == null) return;
+    // Advancing past the final chapter is the natural "I finished this volume"
+    // moment — surface the next volume in the series rather than silently
+    // pinning the user on the last page.
+    if (index > book.chapters.length - 1 &&
+        _chapterIndex == book.chapters.length - 1) {
+      if (!_endOfVolumePrompted) {
+        _endOfVolumePrompted = true;
+        _maybeShowEndOfVolumePrompt();
+      }
+      return;
+    }
     final clamped = index.clamp(0, book.chapters.length - 1);
     if (clamped == _chapterIndex && _blocks != null) return;
     // A manual chapter change stops read-aloud; a TTS-driven advance keeps it.
@@ -568,6 +598,89 @@ class _ReaderScreenState extends State<ReaderScreen>
         _scrollController.jumpTo(0);
       }
     });
+    _refreshHighlights();
+  }
+
+  /// Pops a dialog at the end of the volume offering the next one in the
+  /// series, if it's available in the cached volume list (downloaded or
+  /// not — undownloaded ones bounce to the series screen so the user can
+  /// download from there).
+  Future<void> _maybeShowEndOfVolumePrompt() async {
+    final cache = LibraryCache(LibraryStorage());
+    await cache.load();
+    final volumes = cache.volumesFor(widget.volume.seriesOpdsId);
+    if (volumes == null || volumes.isEmpty) return;
+    final currentIdx = volumes.indexWhere(
+      (v) => v.fileName == widget.volume.fileName,
+    );
+    if (currentIdx < 0 || currentIdx >= volumes.length - 1) return;
+    final next = volumes[currentIdx + 1];
+    final downloaded = await LibraryStorage().epubFile(next).then(
+          (f) => f.existsSync(),
+        );
+    if (!mounted) return;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('You finished this volume'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Next up:',
+              style: Theme.of(dialogCtx).textTheme.labelSmall?.copyWith(
+                color: Theme.of(dialogCtx).colorScheme.outline,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              next.title,
+              style: Theme.of(dialogCtx).textTheme.titleMedium,
+            ),
+            if (!downloaded) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Not downloaded yet — opening the series page lets you grab it.',
+                style: Theme.of(dialogCtx).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(dialogCtx).colorScheme.outline,
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop('stay'),
+            child: const Text('Stay here'),
+          ),
+          if (downloaded)
+            FilledButton(
+              onPressed: () => Navigator.of(dialogCtx).pop('open'),
+              child: const Text('Open next'),
+            )
+          else
+            FilledButton(
+              onPressed: () => Navigator.of(dialogCtx).pop('series'),
+              child: const Text('Open series'),
+            ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    switch (choice) {
+      case 'open':
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => ReaderScreen(volume: next)),
+        );
+      case 'series':
+      // Drop the reader and let the user re-enter the series from the
+      // library — series detail requires the Series object we don't have.
+        Navigator.of(context).pop();
+      case 'stay':
+      case null:
+        break;
+    }
   }
 
   // ── reading-position memory ──────────────────────────────────────────────
@@ -698,6 +811,21 @@ class _ReaderScreenState extends State<ReaderScreen>
     return words;
   }
 
+  /// Estimated reading time left in the whole book, in minutes. Combines the
+  /// remaining part of the current chapter with the running average word
+  /// count of measured chapters multiplied by the unread chapter count.
+  /// Returns null until at least one chapter has been measured (i.e. always
+  /// available once the reader has rendered anything).
+  double? _estimateBookMinutesLeft(EpubBook book) {
+    if (_chapterWordCounts.isEmpty) return null;
+    final measured = _chapterWordCounts.values;
+    final avg = measured.reduce((a, b) => a + b) / measured.length;
+    final remainingChapters = book.chapters.length - _chapterIndex - 1;
+    final currentLeft = _chapterWordCount * (1 - _chapterFraction);
+    final unreadWords = currentLeft + (remainingChapters * avg);
+    return unreadWords / 220.0;
+  }
+
   /// Restores the saved scroll-mode position once the list has laid out.
   /// (Paged-mode restore is handled when pages are computed in `_buildPaged`.)
   void _restoreScrollPosition() {
@@ -752,7 +880,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       _settings = next;
       _pageJumpTarget = currentPage;
     });
-    ReaderPreferences().save(next);
+    ReaderPreferences().save(next, volume: widget.volume);
     if (rateChanged) _ttsService.setRate(next.speechRate);
     if (voiceChanged) _ttsService.setVoice(next.voiceName, next.voiceLocale);
     if (fontChanged) {
@@ -1041,6 +1169,8 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   Future<void> _openSettings() async {
     final voices = await _ttsService.availableVoices();
+    final prefs = ReaderPreferences();
+    final hasOverride = await prefs.hasOverride(widget.volume);
     if (!mounted) return;
     showModalBottomSheet<void>(
       context: context,
@@ -1057,6 +1187,14 @@ class _ReaderScreenState extends State<ReaderScreen>
         sleepOption: _sleepOption,
         onChanged: _applySettings,
         onSleepTimerChanged: _setSleepTimer,
+        hasOverride: hasOverride,
+        onOverrideToggled: (enabled) async {
+          if (enabled) {
+            await prefs.enableOverride(widget.volume, _settings);
+          } else {
+            await prefs.clearOverride(widget.volume);
+          }
+        },
       ),
     );
   }
@@ -1094,8 +1232,25 @@ class _ReaderScreenState extends State<ReaderScreen>
         currentSnippet: snippet,
       ),
     );
+    // Pick up any highlights the user added in the sheet so they paint
+    // immediately on the rendered page.
+    await _refreshHighlights();
     if (picked == null || !mounted) return;
     _jumpToSearchHit(picked.chapterIndex, picked.blockIndex);
+  }
+
+  /// Re-reads the bookmarks store and rebuilds the per-chapter set of
+  /// highlighted block indices.
+  Future<void> _refreshHighlights() async {
+    final all = await BookmarkStore().list(widget.volume);
+    if (!mounted) return;
+    setState(() {
+      _highlightedBlocks = {
+        for (final mark in all)
+          if (mark.isHighlight && mark.chapterIndex == _chapterIndex)
+            mark.blockIndex: mark.color,
+      };
+    });
   }
 
   /// Trims a block's text to a short, single-line preview for bookmarks /
@@ -1161,6 +1316,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_settings.mode == ReadingMode.scroll) _restoreScrollPosition();
     });
+    _refreshHighlights();
   }
 
   // ── navigation ───────────────────────────────────────────────────────────
@@ -1349,24 +1505,41 @@ class _ReaderScreenState extends State<ReaderScreen>
               ),
               const Divider(height: 1),
               Expanded(
-                child: ListView.builder(
-                  itemCount: book.chapters.length,
-                  itemBuilder: (context, index) {
-                    final chapter = book.chapters[index];
-                    final current = index == _chapterIndex;
-                    return ListTile(
-                      selected: current,
-                      leading: current
-                          ? const Icon(Icons.play_arrow)
-                          : const SizedBox(width: 24),
-                      title: Text(
-                        chapter.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        _goToChapter(index);
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // Fixed-height rows so we can scroll the current chapter
+                    // into view on open without measuring each tile. The
+                    // initial offset positions the current chapter roughly a
+                    // third of the way down the viewport.
+                    const rowHeight = 64.0;
+                    final maxOffset =
+                        (book.chapters.length * rowHeight - constraints.maxHeight)
+                            .clamp(0.0, double.infinity);
+                    final target =
+                        (_chapterIndex * rowHeight - constraints.maxHeight / 3)
+                            .clamp(0.0, maxOffset);
+                    return ListView.builder(
+                      controller: ScrollController(initialScrollOffset: target),
+                      itemCount: book.chapters.length,
+                      itemExtent: rowHeight,
+                      itemBuilder: (context, index) {
+                        final chapter = book.chapters[index];
+                        final current = index == _chapterIndex;
+                        return ListTile(
+                          selected: current,
+                          leading: current
+                              ? const Icon(Icons.play_arrow)
+                              : const SizedBox(width: 24),
+                          title: Text(
+                            chapter.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () {
+                            Navigator.of(context).pop();
+                            _goToChapter(index);
+                          },
+                        );
                       },
                     );
                   },
@@ -1482,9 +1655,11 @@ class _ReaderScreenState extends State<ReaderScreen>
                       progress: _chapterFraction,
                       minutesLeft:
                           _chapterWordCount * (1 - _chapterFraction) / 220.0,
+                      bookMinutesLeft: _estimateBookMinutesLeft(book),
                       onPrevious: () => _goToChapter(_chapterIndex - 1),
                       onNext: () => _goToChapter(_chapterIndex + 1),
                       onSeek: _seekChapter,
+                      onJump: (delta) => _goToChapter(_chapterIndex + delta),
                     ),
                   ),
                 ),
@@ -1529,6 +1704,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         preset: preset,
         highlightStart: index == _speakingBlock ? _speakingStart : null,
         highlightEnd: index == _speakingBlock ? _speakingEnd : null,
+        highlightColor: _highlightedBlocks[index],
       ),
     );
   }
@@ -1591,6 +1767,8 @@ class _ReaderScreenState extends State<ReaderScreen>
                       highlightEnd: pageBlocks[j].originIndex == _speakingBlock
                           ? _speakingEnd - pageBlocks[j].charOffset
                           : null,
+                      highlightColor:
+                          _highlightedBlocks[pageBlocks[j].originIndex],
                     ),
                 ],
               ),
@@ -1611,6 +1789,7 @@ class _BlockView extends StatelessWidget {
     this.isLast = false,
     this.highlightStart,
     this.highlightEnd,
+    this.highlightColor,
   });
 
   final ContentBlock block;
@@ -1625,24 +1804,30 @@ class _BlockView extends StatelessWidget {
   final int? highlightStart;
   final int? highlightEnd;
 
+  /// Non-null when the user has saved a passage highlight on this block —
+  /// the paragraph/heading body is painted with the matching tint.
+  final HighlightColor? highlightColor;
+
   @override
   Widget build(BuildContext context) {
     switch (block) {
       case ParagraphBlock paragraph:
         return Padding(
           padding: EdgeInsets.only(bottom: isLast ? 0 : _paragraphGap),
-          child: Text.rich(
-            TextSpan(
-              children: _spansFor(
-                context,
-                paragraph.runs,
-                _paragraphStyle(settings, preset.text),
+          child: _maybeTint(
+            child: Text.rich(
+              TextSpan(
+                children: _spansFor(
+                  context,
+                  paragraph.runs,
+                  _paragraphStyle(settings, preset.text),
+                ),
               ),
+              textAlign: settings.textAlign == ReaderTextAlign.justify
+                  ? TextAlign.justify
+                  : TextAlign.left,
+              textScaler: TextScaler.noScaling,
             ),
-            textAlign: settings.textAlign == ReaderTextAlign.justify
-                ? TextAlign.justify
-                : TextAlign.left,
-            textScaler: TextScaler.noScaling,
           ),
         );
       case HeadingBlock heading:
@@ -1651,15 +1836,17 @@ class _BlockView extends StatelessWidget {
             top: _headingTopGap,
             bottom: isLast ? 0 : _headingBottomGap,
           ),
-          child: Text.rich(
-            TextSpan(
-              children: _spansFor(
-                context,
-                heading.runs,
-                _headingStyle(settings, heading.level, preset.text),
+          child: _maybeTint(
+            child: Text.rich(
+              TextSpan(
+                children: _spansFor(
+                  context,
+                  heading.runs,
+                  _headingStyle(settings, heading.level, preset.text),
+                ),
               ),
+              textScaler: TextScaler.noScaling,
             ),
-            textScaler: TextScaler.noScaling,
           ),
         );
       case DividerBlock _:
@@ -1696,6 +1883,35 @@ class _BlockView extends StatelessWidget {
             ),
           ),
         );
+    }
+  }
+
+  /// Wraps [child] in a soft tint matching the saved [highlightColor] when
+  /// present; returns it unchanged otherwise. The tints are semi-transparent
+  /// so they blend acceptably on both light (sepia/paper) and dark themes.
+  Widget _maybeTint({required Widget child}) {
+    final hc = highlightColor;
+    if (hc == null) return child;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      decoration: BoxDecoration(
+        color: _highlightPaint(hc),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: child,
+    );
+  }
+
+  static Color _highlightPaint(HighlightColor color) {
+    switch (color) {
+      case HighlightColor.yellow:
+        return const Color(0xFFFFE066).withValues(alpha: 0.32);
+      case HighlightColor.blue:
+        return const Color(0xFF66B5FF).withValues(alpha: 0.30);
+      case HighlightColor.pink:
+        return const Color(0xFFFF8FB5).withValues(alpha: 0.30);
+      case HighlightColor.green:
+        return const Color(0xFF8FE08F).withValues(alpha: 0.30);
     }
   }
 
@@ -1894,6 +2110,80 @@ class _TopBar extends StatelessWidget {
   }
 }
 
+/// Tap = step one chapter; long-press opens a popup of larger jumps
+/// (±5 / ±10 / ±25). Used for the prev/next chevrons in [_ChapterBar] —
+/// scratches the very-long-webnovel itch where one chapter at a time is
+/// useless when you want to leap across a 400-chapter book.
+class _ChapterStepButton extends StatelessWidget {
+  const _ChapterStepButton({
+    required this.icon,
+    required this.preset,
+    required this.tooltip,
+    required this.onTap,
+    required this.onJump,
+    required this.forward,
+    required this.bound,
+  });
+
+  final IconData icon;
+  final ReaderThemePreset preset;
+  final String tooltip;
+  final VoidCallback? onTap;
+  final ValueChanged<int> onJump;
+
+  /// Whether this button jumps forward (positive deltas) or back (negative).
+  final bool forward;
+
+  /// Largest absolute jump we should still offer, given how close to the
+  /// book edge the reader is — caps the menu so an option doesn't run off
+  /// the end of the book.
+  final int bound;
+
+  static const _jumps = [5, 10, 25];
+
+  Future<void> _openMenu(BuildContext context) async {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final origin = box.localToGlobal(Offset.zero) & box.size;
+    final available = _jumps.where((j) => j <= bound).toList();
+    if (available.isEmpty) return;
+    final picked = await showMenu<int>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        origin.left,
+        origin.top - 8 - 48.0 * available.length,
+        origin.right,
+        origin.bottom,
+      ),
+      items: [
+        for (final j in available)
+          PopupMenuItem<int>(
+            value: forward ? j : -j,
+            child: Text('${forward ? '+' : '−'}$j chapters'),
+          ),
+      ],
+    );
+    if (picked != null) onJump(picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onLongPress: enabled && bound > 1 ? () => _openMenu(context) : null,
+        child: IconButton(
+          icon: Icon(icon),
+          color: preset.text,
+          disabledColor: preset.secondary,
+          onPressed: onTap,
+        ),
+      ),
+    );
+  }
+}
+
 /// Overlay bottom bar: previous / position / next chapter.
 class _ChapterBar extends StatelessWidget {
   const _ChapterBar({
@@ -1903,9 +2193,11 @@ class _ChapterBar extends StatelessWidget {
     required this.total,
     required this.progress,
     required this.minutesLeft,
+    required this.bookMinutesLeft,
     required this.onPrevious,
     required this.onNext,
     required this.onSeek,
+    required this.onJump,
   });
 
   final double height;
@@ -1919,6 +2211,10 @@ class _ChapterBar extends StatelessWidget {
   /// Estimated reading time remaining in the chapter, in minutes.
   final double minutesLeft;
 
+  /// Estimated reading time remaining in the whole book, in minutes — null
+  /// when no chapter word counts have been measured yet.
+  final double? bookMinutesLeft;
+
   final VoidCallback onPrevious;
   final VoidCallback onNext;
 
@@ -1926,11 +2222,31 @@ class _ChapterBar extends StatelessWidget {
   /// current chapter.
   final ValueChanged<double> onSeek;
 
-  /// A short human label for the time left in the chapter.
+  /// Skip forward (positive) or backward (negative) by N chapters — fired
+  /// when the user picks a quick-skip option from the long-press menu on
+  /// the prev/next chevrons.
+  final ValueChanged<int> onJump;
+
+  /// A short human label for the time left in the chapter and (when known)
+  /// the rest of the book — e.g. "~5 min in chapter · ~2h left in book".
   String get _timeLabel {
-    if (minutesLeft < 0.5) return 'Almost done';
-    if (minutesLeft < 1.5) return '~1 min left in chapter';
-    return '~${minutesLeft.round()} min left in chapter';
+    final chapter = minutesLeft < 0.5
+        ? 'Almost done'
+        : minutesLeft < 1.5
+            ? '~1 min in chapter'
+            : '~${minutesLeft.round()} min in chapter';
+    final bk = bookMinutesLeft;
+    if (bk == null || bk < 1) return chapter;
+    return '$chapter · ${_formatBookLeft(bk)} in book';
+  }
+
+  /// Human-formatted book-remaining: "~12 min", "~2h", "~3h 25m".
+  String _formatBookLeft(double minutes) {
+    if (minutes < 60) return '~${minutes.round()} min';
+    final h = minutes ~/ 60;
+    final m = (minutes - h * 60).round();
+    if (m == 0) return '~${h}h';
+    return '~${h}h ${m}m';
   }
 
   @override
@@ -1980,12 +2296,14 @@ class _ChapterBar extends StatelessWidget {
                 top: false,
                 child: Row(
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.chevron_left),
-                      color: preset.text,
-                      disabledColor: preset.secondary,
-                      tooltip: 'Previous chapter',
-                      onPressed: index > 0 ? onPrevious : null,
+                    _ChapterStepButton(
+                      icon: Icons.chevron_left,
+                      preset: preset,
+                      tooltip: 'Previous chapter (long-press to skip back)',
+                      onTap: index > 0 ? onPrevious : null,
+                      onJump: onJump,
+                      forward: false,
+                      bound: index,
                     ),
                     Expanded(
                       child: Column(
@@ -2011,12 +2329,14 @@ class _ChapterBar extends StatelessWidget {
                         ],
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_right),
-                      color: preset.text,
-                      disabledColor: preset.secondary,
-                      tooltip: 'Next chapter',
-                      onPressed: index < total - 1 ? onNext : null,
+                    _ChapterStepButton(
+                      icon: Icons.chevron_right,
+                      preset: preset,
+                      tooltip: 'Next chapter (long-press to skip ahead)',
+                      onTap: index < total - 1 ? onNext : null,
+                      onJump: onJump,
+                      forward: true,
+                      bound: total - index - 1,
                     ),
                   ],
                 ),
@@ -2315,6 +2635,14 @@ class _BookSearchScreenState extends State<_BookSearchScreen> {
 /// Bottom sheet listing this volume's bookmarks, with an "Add bookmark here"
 /// button at the top. Pops with the [Bookmark] the user tapped, or null if
 /// they only added/removed entries.
+/// Carry-result of the highlight prompt: the note text plus the picked
+/// color. Used so the prompt can return both pieces with a single dialog.
+class _HighlightFields {
+  const _HighlightFields(this.note, this.color);
+  final String note;
+  final HighlightColor color;
+}
+
 class _BookmarksSheet extends StatefulWidget {
   const _BookmarksSheet({
     required this.volume,
@@ -2350,7 +2678,18 @@ class _BookmarksSheetState extends State<_BookmarksSheet> {
     setState(() => _bookmarks = list);
   }
 
-  Future<void> _addHere() async {
+  Future<void> _addHere({bool asHighlight = false}) async {
+    String note = '';
+    var color = HighlightColor.yellow;
+    if (asHighlight) {
+      final result = await _promptForHighlight(
+        initialNote: '',
+        initialColor: color,
+      );
+      if (result == null) return;
+      note = result.note;
+      color = result.color;
+    }
     final mark = Bookmark(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       chapterIndex: widget.currentChapterIndex,
@@ -2358,6 +2697,9 @@ class _BookmarksSheetState extends State<_BookmarksSheet> {
       chapterTitle: widget.currentChapterTitle,
       snippet: widget.currentSnippet,
       createdAt: DateTime.now(),
+      isHighlight: asHighlight,
+      note: note,
+      color: color,
     );
     await _store.add(widget.volume, mark);
     await _load();
@@ -2366,6 +2708,91 @@ class _BookmarksSheetState extends State<_BookmarksSheet> {
   Future<void> _remove(String id) async {
     await _store.remove(widget.volume, id);
     await _load();
+  }
+
+  Future<void> _editNote(Bookmark mark) async {
+    final result = await _promptForHighlight(
+      initialNote: mark.note,
+      initialColor: mark.color,
+    );
+    if (result == null) return;
+    await _store.remove(widget.volume, mark.id);
+    await _store.add(
+      widget.volume,
+      mark.copyWith(note: result.note, color: result.color),
+    );
+    await _load();
+  }
+
+  /// Dialog that captures the highlight's note + color. Returns null when
+  /// the user cancels.
+  Future<_HighlightFields?> _promptForHighlight({
+    required String initialNote,
+    required HighlightColor initialColor,
+  }) async {
+    final controller = TextEditingController(text: initialNote);
+    var color = initialColor;
+    final result = await showDialog<_HighlightFields>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('Highlight'),
+        content: StatefulBuilder(
+          builder: (ctx, setLocal) => Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: controller,
+                autofocus: true,
+                minLines: 2,
+                maxLines: 5,
+                decoration: const InputDecoration(
+                  hintText: 'Optional note for this passage',
+                ),
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 10,
+                children: [
+                  for (final c in HighlightColor.values)
+                    GestureDetector(
+                      onTap: () => setLocal(() => color = c),
+                      child: Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _BlockView._highlightPaint(c),
+                          border: Border.all(
+                            color: color == c
+                                ? Theme.of(ctx).colorScheme.primary
+                                : Colors.transparent,
+                            width: 3,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(
+              _HighlightFields(controller.text.trim(), color),
+            ),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return result;
   }
 
   @override
@@ -2391,6 +2818,21 @@ class _BookmarksSheetState extends State<_BookmarksSheet> {
                   ),
                 ),
                 IconButton(
+                  icon: const Icon(Icons.list_alt_outlined),
+                  tooltip: 'View all annotations',
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => HighlightsScreen(
+                          volume: widget.volume,
+                          bookTitle: widget.volume.title,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                IconButton(
                   icon: const Icon(Icons.close),
                   tooltip: 'Done',
                   onPressed: () => Navigator.of(context).pop(),
@@ -2398,10 +2840,24 @@ class _BookmarksSheetState extends State<_BookmarksSheet> {
               ],
             ),
             const SizedBox(height: 4),
-            FilledButton.icon(
-              onPressed: _addHere,
-              icon: const Icon(Icons.bookmark_add_outlined),
-              label: const Text('Add bookmark here'),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => _addHere(),
+                    icon: const Icon(Icons.bookmark_add_outlined),
+                    label: const Text('Bookmark'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    onPressed: () => _addHere(asHighlight: true),
+                    icon: const Icon(Icons.brush_outlined),
+                    label: const Text('Highlight'),
+                  ),
+                ),
+              ],
             ),
             Padding(
               padding: const EdgeInsets.only(top: 4, left: 4),
@@ -2442,23 +2898,99 @@ class _BookmarksSheetState extends State<_BookmarksSheet> {
                         final mark = marks[index];
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
-                          title: Text(
-                            mark.chapterTitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  mark.chapterTitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (mark.isHighlight) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  width: 12,
+                                  height: 12,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: _BlockView._highlightPaint(
+                                      mark.color,
+                                    ),
+                                    border: Border.all(
+                                      color: theme.colorScheme.outlineVariant,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: theme.colorScheme.primaryContainer,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    'Highlight',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color:
+                                          theme.colorScheme.onPrimaryContainer,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
-                          subtitle: Text(
-                            mark.snippet,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.outline,
-                            ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                mark.snippet,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.outline,
+                                ),
+                              ),
+                              if (mark.note.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    mark.note,
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      fontStyle: FontStyle.italic,
+                                      color: theme.colorScheme.onSurface,
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete_outline),
-                            tooltip: 'Delete bookmark',
-                            onPressed: () => _remove(mark.id),
+                          trailing: PopupMenuButton<String>(
+                            tooltip: 'More',
+                            icon: const Icon(Icons.more_vert),
+                            onSelected: (value) {
+                              switch (value) {
+                                case 'edit':
+                                  _editNote(mark);
+                                case 'delete':
+                                  _remove(mark.id);
+                              }
+                            },
+                            itemBuilder: (_) => [
+                              if (mark.isHighlight)
+                                const PopupMenuItem(
+                                  value: 'edit',
+                                  child: Text('Edit note'),
+                                ),
+                              const PopupMenuItem(
+                                value: 'delete',
+                                child: Text('Delete'),
+                              ),
+                            ],
                           ),
                           onTap: () => Navigator.of(context).pop(mark),
                         );
