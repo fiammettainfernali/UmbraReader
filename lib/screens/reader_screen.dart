@@ -2100,6 +2100,80 @@ class _TopBar extends StatelessWidget {
   }
 }
 
+/// Tap = step one chapter; long-press opens a popup of larger jumps
+/// (±5 / ±10 / ±25). Used for the prev/next chevrons in [_ChapterBar] —
+/// scratches the very-long-webnovel itch where one chapter at a time is
+/// useless when you want to leap across a 400-chapter book.
+class _ChapterStepButton extends StatelessWidget {
+  const _ChapterStepButton({
+    required this.icon,
+    required this.preset,
+    required this.tooltip,
+    required this.onTap,
+    required this.onJump,
+    required this.forward,
+    required this.bound,
+  });
+
+  final IconData icon;
+  final ReaderThemePreset preset;
+  final String tooltip;
+  final VoidCallback? onTap;
+  final ValueChanged<int> onJump;
+
+  /// Whether this button jumps forward (positive deltas) or back (negative).
+  final bool forward;
+
+  /// Largest absolute jump we should still offer, given how close to the
+  /// book edge the reader is — caps the menu so an option doesn't run off
+  /// the end of the book.
+  final int bound;
+
+  static const _jumps = [5, 10, 25];
+
+  Future<void> _openMenu(BuildContext context) async {
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final origin = box.localToGlobal(Offset.zero) & box.size;
+    final available = _jumps.where((j) => j <= bound).toList();
+    if (available.isEmpty) return;
+    final picked = await showMenu<int>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        origin.left,
+        origin.top - 8 - 48.0 * available.length,
+        origin.right,
+        origin.bottom,
+      ),
+      items: [
+        for (final j in available)
+          PopupMenuItem<int>(
+            value: forward ? j : -j,
+            child: Text('${forward ? '+' : '−'}$j chapters'),
+          ),
+      ],
+    );
+    if (picked != null) onJump(picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return Tooltip(
+      message: tooltip,
+      child: GestureDetector(
+        onLongPress: enabled && bound > 1 ? () => _openMenu(context) : null,
+        child: IconButton(
+          icon: Icon(icon),
+          color: preset.text,
+          disabledColor: preset.secondary,
+          onPressed: onTap,
+        ),
+      ),
+    );
+  }
+}
+
 /// Overlay bottom bar: previous / position / next chapter.
 class _ChapterBar extends StatelessWidget {
   const _ChapterBar({
