@@ -19,6 +19,7 @@ import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
 import '../services/tts_service.dart';
 import '../widgets/reader_settings_sheet.dart';
+import 'highlights_screen.dart';
 
 // Layout constants — shared by rendering and pagination so the two agree.
 const double _contentVPad = 8;
@@ -396,9 +397,10 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Periodic timer driving the hands-free auto-scroll, when enabled.
   Timer? _autoScrollTimer;
 
-  /// Block indices in the current chapter that have been highlighted, so the
-  /// renderer can paint a tint behind them.
-  Set<int> _highlightedBlocks = const {};
+  /// Block indices in the current chapter that have been highlighted,
+  /// mapped to the color the user chose so the renderer can paint each
+  /// passage with its own tint.
+  Map<int, HighlightColor> _highlightedBlocks = const {};
 
   /// Persists per-day and per-volume reading-time totals.
   final _activityStore = ReadingActivityStore();
@@ -1137,7 +1139,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       _highlightedBlocks = {
         for (final mark in all)
           if (mark.isHighlight && mark.chapterIndex == _chapterIndex)
-            mark.blockIndex,
+            mark.blockIndex: mark.color,
       };
     });
   }
@@ -1592,7 +1594,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         preset: preset,
         highlightStart: index == _speakingBlock ? _speakingStart : null,
         highlightEnd: index == _speakingBlock ? _speakingEnd : null,
-        isHighlighted: _highlightedBlocks.contains(index),
+        highlightColor: _highlightedBlocks[index],
       ),
     );
   }
@@ -1655,9 +1657,8 @@ class _ReaderScreenState extends State<ReaderScreen>
                       highlightEnd: pageBlocks[j].originIndex == _speakingBlock
                           ? _speakingEnd - pageBlocks[j].charOffset
                           : null,
-                      isHighlighted: _highlightedBlocks.contains(
-                        pageBlocks[j].originIndex,
-                      ),
+                      highlightColor:
+                          _highlightedBlocks[pageBlocks[j].originIndex],
                     ),
                 ],
               ),
@@ -1678,7 +1679,7 @@ class _BlockView extends StatelessWidget {
     this.isLast = false,
     this.highlightStart,
     this.highlightEnd,
-    this.isHighlighted = false,
+    this.highlightColor,
   });
 
   final ContentBlock block;
@@ -1693,9 +1694,9 @@ class _BlockView extends StatelessWidget {
   final int? highlightStart;
   final int? highlightEnd;
 
-  /// True when the user has saved a passage highlight on this block. The
-  /// paragraph/heading body is painted with a soft tint behind the text.
-  final bool isHighlighted;
+  /// Non-null when the user has saved a passage highlight on this block —
+  /// the paragraph/heading body is painted with the matching tint.
+  final HighlightColor? highlightColor;
 
   @override
   Widget build(BuildContext context) {
@@ -1775,18 +1776,33 @@ class _BlockView extends StatelessWidget {
     }
   }
 
-  /// Wraps [child] in a soft theme-coloured tint when this block is a saved
-  /// highlight; returns it unchanged otherwise.
+  /// Wraps [child] in a soft tint matching the saved [highlightColor] when
+  /// present; returns it unchanged otherwise. The tints are semi-transparent
+  /// so they blend acceptably on both light (sepia/paper) and dark themes.
   Widget _maybeTint({required Widget child}) {
-    if (!isHighlighted) return child;
+    final hc = highlightColor;
+    if (hc == null) return child;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
       decoration: BoxDecoration(
-        color: preset.highlight.withValues(alpha: 0.28),
+        color: _highlightPaint(hc),
         borderRadius: BorderRadius.circular(4),
       ),
       child: child,
     );
+  }
+
+  static Color _highlightPaint(HighlightColor color) {
+    switch (color) {
+      case HighlightColor.yellow:
+        return const Color(0xFFFFE066).withValues(alpha: 0.32);
+      case HighlightColor.blue:
+        return const Color(0xFF66B5FF).withValues(alpha: 0.30);
+      case HighlightColor.pink:
+        return const Color(0xFFFF8FB5).withValues(alpha: 0.30);
+      case HighlightColor.green:
+        return const Color(0xFF8FE08F).withValues(alpha: 0.30);
+    }
   }
 
   /// Builds the run spans, giving the highlighted character range a
@@ -2425,6 +2441,14 @@ class _BookSearchScreenState extends State<_BookSearchScreen> {
 /// Bottom sheet listing this volume's bookmarks, with an "Add bookmark here"
 /// button at the top. Pops with the [Bookmark] the user tapped, or null if
 /// they only added/removed entries.
+/// Carry-result of the highlight prompt: the note text plus the picked
+/// color. Used so the prompt can return both pieces with a single dialog.
+class _HighlightFields {
+  const _HighlightFields(this.note, this.color);
+  final String note;
+  final HighlightColor color;
+}
+
 class _BookmarksSheet extends StatefulWidget {
   const _BookmarksSheet({
     required this.volume,
@@ -2462,10 +2486,15 @@ class _BookmarksSheetState extends State<_BookmarksSheet> {
 
   Future<void> _addHere({bool asHighlight = false}) async {
     String note = '';
+    var color = HighlightColor.yellow;
     if (asHighlight) {
-      final entered = await _promptForNote(initial: '');
-      if (entered == null) return;
-      note = entered;
+      final result = await _promptForHighlight(
+        initialNote: '',
+        initialColor: color,
+      );
+      if (result == null) return;
+      note = result.note;
+      color = result.color;
     }
     final mark = Bookmark(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
@@ -2476,6 +2505,7 @@ class _BookmarksSheetState extends State<_BookmarksSheet> {
       createdAt: DateTime.now(),
       isHighlight: asHighlight,
       note: note,
+      color: color,
     );
     await _store.add(widget.volume, mark);
     await _load();
@@ -2487,29 +2517,70 @@ class _BookmarksSheetState extends State<_BookmarksSheet> {
   }
 
   Future<void> _editNote(Bookmark mark) async {
-    final entered = await _promptForNote(initial: mark.note);
-    if (entered == null) return;
+    final result = await _promptForHighlight(
+      initialNote: mark.note,
+      initialColor: mark.color,
+    );
+    if (result == null) return;
     await _store.remove(widget.volume, mark.id);
-    await _store.add(widget.volume, mark.copyWith(note: entered));
+    await _store.add(
+      widget.volume,
+      mark.copyWith(note: result.note, color: result.color),
+    );
     await _load();
   }
 
-  /// Shows a small dialog with a multi-line text field for the highlight's
-  /// note. Returns the trimmed text (possibly empty) on save, or null if the
-  /// user cancelled.
-  Future<String?> _promptForNote({required String initial}) async {
-    final controller = TextEditingController(text: initial);
-    final result = await showDialog<String>(
+  /// Dialog that captures the highlight's note + color. Returns null when
+  /// the user cancels.
+  Future<_HighlightFields?> _promptForHighlight({
+    required String initialNote,
+    required HighlightColor initialColor,
+  }) async {
+    final controller = TextEditingController(text: initialNote);
+    var color = initialColor;
+    final result = await showDialog<_HighlightFields>(
       context: context,
       builder: (dialogCtx) => AlertDialog(
-        title: const Text('Note'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          minLines: 2,
-          maxLines: 6,
-          decoration: const InputDecoration(
-            hintText: 'Optional note for this passage',
+        title: const Text('Highlight'),
+        content: StatefulBuilder(
+          builder: (ctx, setLocal) => Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: controller,
+                autofocus: true,
+                minLines: 2,
+                maxLines: 5,
+                decoration: const InputDecoration(
+                  hintText: 'Optional note for this passage',
+                ),
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 10,
+                children: [
+                  for (final c in HighlightColor.values)
+                    GestureDetector(
+                      onTap: () => setLocal(() => color = c),
+                      child: Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _BlockView._highlightPaint(c),
+                          border: Border.all(
+                            color: color == c
+                                ? Theme.of(ctx).colorScheme.primary
+                                : Colors.transparent,
+                            width: 3,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
           ),
         ),
         actions: [
@@ -2518,8 +2589,9 @@ class _BookmarksSheetState extends State<_BookmarksSheet> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () =>
-                Navigator.of(dialogCtx).pop(controller.text.trim()),
+            onPressed: () => Navigator.of(dialogCtx).pop(
+              _HighlightFields(controller.text.trim(), color),
+            ),
             child: const Text('Save'),
           ),
         ],
@@ -2550,6 +2622,21 @@ class _BookmarksSheetState extends State<_BookmarksSheet> {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.list_alt_outlined),
+                  tooltip: 'View all annotations',
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => HighlightsScreen(
+                          volume: widget.volume,
+                          bookTitle: widget.volume.title,
+                        ),
+                      ),
+                    );
+                  },
                 ),
                 IconButton(
                   icon: const Icon(Icons.close),
@@ -2627,6 +2714,20 @@ class _BookmarksSheetState extends State<_BookmarksSheet> {
                                 ),
                               ),
                               if (mark.isHighlight) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  width: 12,
+                                  height: 12,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: _BlockView._highlightPaint(
+                                      mark.color,
+                                    ),
+                                    border: Border.all(
+                                      color: theme.colorScheme.outlineVariant,
+                                    ),
+                                  ),
+                                ),
                                 const SizedBox(width: 6),
                                 Container(
                                   padding: const EdgeInsets.symmetric(
