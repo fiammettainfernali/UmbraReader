@@ -1280,27 +1280,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          // Quick reading-state chips: a tap-friendly way to narrow the grid
-          // down to what's actually being read (or the unread backlog) without
-          // diving into the full filter sheet.
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final state in ReadingStateFilter.values) ...[
-                  ChoiceChip(
-                    label: Text(state.label),
-                    selected: _readingState == state,
-                    onSelected: (_) =>
-                        setState(() => _readingState = state),
-                  ),
-                  if (state != ReadingStateFilter.values.last)
-                    const SizedBox(width: 8),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
           Text(
             visible == total
                 ? '$total series  ·  ${_sort.label}'
