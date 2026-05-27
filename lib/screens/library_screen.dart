@@ -25,12 +25,25 @@ import 'stats_screen.dart';
 enum LibrarySort {
   titleAsc('Title (A–Z)'),
   recentlyUpdated('Recently updated'),
+  recentlyRead('Recently read'),
   author('Author'),
   readingStatus('Reading status');
 
   const LibrarySort(this.label);
 
   /// Human-readable label shown in the sort menu.
+  final String label;
+}
+
+/// Quick reading-state chip selection above the library grid.
+enum ReadingStateFilter {
+  any('All'),
+  inProgress('Reading'),
+  unread('Unread'),
+  finished('Finished');
+
+  const ReadingStateFilter(this.label);
+
   final String label;
 }
 
@@ -76,6 +89,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   String _searchQuery = '';
   LibrarySort _sort = LibrarySort.titleAsc;
   LibraryFilters _filters = const LibraryFilters();
+  ReadingStateFilter _readingState = ReadingStateFilter.any;
 
   /// Books that have been started but not finished, newest first.
   List<ReadingEntry> _reading = const [];

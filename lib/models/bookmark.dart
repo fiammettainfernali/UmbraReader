@@ -1,3 +1,21 @@
+/// Categorical highlight color. The actual painted colour is derived from
+/// the active reader theme inside the reader, so a "blue" highlight on a
+/// sepia palette blends differently than on a dark one — but the categorical
+/// meaning stays consistent across themes.
+enum HighlightColor {
+  yellow,
+  blue,
+  pink,
+  green;
+
+  static HighlightColor fromName(String? name) {
+    for (final c in HighlightColor.values) {
+      if (c.name == name) return c;
+    }
+    return HighlightColor.yellow;
+  }
+}
+
 /// A single user-saved spot inside a book.
 ///
 /// Like reading progress, the position is stored as a chapter index plus a
@@ -14,6 +32,7 @@ class Bookmark {
     required this.createdAt,
     this.isHighlight = false,
     this.note = '',
+    this.color = HighlightColor.yellow,
   });
 
   /// Stable identifier for delete + dedupe (a microsecond timestamp).
@@ -41,9 +60,13 @@ class Bookmark {
   /// highlights to capture a thought about the passage.
   final String note;
 
+  /// Categorical colour of the highlight (ignored for plain bookmarks).
+  final HighlightColor color;
+
   Bookmark copyWith({
     bool? isHighlight,
     String? note,
+    HighlightColor? color,
   }) => Bookmark(
     id: id,
     chapterIndex: chapterIndex,
@@ -53,6 +76,7 @@ class Bookmark {
     createdAt: createdAt,
     isHighlight: isHighlight ?? this.isHighlight,
     note: note ?? this.note,
+    color: color ?? this.color,
   );
 
   Map<String, dynamic> toJson() => {
@@ -64,6 +88,7 @@ class Bookmark {
     'createdAt': createdAt.toIso8601String(),
     if (isHighlight) 'isHighlight': true,
     if (note.isNotEmpty) 'note': note,
+    if (color != HighlightColor.yellow) 'color': color.name,
   };
 
   factory Bookmark.fromJson(Map<String, dynamic> json) => Bookmark(
@@ -76,5 +101,6 @@ class Bookmark {
         DateTime.fromMillisecondsSinceEpoch(0),
     isHighlight: json['isHighlight'] == true,
     note: json['note'] as String? ?? '',
+    color: HighlightColor.fromName(json['color'] as String?),
   );
 }

@@ -184,6 +184,20 @@ class _AnnotationList extends StatelessWidget {
               children: [
                 Row(
                   children: [
+                    if (mark.isHighlight) ...[
+                      Container(
+                        width: 12,
+                        height: 12,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _swatchFor(mark.color),
+                          border: Border.all(
+                            color: theme.colorScheme.outlineVariant,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                    ],
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 6,
@@ -233,6 +247,21 @@ class _AnnotationList extends StatelessWidget {
         );
       },
     );
+  }
+}
+
+/// Same palette the reader uses for tinting highlighted passages — kept in
+/// sync with `_BlockView._highlightPaint` over in reader_screen.dart.
+Color _swatchFor(HighlightColor color) {
+  switch (color) {
+    case HighlightColor.yellow:
+      return const Color(0xFFFFE066).withValues(alpha: 0.55);
+    case HighlightColor.blue:
+      return const Color(0xFF66B5FF).withValues(alpha: 0.55);
+    case HighlightColor.pink:
+      return const Color(0xFFFF8FB5).withValues(alpha: 0.55);
+    case HighlightColor.green:
+      return const Color(0xFF8FE08F).withValues(alpha: 0.55);
   }
 }
 
