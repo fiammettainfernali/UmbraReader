@@ -489,7 +489,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   Future<void> _open() async {
-    final settings = await ReaderPreferences().load();
+    final settings = await ReaderPreferences().load(volume: widget.volume);
     await _preloadFont(settings.fontFamily);
     try {
       final file = await LibraryStorage().epubFile(widget.volume);
@@ -880,7 +880,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       _settings = next;
       _pageJumpTarget = currentPage;
     });
-    ReaderPreferences().save(next);
+    ReaderPreferences().save(next, volume: widget.volume);
     if (rateChanged) _ttsService.setRate(next.speechRate);
     if (voiceChanged) _ttsService.setVoice(next.voiceName, next.voiceLocale);
     if (fontChanged) {
@@ -1169,6 +1169,8 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   Future<void> _openSettings() async {
     final voices = await _ttsService.availableVoices();
+    final prefs = ReaderPreferences();
+    final hasOverride = await prefs.hasOverride(widget.volume);
     if (!mounted) return;
     showModalBottomSheet<void>(
       context: context,
@@ -1185,6 +1187,14 @@ class _ReaderScreenState extends State<ReaderScreen>
         sleepOption: _sleepOption,
         onChanged: _applySettings,
         onSleepTimerChanged: _setSleepTimer,
+        hasOverride: hasOverride,
+        onOverrideToggled: (enabled) async {
+          if (enabled) {
+            await prefs.enableOverride(widget.volume, _settings);
+          } else {
+            await prefs.clearOverride(widget.volume);
+          }
+        },
       ),
     );
   }

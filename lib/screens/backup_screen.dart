@@ -48,6 +48,55 @@ class _BackupScreenState extends State<BackupScreen> {
     }
   }
 
+  Future<void> _exportAnnotations() async {
+    setState(() {
+      _exporting = true;
+      _status = null;
+    });
+    try {
+      final file = await _service.exportAnnotationsToFile();
+      if (!mounted) return;
+      final box = context.findRenderObject() as RenderBox?;
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path, mimeType: 'application/json')],
+          subject: 'Umbra Reader annotations',
+          sharePositionOrigin: box != null
+              ? box.localToGlobal(Offset.zero) & box.size
+              : null,
+        ),
+      );
+      _setStatus('Annotations exported.');
+    } on Exception catch (e) {
+      _setStatus('Export failed: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  Future<void> _importAnnotationsFromClipboard() async {
+    final data = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = data?.text ?? '';
+    if (text.trim().isEmpty) {
+      _setStatus('Nothing in the clipboard to restore.', isError: true);
+      return;
+    }
+    setState(() {
+      _importing = true;
+      _status = null;
+    });
+    try {
+      final n = await _service.importAnnotations(text);
+      _setStatus('Restored annotations for $n book${n == 1 ? '' : 's'}.');
+    } on BackupException catch (e) {
+      _setStatus(e.message, isError: true);
+    } on Exception catch (e) {
+      _setStatus('Restore failed: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _importing = false);
+    }
+  }
+
   Future<void> _restoreFromClipboard() async {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     final text = data?.text ?? '';
@@ -174,7 +223,21 @@ class _BackupScreenState extends State<BackupScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.ios_share),
-            label: Text(_exporting ? 'Exporting…' : 'Export backup'),
+            label: Text(_exporting ? 'Exporting…' : 'Export full backup'),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _exporting ? null : _exportAnnotations,
+            icon: const Icon(Icons.bookmarks_outlined),
+            label: const Text('Export annotations only'),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Just your bookmarks and highlights — restorable on top of an '
+            'existing install without overwriting other settings.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
           ),
           const SizedBox(height: 32),
           Text(
@@ -202,6 +265,21 @@ class _BackupScreenState extends State<BackupScreen> {
             onPressed: _importing ? null : _restoreFromText,
             icon: const Icon(Icons.edit_outlined),
             label: const Text('Paste manually'),
+          ),
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            onPressed: _importing ? null : _importAnnotationsFromClipboard,
+            icon: const Icon(Icons.bookmarks_outlined),
+            label: const Text('Merge annotations from clipboard'),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Adds bookmarks and highlights from a clipboard JSON without '
+            'wiping anything else — accepts both annotation-only files and '
+            'full backups.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
           ),
           if (_status != null) ...[
             const SizedBox(height: 20),
