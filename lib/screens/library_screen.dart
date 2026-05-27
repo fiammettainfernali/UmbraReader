@@ -91,6 +91,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
   LibraryFilters _filters = const LibraryFilters();
   ReadingStateFilter _readingState = ReadingStateFilter.any;
 
+  /// Every saved reading entry — drives the per-series reading-state map
+  /// used by the filter chips. Distinct from [_reading], which is the
+  /// in-progress-only subset that powers the Continue Reading hero and
+  /// shelf.
+  List<ReadingEntry> _allReadingEntries = const [];
+
   /// Books that have been started but not finished, newest first.
   List<ReadingEntry> _reading = const [];
 
@@ -184,6 +190,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
     if (!mounted) return;
     setState(() {
+      _allReadingEntries = entries;
       _reading = inProgress;
       _recommendations = recs;
       _recommendOffset = 0;
@@ -290,7 +297,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final inProgress = <int>{};
     final finished = <int>{};
     final lastReadAt = <int, DateTime>{};
-    for (final e in _reading) {
+    for (final e in _allReadingEntries) {
       final id = e.volume.seriesOpdsId;
       if (e.progress.isFinished) {
         finished.add(id);
