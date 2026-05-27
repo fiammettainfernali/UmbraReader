@@ -12,6 +12,7 @@ import '../models/reader_theme.dart';
 import '../models/volume.dart';
 import '../services/bookmark_store.dart';
 import '../services/epub_parser.dart';
+import '../services/library_cache.dart';
 import '../services/library_storage.dart';
 import '../services/now_playing_service.dart';
 import '../services/reader_preferences.dart';
@@ -402,6 +403,11 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// passage with its own tint.
   Map<int, HighlightColor> _highlightedBlocks = const {};
 
+  /// True once the end-of-volume prompt has fired this session, so the
+  /// dialog doesn't reappear every time the user re-taps "next" from the
+  /// last page.
+  bool _endOfVolumePrompted = false;
+
   /// Persists per-day and per-volume reading-time totals.
   final _activityStore = ReadingActivityStore();
 
@@ -553,6 +559,17 @@ class _ReaderScreenState extends State<ReaderScreen>
     final book = _book;
     final parser = _parser;
     if (book == null || parser == null) return;
+    // Advancing past the final chapter is the natural "I finished this volume"
+    // moment — surface the next volume in the series rather than silently
+    // pinning the user on the last page.
+    if (index > book.chapters.length - 1 &&
+        _chapterIndex == book.chapters.length - 1) {
+      if (!_endOfVolumePrompted) {
+        _endOfVolumePrompted = true;
+        _maybeShowEndOfVolumePrompt();
+      }
+      return;
+    }
     final clamped = index.clamp(0, book.chapters.length - 1);
     if (clamped == _chapterIndex && _blocks != null) return;
     // A manual chapter change stops read-aloud; a TTS-driven advance keeps it.
@@ -582,6 +599,88 @@ class _ReaderScreenState extends State<ReaderScreen>
       }
     });
     _refreshHighlights();
+  }
+
+  /// Pops a dialog at the end of the volume offering the next one in the
+  /// series, if it's available in the cached volume list (downloaded or
+  /// not — undownloaded ones bounce to the series screen so the user can
+  /// download from there).
+  Future<void> _maybeShowEndOfVolumePrompt() async {
+    final cache = LibraryCache(LibraryStorage());
+    await cache.load();
+    final volumes = cache.volumesFor(widget.volume.seriesOpdsId);
+    if (volumes == null || volumes.isEmpty) return;
+    final currentIdx = volumes.indexWhere(
+      (v) => v.fileName == widget.volume.fileName,
+    );
+    if (currentIdx < 0 || currentIdx >= volumes.length - 1) return;
+    final next = volumes[currentIdx + 1];
+    final downloaded = await LibraryStorage().epubFile(next).then(
+          (f) => f.existsSync(),
+        );
+    if (!mounted) return;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('You finished this volume'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Next up:',
+              style: Theme.of(dialogCtx).textTheme.labelSmall?.copyWith(
+                color: Theme.of(dialogCtx).colorScheme.outline,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              next.title,
+              style: Theme.of(dialogCtx).textTheme.titleMedium,
+            ),
+            if (!downloaded) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Not downloaded yet — opening the series page lets you grab it.',
+                style: Theme.of(dialogCtx).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(dialogCtx).colorScheme.outline,
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop('stay'),
+            child: const Text('Stay here'),
+          ),
+          if (downloaded)
+            FilledButton(
+              onPressed: () => Navigator.of(dialogCtx).pop('open'),
+              child: const Text('Open next'),
+            )
+          else
+            FilledButton(
+              onPressed: () => Navigator.of(dialogCtx).pop('series'),
+              child: const Text('Open series'),
+            ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    switch (choice) {
+      case 'open':
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => ReaderScreen(volume: next)),
+        );
+      case 'series':
+      // Drop the reader and let the user re-enter the series from the
+      // library — series detail requires the Series object we don't have.
+        Navigator.of(context).pop();
+      case 'stay':
+      case null:
+        break;
+    }
   }
 
   // ── reading-position memory ──────────────────────────────────────────────

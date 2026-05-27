@@ -282,11 +282,47 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (settings.isConfigured) await _sync();
   }
 
+  /// Per-series reading state, derived from saved progress entries. A series
+  /// counts as "in progress" if any of its volumes has been started and not
+  /// finished, and "finished" if every started volume is finished.
+  ({Set<String> inProgress, Set<String> finished, Map<String, DateTime> lastReadAt})
+      get _seriesReadingState {
+    final inProgress = <String>{};
+    final finished = <String>{};
+    final lastReadAt = <String, DateTime>{};
+    for (final e in _reading) {
+      final id = e.volume.seriesOpdsId;
+      if (e.progress.isFinished) {
+        finished.add(id);
+      } else if (e.progress.isStarted) {
+        inProgress.add(id);
+      } else {
+        inProgress.add(id); // saved entry but at the start = still "reading"
+      }
+      final updated = e.progress.updatedAt;
+      if (updated != null) {
+        final prev = lastReadAt[id];
+        if (prev == null || updated.isAfter(prev)) {
+          lastReadAt[id] = updated;
+        }
+      }
+    }
+    // A series with both an in-progress entry and a finished one is still
+    // "in progress" — the user hasn't put it down.
+    finished.removeAll(inProgress);
+    return (
+      inProgress: inProgress,
+      finished: finished,
+      lastReadAt: lastReadAt,
+    );
+  }
+
   /// The library after applying the active search, filter set, and sort.
   List<Series> get _visibleLibrary {
     final all = _library ?? const <Series>[];
     final query = _searchQuery.trim().toLowerCase();
     final downloads = _downloads;
+    final readState = _seriesReadingState;
     final filtered = <Series>[];
     for (final series in all) {
       if (query.isNotEmpty) {
@@ -302,9 +338,22 @@ class _LibraryScreenState extends State<LibraryScreen> {
       )) {
         continue;
       }
+      switch (_readingState) {
+        case ReadingStateFilter.any:
+          break;
+        case ReadingStateFilter.inProgress:
+          if (!readState.inProgress.contains(series.opdsId)) continue;
+        case ReadingStateFilter.finished:
+          if (!readState.finished.contains(series.opdsId)) continue;
+        case ReadingStateFilter.unread:
+          if (readState.inProgress.contains(series.opdsId) ||
+              readState.finished.contains(series.opdsId)) {
+            continue;
+          }
+      }
       filtered.add(series);
     }
-    filtered.sort(_comparatorFor(_sort));
+    filtered.sort(_comparatorFor(_sort, readState.lastReadAt));
     return filtered;
   }
 
@@ -351,7 +400,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
     setState(() => _filters = next);
   }
 
-  Comparator<Series> _comparatorFor(LibrarySort sort) {
+  Comparator<Series> _comparatorFor(
+    LibrarySort sort,
+    Map<String, DateTime> lastReadAt,
+  ) {
     int byTitle(Series a, Series b) =>
         a.title.toLowerCase().compareTo(b.title.toLowerCase());
     return switch (sort) {
@@ -363,6 +415,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
         if (at == null) return 1; // undated series sink to the bottom
         if (bt == null) return -1;
         return bt.compareTo(at); // newest first
+      },
+      LibrarySort.recentlyRead => (a, b) {
+        final at = lastReadAt[a.opdsId];
+        final bt = lastReadAt[b.opdsId];
+        if (at == null && bt == null) return byTitle(a, b);
+        if (at == null) return 1;
+        if (bt == null) return -1;
+        return bt.compareTo(at);
       },
       LibrarySort.author => (a, b) {
         final c = a.author.toLowerCase().compareTo(b.author.toLowerCase());
@@ -1211,6 +1271,27 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ],
               ),
             ],
+          ),
+          const SizedBox(height: 8),
+          // Quick reading-state chips: a tap-friendly way to narrow the grid
+          // down to what's actually being read (or the unread backlog) without
+          // diving into the full filter sheet.
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final state in ReadingStateFilter.values) ...[
+                  ChoiceChip(
+                    label: Text(state.label),
+                    selected: _readingState == state,
+                    onSelected: (_) =>
+                        setState(() => _readingState = state),
+                  ),
+                  if (state != ReadingStateFilter.values.last)
+                    const SizedBox(width: 8),
+                ],
+              ],
+            ),
           ),
           const SizedBox(height: 8),
           Text(
