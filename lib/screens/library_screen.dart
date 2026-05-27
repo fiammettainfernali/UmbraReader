@@ -787,11 +787,33 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  /// Horizontal shelf of books that are in progress.
-  /// A big tappable "Resume reading" banner for the single most-recently-read
-  /// volume — saves a scroll into the horizontal shelf when there's only one
-  /// thing you're likely to pick back up.
+  /// Minimal diagnostic hero — proves whether the hero widget itself is
+  /// what breaks the library grid. If covers come back with this version,
+  /// the bug was in the fancier Material/InkWell/Spacer setup.
   Widget _buildContinueHero() {
+    final theme = Theme.of(context);
+    return GestureDetector(
+      onTap: _reading.isNotEmpty ? () => _openVolume(_reading.first.volume) : null,
+      child: Container(
+        margin: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          _reading.isEmpty
+              ? 'Continue reading (empty)'
+              : 'Continue reading: ${_reading.first.volume.title}',
+          style: theme.textTheme.titleMedium,
+        ),
+      ),
+    );
+  }
+
+  /// (Original elaborate hero retained for reference but no longer used.)
+  // ignore: unused_element
+  Widget _buildContinueHeroOriginal() {
     final theme = Theme.of(context);
     final entry = _reading.first;
     final seriesById = {
