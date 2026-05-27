@@ -41,8 +41,6 @@ class ReaderSettingsSheet extends StatefulWidget {
     required this.sleepOption,
     required this.onChanged,
     required this.onSleepTimerChanged,
-    required this.hasOverride,
-    required this.onOverrideToggled,
   });
 
   final ReaderSettings initial;
@@ -56,13 +54,6 @@ class ReaderSettingsSheet extends StatefulWidget {
   final ValueChanged<ReaderSettings> onChanged;
   final ValueChanged<SleepTimerOption> onSleepTimerChanged;
 
-  /// True when the current book has its own typography settings stored —
-  /// changes from this sheet only affect this volume, not the global defaults.
-  final bool hasOverride;
-
-  /// Fired when the user flips the per-book override switch.
-  final ValueChanged<bool> onOverrideToggled;
-
   @override
   State<ReaderSettingsSheet> createState() => _ReaderSettingsSheetState();
 }
@@ -70,14 +61,12 @@ class ReaderSettingsSheet extends StatefulWidget {
 class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
   late ReaderSettings _settings;
   late SleepTimerOption _sleepOption;
-  late bool _hasOverride;
 
   @override
   void initState() {
     super.initState();
     _settings = widget.initial;
     _sleepOption = widget.sleepOption;
-    _hasOverride = widget.hasOverride;
   }
 
   void _update(ReaderSettings next) {
@@ -113,26 +102,6 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
               ],
             ),
             const SizedBox(height: 4),
-            // A book-scoped override: when off, changes here mutate the
-            // global defaults; when on, they only stick to this volume.
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Just for this book'),
-              subtitle: Text(
-                _hasOverride
-                    ? 'Changes only affect this volume'
-                    : 'Changes update your global reader defaults',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              ),
-              value: _hasOverride,
-              onChanged: (value) {
-                setState(() => _hasOverride = value);
-                widget.onOverrideToggled(value);
-              },
-            ),
-            const SizedBox(height: 8),
             _label(theme, 'Layout'),
             SegmentedButton<ReadingMode>(
               segments: const [
