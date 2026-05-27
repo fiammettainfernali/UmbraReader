@@ -1649,6 +1649,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                       onPrevious: () => _goToChapter(_chapterIndex - 1),
                       onNext: () => _goToChapter(_chapterIndex + 1),
                       onSeek: _seekChapter,
+                      onJump: (delta) => _goToChapter(_chapterIndex + delta),
                     ),
                   ),
                 ),
@@ -2112,6 +2113,7 @@ class _ChapterBar extends StatelessWidget {
     required this.onPrevious,
     required this.onNext,
     required this.onSeek,
+    required this.onJump,
   });
 
   final double height;
@@ -2135,6 +2137,11 @@ class _ChapterBar extends StatelessWidget {
   /// Tap or drag along the progress bar to scrub to that fraction of the
   /// current chapter.
   final ValueChanged<double> onSeek;
+
+  /// Skip forward (positive) or backward (negative) by N chapters — fired
+  /// when the user picks a quick-skip option from the long-press menu on
+  /// the prev/next chevrons.
+  final ValueChanged<int> onJump;
 
   /// A short human label for the time left in the chapter and (when known)
   /// the rest of the book — e.g. "~5 min in chapter · ~2h left in book".
@@ -2205,12 +2212,14 @@ class _ChapterBar extends StatelessWidget {
                 top: false,
                 child: Row(
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.chevron_left),
-                      color: preset.text,
-                      disabledColor: preset.secondary,
-                      tooltip: 'Previous chapter',
-                      onPressed: index > 0 ? onPrevious : null,
+                    _ChapterStepButton(
+                      icon: Icons.chevron_left,
+                      preset: preset,
+                      tooltip: 'Previous chapter (long-press to skip back)',
+                      onTap: index > 0 ? onPrevious : null,
+                      onJump: onJump,
+                      forward: false,
+                      bound: index,
                     ),
                     Expanded(
                       child: Column(
@@ -2236,12 +2245,14 @@ class _ChapterBar extends StatelessWidget {
                         ],
                       ),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.chevron_right),
-                      color: preset.text,
-                      disabledColor: preset.secondary,
-                      tooltip: 'Next chapter',
-                      onPressed: index < total - 1 ? onNext : null,
+                    _ChapterStepButton(
+                      icon: Icons.chevron_right,
+                      preset: preset,
+                      tooltip: 'Next chapter (long-press to skip ahead)',
+                      onTap: index < total - 1 ? onNext : null,
+                      onJump: onJump,
+                      forward: true,
+                      bound: total - index - 1,
                     ),
                   ],
                 ),

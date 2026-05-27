@@ -285,11 +285,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// Per-series reading state, derived from saved progress entries. A series
   /// counts as "in progress" if any of its volumes has been started and not
   /// finished, and "finished" if every started volume is finished.
-  ({Set<String> inProgress, Set<String> finished, Map<String, DateTime> lastReadAt})
+  ({Set<int> inProgress, Set<int> finished, Map<int, DateTime> lastReadAt})
       get _seriesReadingState {
-    final inProgress = <String>{};
-    final finished = <String>{};
-    final lastReadAt = <String, DateTime>{};
+    final inProgress = <int>{};
+    final finished = <int>{};
+    final lastReadAt = <int, DateTime>{};
     for (final e in _reading) {
       final id = e.volume.seriesOpdsId;
       if (e.progress.isFinished) {
@@ -402,7 +402,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Comparator<Series> _comparatorFor(
     LibrarySort sort,
-    Map<String, DateTime> lastReadAt,
+    Map<int, DateTime> lastReadAt,
   ) {
     int byTitle(Series a, Series b) =>
         a.title.toLowerCase().compareTo(b.title.toLowerCase());
