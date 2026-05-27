@@ -25,12 +25,25 @@ import 'stats_screen.dart';
 enum LibrarySort {
   titleAsc('Title (A–Z)'),
   recentlyUpdated('Recently updated'),
+  recentlyRead('Recently read'),
   author('Author'),
   readingStatus('Reading status');
 
   const LibrarySort(this.label);
 
   /// Human-readable label shown in the sort menu.
+  final String label;
+}
+
+/// Quick reading-state chip selection above the library grid.
+enum ReadingStateFilter {
+  any('All'),
+  inProgress('Reading'),
+  unread('Unread'),
+  finished('Finished');
+
+  const ReadingStateFilter(this.label);
+
   final String label;
 }
 
@@ -76,6 +89,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
   String _searchQuery = '';
   LibrarySort _sort = LibrarySort.titleAsc;
   LibraryFilters _filters = const LibraryFilters();
+  ReadingStateFilter _readingState = ReadingStateFilter.any;
+
+  /// Every saved reading entry — drives the per-series reading-state map
+  /// used by the filter chips. Distinct from [_reading], which is the
+  /// in-progress-only subset that powers the Continue Reading hero and
+  /// shelf.
+  List<ReadingEntry> _allReadingEntries = const [];
 
   /// Books that have been started but not finished, newest first.
   List<ReadingEntry> _reading = const [];
@@ -170,6 +190,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
     if (!mounted) return;
     setState(() {
+      _allReadingEntries = entries;
       _reading = inProgress;
       _recommendations = recs;
       _recommendOffset = 0;
@@ -268,11 +289,47 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (settings.isConfigured) await _sync();
   }
 
+  /// Per-series reading state, derived from saved progress entries. A series
+  /// counts as "in progress" if any of its volumes has been started and not
+  /// finished, and "finished" if every started volume is finished.
+  ({Set<int> inProgress, Set<int> finished, Map<int, DateTime> lastReadAt})
+      get _seriesReadingState {
+    final inProgress = <int>{};
+    final finished = <int>{};
+    final lastReadAt = <int, DateTime>{};
+    for (final e in _allReadingEntries) {
+      final id = e.volume.seriesOpdsId;
+      if (e.progress.isFinished) {
+        finished.add(id);
+      } else if (e.progress.isStarted) {
+        inProgress.add(id);
+      } else {
+        inProgress.add(id); // saved entry but at the start = still "reading"
+      }
+      final updated = e.progress.updatedAt;
+      if (updated != null) {
+        final prev = lastReadAt[id];
+        if (prev == null || updated.isAfter(prev)) {
+          lastReadAt[id] = updated;
+        }
+      }
+    }
+    // A series with both an in-progress entry and a finished one is still
+    // "in progress" — the user hasn't put it down.
+    finished.removeAll(inProgress);
+    return (
+      inProgress: inProgress,
+      finished: finished,
+      lastReadAt: lastReadAt,
+    );
+  }
+
   /// The library after applying the active search, filter set, and sort.
   List<Series> get _visibleLibrary {
     final all = _library ?? const <Series>[];
     final query = _searchQuery.trim().toLowerCase();
     final downloads = _downloads;
+    final readState = _seriesReadingState;
     final filtered = <Series>[];
     for (final series in all) {
       if (query.isNotEmpty) {
@@ -288,9 +345,22 @@ class _LibraryScreenState extends State<LibraryScreen> {
       )) {
         continue;
       }
+      switch (_readingState) {
+        case ReadingStateFilter.any:
+          break;
+        case ReadingStateFilter.inProgress:
+          if (!readState.inProgress.contains(series.opdsId)) continue;
+        case ReadingStateFilter.finished:
+          if (!readState.finished.contains(series.opdsId)) continue;
+        case ReadingStateFilter.unread:
+          if (readState.inProgress.contains(series.opdsId) ||
+              readState.finished.contains(series.opdsId)) {
+            continue;
+          }
+      }
       filtered.add(series);
     }
-    filtered.sort(_comparatorFor(_sort));
+    filtered.sort(_comparatorFor(_sort, readState.lastReadAt));
     return filtered;
   }
 
@@ -337,7 +407,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
     setState(() => _filters = next);
   }
 
-  Comparator<Series> _comparatorFor(LibrarySort sort) {
+  Comparator<Series> _comparatorFor(
+    LibrarySort sort,
+    Map<int, DateTime> lastReadAt,
+  ) {
     int byTitle(Series a, Series b) =>
         a.title.toLowerCase().compareTo(b.title.toLowerCase());
     return switch (sort) {
@@ -349,6 +422,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
         if (at == null) return 1; // undated series sink to the bottom
         if (bt == null) return -1;
         return bt.compareTo(at); // newest first
+      },
+      LibrarySort.recentlyRead => (a, b) {
+        final at = lastReadAt[a.opdsId];
+        final bt = lastReadAt[b.opdsId];
+        if (at == null && bt == null) return byTitle(a, b);
+        if (at == null) return 1;
+        if (bt == null) return -1;
+        return bt.compareTo(at);
       },
       LibrarySort.author => (a, b) {
         final c = a.author.toLowerCase().compareTo(b.author.toLowerCase());
@@ -670,6 +751,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
           SliverToBoxAdapter(child: _buildBulkBanner()),
         SliverToBoxAdapter(child: _buildControls(all.length, visible.length)),
         if (_reading.isNotEmpty && _searchQuery.trim().isEmpty)
+          SliverToBoxAdapter(child: _buildContinueHero()),
+        if (_reading.length > 1 && _searchQuery.trim().isEmpty)
           SliverToBoxAdapter(child: _buildContinueShelf()),
         if (_searchQuery.trim().isEmpty && _recentlyUpdated.isNotEmpty)
           SliverToBoxAdapter(child: _buildRecentShelf()),
@@ -786,6 +869,122 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   /// Horizontal shelf of books that are in progress.
+  /// A big tappable "Resume reading" banner for the single most-recently-read
+  /// volume — saves a scroll into the horizontal shelf when there's only one
+  /// thing you're likely to pick back up.
+  Widget _buildContinueHero() {
+    final theme = Theme.of(context);
+    final entry = _reading.first;
+    final seriesById = {
+      for (final s in _library ?? const <Series>[]) s.opdsId: s,
+    };
+    final series = seriesById[entry.volume.seriesOpdsId];
+    final headers = (_settings?.isConfigured ?? false)
+        ? OpdsClient(_settings!).authHeaders
+        : const <String, String>{};
+    final title = series?.title ?? entry.volume.title;
+    final volumeLabel = entry.volume.title != title ? entry.volume.title : null;
+    final progress = entry.progress;
+    final chapterLabel = progress.chapterCount > 0
+        ? 'Chapter ${progress.chapterIndex + 1} of ${progress.chapterCount}'
+        : 'Chapter ${progress.chapterIndex + 1}';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+      child: Material(
+        color: theme.colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => _openVolume(entry.volume),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  width: 88,
+                  height: 124,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: series != null
+                        ? _CoverImage(series: series, headers: headers)
+                        : _TitleCover(title: entry.volume.title),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Continue reading',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.6,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          height: 1.2,
+                        ),
+                      ),
+                      if (volumeLabel != null) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          volumeLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                      ],
+                      const Spacer(),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(2),
+                        child: LinearProgressIndicator(
+                          value: progress.fraction,
+                          minHeight: 4,
+                          backgroundColor:
+                              theme.colorScheme.surfaceContainerHighest,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              chapterLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.outline,
+                              ),
+                            ),
+                          ),
+                          Icon(
+                            Icons.play_arrow_rounded,
+                            color: theme.colorScheme.primary,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildContinueShelf() {
     final theme = Theme.of(context);
     final seriesById = {
@@ -794,13 +993,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final headers = (_settings?.isConfigured ?? false)
         ? OpdsClient(_settings!).authHeaders
         : const <String, String>{};
+    // The hero already covers entry [0]; the shelf shows the rest.
+    final rest = _reading.skip(1).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
           child: Text(
-            'Continue reading',
+            'Also in progress',
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w600,
             ),
@@ -811,10 +1012,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: _reading.length,
+            itemCount: rest.length,
             separatorBuilder: (_, _) => const SizedBox(width: 14),
             itemBuilder: (context, index) {
-              final entry = _reading[index];
+              final entry = rest[index];
               return _ContinueCard(
                 entry: entry,
                 series: seriesById[entry.volume.seriesOpdsId],
@@ -1079,10 +1280,31 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ],
           ),
           const SizedBox(height: 8),
+          // Quick reading-state chips: a tap-friendly way to narrow the grid
+          // down to what's actually being read (or the unread backlog) without
+          // diving into the full filter sheet.
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final state in ReadingStateFilter.values) ...[
+                  ChoiceChip(
+                    label: Text(state.label),
+                    selected: _readingState == state,
+                    onSelected: (_) =>
+                        setState(() => _readingState = state),
+                  ),
+                  if (state != ReadingStateFilter.values.last)
+                    const SizedBox(width: 8),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
           Text(
-            searching
-                ? '$visible of $total series  ·  ${_sort.label}'
-                : '$total series  ·  ${_sort.label}',
+            visible == total
+                ? '$total series  ·  ${_sort.label}'
+                : '$visible of $total series  ·  ${_sort.label}',
             style: theme.textTheme.labelMedium?.copyWith(
               color: theme.colorScheme.outline,
             ),
