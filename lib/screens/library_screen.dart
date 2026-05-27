@@ -25,12 +25,25 @@ import 'stats_screen.dart';
 enum LibrarySort {
   titleAsc('Title (A–Z)'),
   recentlyUpdated('Recently updated'),
+  recentlyRead('Recently read'),
   author('Author'),
   readingStatus('Reading status');
 
   const LibrarySort(this.label);
 
   /// Human-readable label shown in the sort menu.
+  final String label;
+}
+
+/// Quick reading-state chip selection above the library grid.
+enum ReadingStateFilter {
+  any('All'),
+  inProgress('Reading'),
+  unread('Unread'),
+  finished('Finished');
+
+  const ReadingStateFilter(this.label);
+
   final String label;
 }
 
@@ -75,7 +88,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   String _searchQuery = '';
   LibrarySort _sort = LibrarySort.titleAsc;
+  ReadingStateFilter _readingState = ReadingStateFilter.any;
   LibraryFilters _filters = const LibraryFilters();
+
+  /// Every saved reading entry — drives the per-series reading-state map
+  /// used by the filter chips. Distinct from [_reading], which is the
+  /// in-progress-only subset that powers the Continue Reading hero and
+  /// shelf.
+  List<ReadingEntry> _allReadingEntries = const [];
 
   /// Books that have been started but not finished, newest first.
   List<ReadingEntry> _reading = const [];
@@ -170,6 +190,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
     if (!mounted) return;
     setState(() {
+      _allReadingEntries = entries;
       _reading = inProgress;
       _recommendations = recs;
       _recommendOffset = 0;
@@ -271,12 +292,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// Per-series reading state, derived from saved progress entries. A series
   /// counts as "in progress" if any of its volumes has been started and not
   /// finished, and "finished" if every started volume is finished.
-  ({Set<String> inProgress, Set<String> finished, Map<String, DateTime> lastReadAt})
+  ({Set<int> inProgress, Set<int> finished, Map<int, DateTime> lastReadAt})
       get _seriesReadingState {
-    final inProgress = <String>{};
-    final finished = <String>{};
-    final lastReadAt = <String, DateTime>{};
-    for (final e in _reading) {
+    final inProgress = <int>{};
+    final finished = <int>{};
+    final lastReadAt = <int, DateTime>{};
+    for (final e in _allReadingEntries) {
       final id = e.volume.seriesOpdsId;
       if (e.progress.isFinished) {
         finished.add(id);
@@ -388,7 +409,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Comparator<Series> _comparatorFor(
     LibrarySort sort,
-    Map<String, DateTime> lastReadAt,
+    Map<int, DateTime> lastReadAt,
   ) {
     int byTitle(Series a, Series b) =>
         a.title.toLowerCase().compareTo(b.title.toLowerCase());
