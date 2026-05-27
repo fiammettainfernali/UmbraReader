@@ -787,33 +787,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  /// Minimal diagnostic hero — proves whether the hero widget itself is
-  /// what breaks the library grid. If covers come back with this version,
-  /// the bug was in the fancier Material/InkWell/Spacer setup.
+  /// A big tappable "Resume reading" banner for the single most-recently-read
+  /// volume — saves a scroll into the horizontal shelf when there's only one
+  /// thing you're likely to pick back up.
+  ///
+  /// Layout note: the outer SizedBox pins the hero to a fixed height so the
+  /// inner Row never has to compute intrinsic heights. An earlier version
+  /// used Row(crossAxisAlignment.stretch) + Expanded(Column with Spacer),
+  /// which threw during the CustomScrollView's intrinsic-sizing pass and
+  /// silently nuked everything below it in the sliver list — so be careful
+  /// before reintroducing Spacer/Expanded inside this widget.
   Widget _buildContinueHero() {
-    final theme = Theme.of(context);
-    return GestureDetector(
-      onTap: _reading.isNotEmpty ? () => _openVolume(_reading.first.volume) : null,
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Text(
-          _reading.isEmpty
-              ? 'Continue reading (empty)'
-              : 'Continue reading: ${_reading.first.volume.title}',
-          style: theme.textTheme.titleMedium,
-        ),
-      ),
-    );
-  }
-
-  /// (Original elaborate hero retained for reference but no longer used.)
-  // ignore: unused_element
-  Widget _buildContinueHeroOriginal() {
     final theme = Theme.of(context);
     final entry = _reading.first;
     final seriesById = {
@@ -837,88 +821,102 @@ class _LibraryScreenState extends State<LibraryScreen> {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: () => _openVolume(entry.volume),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SizedBox(
-                  width: 88,
-                  height: 124,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: series != null
-                        ? _CoverImage(series: series, headers: headers)
-                        : _TitleCover(title: entry.volume.title),
+          child: SizedBox(
+            height: 148,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 88,
+                    height: 124,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: series != null
+                          ? _CoverImage(series: series, headers: headers)
+                          : _TitleCover(title: entry.volume.title),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Continue reading',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.primary,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.6,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          height: 1.2,
-                        ),
-                      ),
-                      if (volumeLabel != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          volumeLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.outline,
-                          ),
-                        ),
-                      ],
-                      const Spacer(),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(2),
-                        child: LinearProgressIndicator(
-                          value: progress.fraction,
-                          minHeight: 4,
-                          backgroundColor:
-                              theme.colorScheme.surfaceContainerHighest,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              chapterLabel,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Continue reading',
                               style: theme.textTheme.labelSmall?.copyWith(
-                                color: theme.colorScheme.outline,
+                                color: theme.colorScheme.primary,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 0.6,
                               ),
                             ),
-                          ),
-                          Icon(
-                            Icons.play_arrow_rounded,
-                            color: theme.colorScheme.primary,
-                          ),
-                        ],
-                      ),
-                    ],
+                            const SizedBox(height: 2),
+                            Text(
+                              title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                height: 1.2,
+                              ),
+                            ),
+                            if (volumeLabel != null) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                volumeLabel,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.outline,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(2),
+                              child: LinearProgressIndicator(
+                                value: progress.fraction,
+                                minHeight: 4,
+                                backgroundColor:
+                                    theme.colorScheme.surfaceContainerHighest,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    chapterLabel,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: theme.colorScheme.outline,
+                                    ),
+                                  ),
+                                ),
+                                Icon(
+                                  Icons.play_arrow_rounded,
+                                  color: theme.colorScheme.primary,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
