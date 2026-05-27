@@ -396,6 +396,10 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Periodic timer driving the hands-free auto-scroll, when enabled.
   Timer? _autoScrollTimer;
 
+  /// Block indices in the current chapter that have been highlighted, so the
+  /// renderer can paint a tint behind them.
+  Set<int> _highlightedBlocks = const {};
+
   /// Persists per-day and per-volume reading-time totals.
   final _activityStore = ReadingActivityStore();
 
@@ -509,6 +513,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         _restoreScrollPosition();
         if (_settings.autoScroll) _startAutoScroll();
       });
+      _refreshHighlights();
     } on EpubException catch (e) {
       _fail(e.message);
     }
@@ -568,6 +573,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         _scrollController.jumpTo(0);
       }
     });
+    _refreshHighlights();
   }
 
   // ── reading-position memory ──────────────────────────────────────────────
@@ -1094,8 +1100,25 @@ class _ReaderScreenState extends State<ReaderScreen>
         currentSnippet: snippet,
       ),
     );
+    // Pick up any highlights the user added in the sheet so they paint
+    // immediately on the rendered page.
+    await _refreshHighlights();
     if (picked == null || !mounted) return;
     _jumpToSearchHit(picked.chapterIndex, picked.blockIndex);
+  }
+
+  /// Re-reads the bookmarks store and rebuilds the per-chapter set of
+  /// highlighted block indices.
+  Future<void> _refreshHighlights() async {
+    final all = await BookmarkStore().list(widget.volume);
+    if (!mounted) return;
+    setState(() {
+      _highlightedBlocks = {
+        for (final mark in all)
+          if (mark.isHighlight && mark.chapterIndex == _chapterIndex)
+            mark.blockIndex,
+      };
+    });
   }
 
   /// Trims a block's text to a short, single-line preview for bookmarks /
@@ -1161,6 +1184,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_settings.mode == ReadingMode.scroll) _restoreScrollPosition();
     });
+    _refreshHighlights();
   }
 
   // ── navigation ───────────────────────────────────────────────────────────
@@ -1529,6 +1553,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         preset: preset,
         highlightStart: index == _speakingBlock ? _speakingStart : null,
         highlightEnd: index == _speakingBlock ? _speakingEnd : null,
+        isHighlighted: _highlightedBlocks.contains(index),
       ),
     );
   }
@@ -1591,6 +1616,9 @@ class _ReaderScreenState extends State<ReaderScreen>
                       highlightEnd: pageBlocks[j].originIndex == _speakingBlock
                           ? _speakingEnd - pageBlocks[j].charOffset
                           : null,
+                      isHighlighted: _highlightedBlocks.contains(
+                        pageBlocks[j].originIndex,
+                      ),
                     ),
                 ],
               ),
@@ -1611,6 +1639,7 @@ class _BlockView extends StatelessWidget {
     this.isLast = false,
     this.highlightStart,
     this.highlightEnd,
+    this.isHighlighted = false,
   });
 
   final ContentBlock block;
@@ -1625,24 +1654,30 @@ class _BlockView extends StatelessWidget {
   final int? highlightStart;
   final int? highlightEnd;
 
+  /// True when the user has saved a passage highlight on this block. The
+  /// paragraph/heading body is painted with a soft tint behind the text.
+  final bool isHighlighted;
+
   @override
   Widget build(BuildContext context) {
     switch (block) {
       case ParagraphBlock paragraph:
         return Padding(
           padding: EdgeInsets.only(bottom: isLast ? 0 : _paragraphGap),
-          child: Text.rich(
-            TextSpan(
-              children: _spansFor(
-                context,
-                paragraph.runs,
-                _paragraphStyle(settings, preset.text),
+          child: _maybeTint(
+            child: Text.rich(
+              TextSpan(
+                children: _spansFor(
+                  context,
+                  paragraph.runs,
+                  _paragraphStyle(settings, preset.text),
+                ),
               ),
+              textAlign: settings.textAlign == ReaderTextAlign.justify
+                  ? TextAlign.justify
+                  : TextAlign.left,
+              textScaler: TextScaler.noScaling,
             ),
-            textAlign: settings.textAlign == ReaderTextAlign.justify
-                ? TextAlign.justify
-                : TextAlign.left,
-            textScaler: TextScaler.noScaling,
           ),
         );
       case HeadingBlock heading:
@@ -1651,15 +1686,17 @@ class _BlockView extends StatelessWidget {
             top: _headingTopGap,
             bottom: isLast ? 0 : _headingBottomGap,
           ),
-          child: Text.rich(
-            TextSpan(
-              children: _spansFor(
-                context,
-                heading.runs,
-                _headingStyle(settings, heading.level, preset.text),
+          child: _maybeTint(
+            child: Text.rich(
+              TextSpan(
+                children: _spansFor(
+                  context,
+                  heading.runs,
+                  _headingStyle(settings, heading.level, preset.text),
+                ),
               ),
+              textScaler: TextScaler.noScaling,
             ),
-            textScaler: TextScaler.noScaling,
           ),
         );
       case DividerBlock _:
@@ -1697,6 +1734,20 @@ class _BlockView extends StatelessWidget {
           ),
         );
     }
+  }
+
+  /// Wraps [child] in a soft theme-coloured tint when this block is a saved
+  /// highlight; returns it unchanged otherwise.
+  Widget _maybeTint({required Widget child}) {
+    if (!isHighlighted) return child;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      decoration: BoxDecoration(
+        color: preset.highlight.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: child,
+    );
   }
 
   /// Builds the run spans, giving the highlighted character range a
@@ -2350,7 +2401,13 @@ class _BookmarksSheetState extends State<_BookmarksSheet> {
     setState(() => _bookmarks = list);
   }
 
-  Future<void> _addHere() async {
+  Future<void> _addHere({bool asHighlight = false}) async {
+    String note = '';
+    if (asHighlight) {
+      final entered = await _promptForNote(initial: '');
+      if (entered == null) return;
+      note = entered;
+    }
     final mark = Bookmark(
       id: DateTime.now().microsecondsSinceEpoch.toString(),
       chapterIndex: widget.currentChapterIndex,
@@ -2358,6 +2415,8 @@ class _BookmarksSheetState extends State<_BookmarksSheet> {
       chapterTitle: widget.currentChapterTitle,
       snippet: widget.currentSnippet,
       createdAt: DateTime.now(),
+      isHighlight: asHighlight,
+      note: note,
     );
     await _store.add(widget.volume, mark);
     await _load();
@@ -2366,6 +2425,49 @@ class _BookmarksSheetState extends State<_BookmarksSheet> {
   Future<void> _remove(String id) async {
     await _store.remove(widget.volume, id);
     await _load();
+  }
+
+  Future<void> _editNote(Bookmark mark) async {
+    final entered = await _promptForNote(initial: mark.note);
+    if (entered == null) return;
+    await _store.remove(widget.volume, mark.id);
+    await _store.add(widget.volume, mark.copyWith(note: entered));
+    await _load();
+  }
+
+  /// Shows a small dialog with a multi-line text field for the highlight's
+  /// note. Returns the trimmed text (possibly empty) on save, or null if the
+  /// user cancelled.
+  Future<String?> _promptForNote({required String initial}) async {
+    final controller = TextEditingController(text: initial);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        title: const Text('Note'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          minLines: 2,
+          maxLines: 6,
+          decoration: const InputDecoration(
+            hintText: 'Optional note for this passage',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(dialogCtx).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return result;
   }
 
   @override
@@ -2398,10 +2500,24 @@ class _BookmarksSheetState extends State<_BookmarksSheet> {
               ],
             ),
             const SizedBox(height: 4),
-            FilledButton.icon(
-              onPressed: _addHere,
-              icon: const Icon(Icons.bookmark_add_outlined),
-              label: const Text('Add bookmark here'),
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => _addHere(),
+                    icon: const Icon(Icons.bookmark_add_outlined),
+                    label: const Text('Bookmark'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    onPressed: () => _addHere(asHighlight: true),
+                    icon: const Icon(Icons.brush_outlined),
+                    label: const Text('Highlight'),
+                  ),
+                ),
+              ],
             ),
             Padding(
               padding: const EdgeInsets.only(top: 4, left: 4),
@@ -2442,23 +2558,85 @@ class _BookmarksSheetState extends State<_BookmarksSheet> {
                         final mark = marks[index];
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
-                          title: Text(
-                            mark.chapterTitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  mark.chapterTitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              if (mark.isHighlight) ...[
+                                const SizedBox(width: 6),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: theme.colorScheme.primaryContainer,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    'Highlight',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color:
+                                          theme.colorScheme.onPrimaryContainer,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
-                          subtitle: Text(
-                            mark.snippet,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.outline,
-                            ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                mark.snippet,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.outline,
+                                ),
+                              ),
+                              if (mark.note.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 4),
+                                  child: Text(
+                                    mark.note,
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      fontStyle: FontStyle.italic,
+                                      color: theme.colorScheme.onSurface,
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete_outline),
-                            tooltip: 'Delete bookmark',
-                            onPressed: () => _remove(mark.id),
+                          trailing: PopupMenuButton<String>(
+                            tooltip: 'More',
+                            icon: const Icon(Icons.more_vert),
+                            onSelected: (value) {
+                              switch (value) {
+                                case 'edit':
+                                  _editNote(mark);
+                                case 'delete':
+                                  _remove(mark.id);
+                              }
+                            },
+                            itemBuilder: (_) => [
+                              if (mark.isHighlight)
+                                const PopupMenuItem(
+                                  value: 'edit',
+                                  child: Text('Edit note'),
+                                ),
+                              const PopupMenuItem(
+                                value: 'delete',
+                                child: Text('Delete'),
+                              ),
+                            ],
                           ),
                           onTap: () => Navigator.of(context).pop(mark),
                         );

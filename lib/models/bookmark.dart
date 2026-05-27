@@ -2,7 +2,8 @@
 ///
 /// Like reading progress, the position is stored as a chapter index plus a
 /// block index — not a pixel offset — so the bookmark stays valid across font
-/// and margin changes.
+/// and margin changes. A bookmark can also act as a *highlight* (paints a
+/// background on its block in the reader) and optionally carry a [note].
 class Bookmark {
   const Bookmark({
     required this.id,
@@ -11,9 +12,11 @@ class Bookmark {
     required this.chapterTitle,
     required this.snippet,
     required this.createdAt,
+    this.isHighlight = false,
+    this.note = '',
   });
 
-  /// Stable identifier for delete + dedupe (a millisecond timestamp is fine).
+  /// Stable identifier for delete + dedupe (a microsecond timestamp).
   final String id;
 
   final int chapterIndex;
@@ -30,6 +33,28 @@ class Bookmark {
 
   final DateTime createdAt;
 
+  /// True when the bookmark should paint a background tint on its block,
+  /// marking a highlighted passage.
+  final bool isHighlight;
+
+  /// Optional user note attached to the bookmark — typically used on
+  /// highlights to capture a thought about the passage.
+  final String note;
+
+  Bookmark copyWith({
+    bool? isHighlight,
+    String? note,
+  }) => Bookmark(
+    id: id,
+    chapterIndex: chapterIndex,
+    blockIndex: blockIndex,
+    chapterTitle: chapterTitle,
+    snippet: snippet,
+    createdAt: createdAt,
+    isHighlight: isHighlight ?? this.isHighlight,
+    note: note ?? this.note,
+  );
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'chapterIndex': chapterIndex,
@@ -37,6 +62,8 @@ class Bookmark {
     'chapterTitle': chapterTitle,
     'snippet': snippet,
     'createdAt': createdAt.toIso8601String(),
+    if (isHighlight) 'isHighlight': true,
+    if (note.isNotEmpty) 'note': note,
   };
 
   factory Bookmark.fromJson(Map<String, dynamic> json) => Bookmark(
@@ -47,5 +74,7 @@ class Bookmark {
     snippet: json['snippet'] as String? ?? '',
     createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ??
         DateTime.fromMillisecondsSinceEpoch(0),
+    isHighlight: json['isHighlight'] == true,
+    note: json['note'] as String? ?? '',
   );
 }
