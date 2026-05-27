@@ -411,6 +411,11 @@ class _ReaderScreenState extends State<ReaderScreen>
   double _chapterFraction = 0;
   int _chapterWordCount = 0;
 
+  /// Word count per chapter, populated lazily as chapters are visited.
+  /// Used to estimate how long is left in the *book* — the unmeasured
+  /// chapters get the running average from what's been seen.
+  final Map<int, int> _chapterWordCounts = {};
+
   @override
   void initState() {
     super.initState();
@@ -503,6 +508,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         _chapterIndex = chapterIndex;
         _blocks = blocks;
         _chapterWordCount = _countWords(blocks);
+        _chapterWordCounts[_chapterIndex] = _chapterWordCount;
         _settings = settings;
         _pendingRestoreBlock = blocks.isEmpty
             ? 0
@@ -702,6 +708,21 @@ class _ReaderScreenState extends State<ReaderScreen>
       }
     }
     return words;
+  }
+
+  /// Estimated reading time left in the whole book, in minutes. Combines the
+  /// remaining part of the current chapter with the running average word
+  /// count of measured chapters multiplied by the unread chapter count.
+  /// Returns null until at least one chapter has been measured (i.e. always
+  /// available once the reader has rendered anything).
+  double? _estimateBookMinutesLeft(EpubBook book) {
+    if (_chapterWordCounts.isEmpty) return null;
+    final measured = _chapterWordCounts.values;
+    final avg = measured.reduce((a, b) => a + b) / measured.length;
+    final remainingChapters = book.chapters.length - _chapterIndex - 1;
+    final currentLeft = _chapterWordCount * (1 - _chapterFraction);
+    final unreadWords = currentLeft + (remainingChapters * avg);
+    return unreadWords / 220.0;
   }
 
   /// Restores the saved scroll-mode position once the list has laid out.
@@ -1523,6 +1544,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                       progress: _chapterFraction,
                       minutesLeft:
                           _chapterWordCount * (1 - _chapterFraction) / 220.0,
+                      bookMinutesLeft: _estimateBookMinutesLeft(book),
                       onPrevious: () => _goToChapter(_chapterIndex - 1),
                       onNext: () => _goToChapter(_chapterIndex + 1),
                       onSeek: _seekChapter,
@@ -1971,6 +1993,7 @@ class _ChapterBar extends StatelessWidget {
     required this.total,
     required this.progress,
     required this.minutesLeft,
+    required this.bookMinutesLeft,
     required this.onPrevious,
     required this.onNext,
     required this.onSeek,
@@ -1987,6 +2010,10 @@ class _ChapterBar extends StatelessWidget {
   /// Estimated reading time remaining in the chapter, in minutes.
   final double minutesLeft;
 
+  /// Estimated reading time remaining in the whole book, in minutes — null
+  /// when no chapter word counts have been measured yet.
+  final double? bookMinutesLeft;
+
   final VoidCallback onPrevious;
   final VoidCallback onNext;
 
@@ -1994,11 +2021,26 @@ class _ChapterBar extends StatelessWidget {
   /// current chapter.
   final ValueChanged<double> onSeek;
 
-  /// A short human label for the time left in the chapter.
+  /// A short human label for the time left in the chapter and (when known)
+  /// the rest of the book — e.g. "~5 min in chapter · ~2h left in book".
   String get _timeLabel {
-    if (minutesLeft < 0.5) return 'Almost done';
-    if (minutesLeft < 1.5) return '~1 min left in chapter';
-    return '~${minutesLeft.round()} min left in chapter';
+    final chapter = minutesLeft < 0.5
+        ? 'Almost done'
+        : minutesLeft < 1.5
+            ? '~1 min in chapter'
+            : '~${minutesLeft.round()} min in chapter';
+    final bk = bookMinutesLeft;
+    if (bk == null || bk < 1) return chapter;
+    return '$chapter · ${_formatBookLeft(bk)} in book';
+  }
+
+  /// Human-formatted book-remaining: "~12 min", "~2h", "~3h 25m".
+  String _formatBookLeft(double minutes) {
+    if (minutes < 60) return '~${minutes.round()} min';
+    final h = minutes ~/ 60;
+    final m = (minutes - h * 60).round();
+    if (m == 0) return '~${h}h';
+    return '~${h}h ${m}m';
   }
 
   @override
