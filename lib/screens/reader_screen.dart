@@ -1373,24 +1373,41 @@ class _ReaderScreenState extends State<ReaderScreen>
               ),
               const Divider(height: 1),
               Expanded(
-                child: ListView.builder(
-                  itemCount: book.chapters.length,
-                  itemBuilder: (context, index) {
-                    final chapter = book.chapters[index];
-                    final current = index == _chapterIndex;
-                    return ListTile(
-                      selected: current,
-                      leading: current
-                          ? const Icon(Icons.play_arrow)
-                          : const SizedBox(width: 24),
-                      title: Text(
-                        chapter.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      onTap: () {
-                        Navigator.of(context).pop();
-                        _goToChapter(index);
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // Fixed-height rows so we can scroll the current chapter
+                    // into view on open without measuring each tile. The
+                    // initial offset positions the current chapter roughly a
+                    // third of the way down the viewport.
+                    const rowHeight = 64.0;
+                    final maxOffset =
+                        (book.chapters.length * rowHeight - constraints.maxHeight)
+                            .clamp(0.0, double.infinity);
+                    final target =
+                        (_chapterIndex * rowHeight - constraints.maxHeight / 3)
+                            .clamp(0.0, maxOffset);
+                    return ListView.builder(
+                      controller: ScrollController(initialScrollOffset: target),
+                      itemCount: book.chapters.length,
+                      itemExtent: rowHeight,
+                      itemBuilder: (context, index) {
+                        final chapter = book.chapters[index];
+                        final current = index == _chapterIndex;
+                        return ListTile(
+                          selected: current,
+                          leading: current
+                              ? const Icon(Icons.play_arrow)
+                              : const SizedBox(width: 24),
+                          title: Text(
+                            chapter.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onTap: () {
+                            Navigator.of(context).pop();
+                            _goToChapter(index);
+                          },
+                        );
                       },
                     );
                   },
