@@ -670,8 +670,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
           SliverToBoxAdapter(child: _buildBulkBanner()),
         SliverToBoxAdapter(child: _buildControls(all.length, visible.length)),
         if (_reading.isNotEmpty && _searchQuery.trim().isEmpty)
-          SliverToBoxAdapter(child: _buildContinueHero()),
-        if (_reading.length > 1 && _searchQuery.trim().isEmpty)
           SliverToBoxAdapter(child: _buildContinueShelf()),
         if (_searchQuery.trim().isEmpty && _recentlyUpdated.isNotEmpty)
           SliverToBoxAdapter(child: _buildRecentShelf()),
@@ -788,122 +786,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   /// Horizontal shelf of books that are in progress.
-  /// A big tappable "Resume reading" banner for the single most-recently-read
-  /// volume — saves a scroll into the horizontal shelf when there's only one
-  /// thing you're likely to pick back up.
-  Widget _buildContinueHero() {
-    final theme = Theme.of(context);
-    final entry = _reading.first;
-    final seriesById = {
-      for (final s in _library ?? const <Series>[]) s.opdsId: s,
-    };
-    final series = seriesById[entry.volume.seriesOpdsId];
-    final headers = (_settings?.isConfigured ?? false)
-        ? OpdsClient(_settings!).authHeaders
-        : const <String, String>{};
-    final title = series?.title ?? entry.volume.title;
-    final volumeLabel = entry.volume.title != title ? entry.volume.title : null;
-    final progress = entry.progress;
-    final chapterLabel = progress.chapterCount > 0
-        ? 'Chapter ${progress.chapterIndex + 1} of ${progress.chapterCount}'
-        : 'Chapter ${progress.chapterIndex + 1}';
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      child: Material(
-        color: theme.colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => _openVolume(entry.volume),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SizedBox(
-                  width: 88,
-                  height: 124,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: series != null
-                        ? _CoverImage(series: series, headers: headers)
-                        : _TitleCover(title: entry.volume.title),
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Continue reading',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.primary,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.6,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          height: 1.2,
-                        ),
-                      ),
-                      if (volumeLabel != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          volumeLabel,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.outline,
-                          ),
-                        ),
-                      ],
-                      const Spacer(),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(2),
-                        child: LinearProgressIndicator(
-                          value: progress.fraction,
-                          minHeight: 4,
-                          backgroundColor:
-                              theme.colorScheme.surfaceContainerHighest,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              chapterLabel,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: theme.colorScheme.outline,
-                              ),
-                            ),
-                          ),
-                          Icon(
-                            Icons.play_arrow_rounded,
-                            color: theme.colorScheme.primary,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _buildContinueShelf() {
     final theme = Theme.of(context);
     final seriesById = {
@@ -912,15 +794,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final headers = (_settings?.isConfigured ?? false)
         ? OpdsClient(_settings!).authHeaders
         : const <String, String>{};
-    // The hero already covers entry [0]; the shelf shows the rest.
-    final rest = _reading.skip(1).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
           child: Text(
-            'Also in progress',
+            'Continue reading',
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w600,
             ),
@@ -931,10 +811,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: rest.length,
+            itemCount: _reading.length,
             separatorBuilder: (_, _) => const SizedBox(width: 14),
             itemBuilder: (context, index) {
-              final entry = rest[index];
+              final entry = _reading[index];
               return _ContinueCard(
                 entry: entry,
                 series: seriesById[entry.volume.seriesOpdsId],
