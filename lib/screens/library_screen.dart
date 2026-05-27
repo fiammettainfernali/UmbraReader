@@ -1302,9 +1302,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            searching
-                ? '$visible of $total series  ·  ${_sort.label}'
-                : '$total series  ·  ${_sort.label}',
+            visible == total
+                ? '$total series  ·  ${_sort.label}'
+                : '$visible of $total series  ·  ${_sort.label}',
             style: theme.textTheme.labelMedium?.copyWith(
               color: theme.colorScheme.outline,
             ),
