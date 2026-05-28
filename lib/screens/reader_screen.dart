@@ -1791,10 +1791,17 @@ class _ReaderScreenState extends State<ReaderScreen>
     return LayoutBuilder(
       builder: (context, constraints) {
         final stride = _pageStride;
+        // TV title-safe area: most TVs (and AirPlay receivers) clip ~5% off
+        // each edge via overscan, so insetting the reader keeps text from
+        // spilling off the visible screen.
+        final tvSafeH = _settings.tvMode ? constraints.maxWidth * 0.055 : 0.0;
+        final tvSafeV = _settings.tvMode ? constraints.maxHeight * 0.04 : 0.0;
+        final usableWidth = constraints.maxWidth - 2 * tvSafeH;
+        final usableHeight = constraints.maxHeight - 2 * tvSafeV;
         // TV mode splits the viewport into two side-by-side columns, so
         // each column is sized like a normal page.
-        final colWidth = (constraints.maxWidth / stride) - 2 * _settings.margin;
-        final height = constraints.maxHeight - 2 * _contentVPad;
+        final colWidth = (usableWidth / stride) - 2 * _settings.margin;
+        final height = usableHeight - 2 * _contentVPad;
         final key =
             '$_chapterIndex:${colWidth.round()}x${height.round()}'
             ':${_settings.fontSize}:${_settings.lineHeight}'
@@ -1823,7 +1830,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         }
         final pages = _pages ?? const <List<_PageBlock>>[];
         final spreadCount = (pages.length / stride).ceil().clamp(1, 1 << 30);
-        return PageView.builder(
+        final pager = PageView.builder(
           controller: _pageController,
           itemCount: spreadCount,
           itemBuilder: (context, spreadIndex) {
@@ -1844,6 +1851,14 @@ class _ReaderScreenState extends State<ReaderScreen>
               ],
             );
           },
+        );
+        if (!_settings.tvMode) return pager;
+        return Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: tvSafeH,
+            vertical: tvSafeV,
+          ),
+          child: pager,
         );
       },
     );
