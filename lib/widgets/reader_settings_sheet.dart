@@ -151,6 +151,30 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
               onSelectionChanged: (selection) =>
                   _update(_settings.copyWith(mode: selection.first)),
             ),
+            const SizedBox(height: 16),
+            _label(theme, 'Orientation'),
+            SegmentedButton<ReaderOrientation>(
+              segments: const [
+                ButtonSegment(
+                  value: ReaderOrientation.auto,
+                  label: Text('Auto'),
+                  icon: Icon(Icons.screen_rotation),
+                ),
+                ButtonSegment(
+                  value: ReaderOrientation.portrait,
+                  label: Text('Portrait'),
+                  icon: Icon(Icons.stay_current_portrait),
+                ),
+                ButtonSegment(
+                  value: ReaderOrientation.landscape,
+                  label: Text('Landscape'),
+                  icon: Icon(Icons.stay_current_landscape),
+                ),
+              ],
+              selected: {_settings.orientation},
+              onSelectionChanged: (selection) =>
+                  _update(_settings.copyWith(orientation: selection.first)),
+            ),
             const SizedBox(height: 20),
 
             _label(theme, 'Theme'),

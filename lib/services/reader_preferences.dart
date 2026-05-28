@@ -25,6 +25,7 @@ class ReaderPreferences {
   static const _kBrightness = 'reader_brightness';
   static const _kTextAlign = 'reader_text_align';
   static const _kAutoScroll = 'reader_auto_scroll';
+  static const _kOrientation = 'reader_orientation';
 
   /// Marker key telling us a per-volume override has been opted into.
   static const _kOverrideMarker = 'reader_override_marker';
@@ -61,6 +62,10 @@ class ReaderPreferences {
         orElse: () => d.textAlign,
       ),
       autoScroll: prefs.getBool('$p$_kAutoScroll') ?? d.autoScroll,
+      orientation: ReaderOrientation.values.firstWhere(
+        (o) => o.name == prefs.getString('$p$_kOrientation'),
+        orElse: () => d.orientation,
+      ),
     );
   }
 
@@ -83,6 +88,7 @@ class ReaderPreferences {
     await prefs.setDouble('$p$_kBrightness', settings.brightness);
     await prefs.setString('$p$_kTextAlign', settings.textAlign.name);
     await prefs.setBool('$p$_kAutoScroll', settings.autoScroll);
+    await prefs.setString('$p$_kOrientation', settings.orientation.name);
   }
 
   Future<bool> hasOverride(Volume volume) async {

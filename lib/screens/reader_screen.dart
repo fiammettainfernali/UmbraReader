@@ -457,6 +457,11 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (state == AppLifecycleState.resumed) {
       _sessionStart ??= DateTime.now();
     } else {
+      // Save the current page/scroll position the moment the app loses
+      // foreground (screen lock, app switcher, etc.) — without this iOS can
+      // kill the process before dispose() fires and the user reopens to an
+      // older saved position from the last page turn.
+      _saveProgress();
       _flushReadingSession();
     }
   }
@@ -477,6 +482,9 @@ class _ReaderScreenState extends State<ReaderScreen>
   void dispose() {
     _saveProgress();
     _flushReadingSession();
+    // Release any reader-imposed orientation lock so the rest of the app
+    // (library, settings) follows the device's normal auto-rotate setting.
+    _applyOrientation(ReaderOrientation.auto);
     WidgetsBinding.instance.removeObserver(this);
     _sleepTimer?.cancel();
     _autoScrollTimer?.cancel();
@@ -523,6 +531,7 @@ class _ReaderScreenState extends State<ReaderScreen>
             : progress.blockIndex.clamp(0, blocks.length - 1);
         _loading = false;
       });
+      _applyOrientation(settings.orientation);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _restoreScrollPosition();
         if (_settings.autoScroll) _startAutoScroll();
@@ -579,6 +588,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     final blocks = parser.parseChapter(book.chapters[clamped]);
     setState(() {
       _chapterIndex = clamped;
+      _lastSavedBlock = -1;
       _blocks = blocks;
       _chapterWordCount = _countWords(blocks);
       _chapterFraction = 0;
@@ -778,10 +788,25 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   /// Recomputes how far through the current chapter the reader is, refreshing
   /// the progress bar / time estimate when it moves by at least half a percent.
+  /// The page index (paged mode) or top-block index (scroll mode) that was
+  /// last persisted — used to skip duplicate saves on the same position.
+  int _lastSavedBlock = -1;
+
   void _onPositionTick() {
     final fraction = _computeChapterFraction();
     if ((fraction * 200).round() != (_chapterFraction * 200).round()) {
       setState(() => _chapterFraction = fraction);
+    }
+    // Persist the page / scroll position whenever the user settles on a new
+    // page so the saved spot tracks the real one — not just on screen close.
+    // Lock-screen / app-kill used to lose the last few pages because the
+    // only saves were on chapter change + dispose.
+    final block = _settings.mode == ReadingMode.paged
+        ? (_pageController.hasClients ? _pagedTopBlockIndex() : -1)
+        : (_scrollController.hasClients ? _scrollTopBlockIndex() : -1);
+    if (block >= 0 && block != _lastSavedBlock) {
+      _lastSavedBlock = block;
+      _saveProgress();
     }
   }
 
@@ -873,6 +898,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     final autoScrollChanged =
         next.autoScroll != _settings.autoScroll ||
         next.mode != _settings.mode;
+    final orientationChanged = next.orientation != _settings.orientation;
     final currentPage = _pageController.hasClients
         ? (_pageController.page?.round() ?? 0)
         : 0;
@@ -893,6 +919,31 @@ class _ReaderScreenState extends State<ReaderScreen>
       } else {
         _stopAutoScroll();
       }
+    }
+    if (orientationChanged) _applyOrientation(next.orientation);
+  }
+
+  /// Asks the OS to lock to (or release) a specific orientation. Auto
+  /// re-enables all four orientations so the device follows its rotate lock.
+  void _applyOrientation(ReaderOrientation orientation) {
+    switch (orientation) {
+      case ReaderOrientation.auto:
+        SystemChrome.setPreferredOrientations(const [
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+      case ReaderOrientation.portrait:
+        SystemChrome.setPreferredOrientations(const [
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+        ]);
+      case ReaderOrientation.landscape:
+        SystemChrome.setPreferredOrientations(const [
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
     }
   }
 
@@ -1298,6 +1349,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         : blockIndex.clamp(0, blocks.length - 1);
     setState(() {
       _chapterIndex = clamped;
+      _lastSavedBlock = -1;
       _blocks = blocks;
       _chapterWordCount = _countWords(blocks);
       _chapterFraction = 0;

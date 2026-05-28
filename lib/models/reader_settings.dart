@@ -18,6 +18,14 @@ enum ReaderTextAlign {
   justify,
 }
 
+/// Locks the reader to a chosen device orientation, or follows the
+/// system's auto-rotate setting.
+enum ReaderOrientation {
+  auto,
+  portrait,
+  landscape,
+}
+
 /// All reader preferences: layout mode, colour theme, and typography.
 class ReaderSettings {
   const ReaderSettings({
@@ -35,6 +43,7 @@ class ReaderSettings {
     required this.brightness,
     required this.textAlign,
     required this.autoScroll,
+    required this.orientation,
   });
 
   final ReadingMode mode;
@@ -78,6 +87,10 @@ class ReaderSettings {
   /// reading. Crosses chapters automatically when it reaches the bottom.
   final bool autoScroll;
 
+  /// Locks the reader to a fixed orientation, or follows the system's
+  /// auto-rotate setting when [ReaderOrientation.auto].
+  final ReaderOrientation orientation;
+
   static const defaults = ReaderSettings(
     mode: ReadingMode.scroll,
     themeId: 'dark',
@@ -93,6 +106,7 @@ class ReaderSettings {
     brightness: 1.0,
     textAlign: ReaderTextAlign.left,
     autoScroll: false,
+    orientation: ReaderOrientation.auto,
   );
 
   ReaderThemePreset get theme => readerThemeById(themeId);
@@ -112,6 +126,7 @@ class ReaderSettings {
     double? brightness,
     ReaderTextAlign? textAlign,
     bool? autoScroll,
+    ReaderOrientation? orientation,
   }) {
     return ReaderSettings(
       mode: mode ?? this.mode,
@@ -128,6 +143,7 @@ class ReaderSettings {
       brightness: brightness ?? this.brightness,
       textAlign: textAlign ?? this.textAlign,
       autoScroll: autoScroll ?? this.autoScroll,
+      orientation: orientation ?? this.orientation,
     );
   }
 }
