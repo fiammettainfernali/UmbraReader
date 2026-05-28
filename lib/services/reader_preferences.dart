@@ -26,6 +26,7 @@ class ReaderPreferences {
   static const _kTextAlign = 'reader_text_align';
   static const _kAutoScroll = 'reader_auto_scroll';
   static const _kOrientation = 'reader_orientation';
+  static const _kTvMode = 'reader_tv_mode';
 
   /// Marker key telling us a per-volume override has been opted into.
   static const _kOverrideMarker = 'reader_override_marker';
@@ -66,6 +67,7 @@ class ReaderPreferences {
         (o) => o.name == prefs.getString('$p$_kOrientation'),
         orElse: () => d.orientation,
       ),
+      tvMode: prefs.getBool('$p$_kTvMode') ?? d.tvMode,
     );
   }
 
@@ -89,6 +91,7 @@ class ReaderPreferences {
     await prefs.setString('$p$_kTextAlign', settings.textAlign.name);
     await prefs.setBool('$p$_kAutoScroll', settings.autoScroll);
     await prefs.setString('$p$_kOrientation', settings.orientation.name);
+    await prefs.setBool('$p$_kTvMode', settings.tvMode);
   }
 
   Future<bool> hasOverride(Volume volume) async {

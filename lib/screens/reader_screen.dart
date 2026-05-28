@@ -719,32 +719,39 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   /// Index of the first block on the current page in paged mode.
+  /// Underlying pages per swipe — 1 normally, 2 in TV mode (left/right
+  /// columns of a spread). PageController.page tracks *spreads*, so all
+  /// conversions between block-index and page-index go through this.
+  int get _pageStride => _settings.tvMode ? 2 : 1;
+
   int _pagedTopBlockIndex() {
     final pages = _pages;
     if (pages == null || pages.isEmpty || !_pageController.hasClients) return 0;
-    final page = (_pageController.page?.round() ?? 0).clamp(
-      0,
-      pages.length - 1,
-    );
-    final pageBlocks = pages[page];
+    final spread = (_pageController.page?.round() ?? 0);
+    final underlying = (spread * _pageStride).clamp(0, pages.length - 1);
+    final pageBlocks = pages[underlying];
     return pageBlocks.isEmpty ? 0 : pageBlocks.first.originIndex;
   }
 
-  /// The first page that shows any part of [blockIndex] in paged mode.
+  /// The first spread (PageController page) that shows any part of
+  /// [blockIndex] in paged mode.
   int _pageForBlock(int blockIndex) {
     final pages = _pages ?? const <List<_PageBlock>>[];
     for (var i = 0; i < pages.length; i++) {
       for (final pb in pages[i]) {
-        if (pb.originIndex == blockIndex) return i;
+        if (pb.originIndex == blockIndex) return i ~/ _pageStride;
       }
     }
-    return pages.isEmpty ? 0 : pages.length - 1;
+    if (pages.isEmpty) return 0;
+    return (pages.length - 1) ~/ _pageStride;
   }
 
-  /// The page showing block [blockIndex] at character [charOffset] — so
-  /// read-aloud follow stays correct for a paragraph that spans pages.
+  /// The spread (PageController page) showing block [blockIndex] at
+  /// character [charOffset] — so read-aloud follow stays correct for a
+  /// paragraph that spans pages.
   int _pageForBlockAt(int blockIndex, int charOffset) {
     final pages = _pages ?? const <List<_PageBlock>>[];
+    final stride = _pageStride;
     var firstPage = -1;
     for (var i = 0; i < pages.length; i++) {
       for (final pb in pages[i]) {
@@ -755,12 +762,13 @@ class _ReaderScreenState extends State<ReaderScreen>
             : 0;
         if (charOffset >= pb.charOffset &&
             charOffset < pb.charOffset + length) {
-          return i;
+          return i ~/ stride;
         }
       }
     }
-    if (firstPage >= 0) return firstPage;
-    return pages.isEmpty ? 0 : pages.length - 1;
+    if (firstPage >= 0) return firstPage ~/ stride;
+    if (pages.isEmpty) return 0;
+    return (pages.length - 1) ~/ stride;
   }
 
   void _saveProgress() {
@@ -899,6 +907,12 @@ class _ReaderScreenState extends State<ReaderScreen>
         next.autoScroll != _settings.autoScroll ||
         next.mode != _settings.mode;
     final orientationChanged = next.orientation != _settings.orientation;
+    final tvModeChanged = next.tvMode != _settings.tvMode;
+    // TV mode is paged-only — auto-promote a scroll-mode user when they
+    // flip it on so the 2-column layout has something to slice into pages.
+    if (next.tvMode && next.mode != ReadingMode.paged) {
+      next = next.copyWith(mode: ReadingMode.paged);
+    }
     final currentPage = _pageController.hasClients
         ? (_pageController.page?.round() ?? 0)
         : 0;
@@ -920,13 +934,25 @@ class _ReaderScreenState extends State<ReaderScreen>
         _stopAutoScroll();
       }
     }
-    if (orientationChanged) _applyOrientation(next.orientation);
+    if (orientationChanged || tvModeChanged) {
+      _applyOrientation(next.orientation);
+    }
+    // Toggling TV mode invalidates the cached pagination since the
+    // column width changes.
+    if (tvModeChanged) {
+      _pageKey = null;
+      _lastSavedBlock = -1;
+    }
   }
 
   /// Asks the OS to lock to (or release) a specific orientation. Auto
   /// re-enables all four orientations so the device follows its rotate lock.
+  /// TV mode always forces landscape regardless of the requested setting.
   void _applyOrientation(ReaderOrientation orientation) {
-    switch (orientation) {
+    final effective = _settings.tvMode
+        ? ReaderOrientation.landscape
+        : orientation;
+    switch (effective) {
       case ReaderOrientation.auto:
         SystemChrome.setPreferredOrientations(const [
           DeviceOrientation.portraitUp,
@@ -1764,70 +1790,104 @@ class _ReaderScreenState extends State<ReaderScreen>
   Widget _buildPaged(ReaderThemePreset preset) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final width = constraints.maxWidth - 2 * _settings.margin;
+        final stride = _pageStride;
+        // TV mode splits the viewport into two side-by-side columns, so
+        // each column is sized like a normal page.
+        final colWidth = (constraints.maxWidth / stride) - 2 * _settings.margin;
         final height = constraints.maxHeight - 2 * _contentVPad;
         final key =
-            '$_chapterIndex:${width.round()}x${height.round()}'
+            '$_chapterIndex:${colWidth.round()}x${height.round()}'
             ':${_settings.fontSize}:${_settings.lineHeight}'
             ':${_settings.fontFamily}:$_fontToken'
-            ':${_settings.boldText}:${_settings.italicText}';
+            ':${_settings.boldText}:${_settings.italicText}'
+            ':$stride';
         if (key != _pageKey) {
           _pageKey = key;
-          _pages = _paginate(_blocks ?? const [], width, height, _settings);
+          _pages = _paginate(_blocks ?? const [], colWidth, height, _settings);
           final pageCount = _pages?.length ?? 1;
+          final spreadCount = (pageCount / stride).ceil().clamp(1, 1 << 30);
           final int wanted;
           if (_pendingRestoreBlock != null) {
             wanted = _pageForBlock(_pendingRestoreBlock!);
             _pendingRestoreBlock = null;
           } else if (_pageJumpTarget == _lastPage) {
-            wanted = pageCount - 1;
+            wanted = spreadCount - 1;
           } else {
             wanted = _pageJumpTarget;
           }
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted || !_pageController.hasClients) return;
-            _pageController.jumpToPage(wanted.clamp(0, pageCount - 1));
+            _pageController.jumpToPage(wanted.clamp(0, spreadCount - 1));
             _saveProgress();
           });
         }
         final pages = _pages ?? const <List<_PageBlock>>[];
+        final spreadCount = (pages.length / stride).ceil().clamp(1, 1 << 30);
         return PageView.builder(
           controller: _pageController,
-          itemCount: pages.length,
-          itemBuilder: (context, pageIndex) {
-            final pageBlocks = pages[pageIndex];
-            return SingleChildScrollView(
-              padding: EdgeInsets.symmetric(
-                horizontal: _settings.margin,
-                vertical: _contentVPad,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (var j = 0; j < pageBlocks.length; j++)
-                    _BlockView(
-                      block: pageBlocks[j].block,
-                      settings: _settings,
-                      preset: preset,
-                      isLast: j == pageBlocks.length - 1,
-                      // The highlight range is in parent-block coordinates;
-                      // shift it into this slice's own coordinates.
-                      highlightStart:
-                          pageBlocks[j].originIndex == _speakingBlock
-                          ? _speakingStart - pageBlocks[j].charOffset
-                          : null,
-                      highlightEnd: pageBlocks[j].originIndex == _speakingBlock
-                          ? _speakingEnd - pageBlocks[j].charOffset
-                          : null,
-                      highlightColor:
-                          _highlightedBlocks[pageBlocks[j].originIndex],
+          itemCount: spreadCount,
+          itemBuilder: (context, spreadIndex) {
+            if (stride == 1) {
+              return _buildPagedColumn(pages, spreadIndex, preset);
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var c = 0; c < stride; c++)
+                  Expanded(
+                    child: _buildPagedColumn(
+                      pages,
+                      spreadIndex * stride + c,
+                      preset,
                     ),
-                ],
-              ),
+                  ),
+              ],
             );
           },
         );
       },
+    );
+  }
+
+  /// Renders one paginated page slice (a single column). Used directly in
+  /// single-column paged mode, and twice side-by-side per spread in TV mode.
+  /// Out-of-range page indices (the right-hand column of an odd-last spread)
+  /// render an empty placeholder so the spread keeps its width.
+  Widget _buildPagedColumn(
+    List<List<_PageBlock>> pages,
+    int pageIndex,
+    ReaderThemePreset preset,
+  ) {
+    if (pageIndex < 0 || pageIndex >= pages.length) {
+      return const SizedBox.shrink();
+    }
+    final pageBlocks = pages[pageIndex];
+    return SingleChildScrollView(
+      padding: EdgeInsets.symmetric(
+        horizontal: _settings.margin,
+        vertical: _contentVPad,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var j = 0; j < pageBlocks.length; j++)
+            _BlockView(
+              block: pageBlocks[j].block,
+              settings: _settings,
+              preset: preset,
+              isLast: j == pageBlocks.length - 1,
+              // The highlight range is in parent-block coordinates;
+              // shift it into this slice's own coordinates.
+              highlightStart: pageBlocks[j].originIndex == _speakingBlock
+                  ? _speakingStart - pageBlocks[j].charOffset
+                  : null,
+              highlightEnd: pageBlocks[j].originIndex == _speakingBlock
+                  ? _speakingEnd - pageBlocks[j].charOffset
+                  : null,
+              highlightColor: _highlightedBlocks[pageBlocks[j].originIndex],
+            ),
+        ],
+      ),
     );
   }
 }

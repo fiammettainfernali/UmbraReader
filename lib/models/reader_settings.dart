@@ -44,6 +44,7 @@ class ReaderSettings {
     required this.textAlign,
     required this.autoScroll,
     required this.orientation,
+    required this.tvMode,
   });
 
   final ReadingMode mode;
@@ -91,6 +92,12 @@ class ReaderSettings {
   /// auto-rotate setting when [ReaderOrientation.auto].
   final ReaderOrientation orientation;
 
+  /// "TV mode" — reading laid out for a TV via iOS screen mirroring:
+  /// landscape, paged, two columns per spread, with chrome hidden. The
+  /// phone is intended to mirror to a TV while you sit back; use the
+  /// brightness slider to dim the phone itself.
+  final bool tvMode;
+
   static const defaults = ReaderSettings(
     mode: ReadingMode.scroll,
     themeId: 'dark',
@@ -107,6 +114,7 @@ class ReaderSettings {
     textAlign: ReaderTextAlign.left,
     autoScroll: false,
     orientation: ReaderOrientation.auto,
+    tvMode: false,
   );
 
   ReaderThemePreset get theme => readerThemeById(themeId);
@@ -127,6 +135,7 @@ class ReaderSettings {
     ReaderTextAlign? textAlign,
     bool? autoScroll,
     ReaderOrientation? orientation,
+    bool? tvMode,
   }) {
     return ReaderSettings(
       mode: mode ?? this.mode,
@@ -144,6 +153,7 @@ class ReaderSettings {
       textAlign: textAlign ?? this.textAlign,
       autoScroll: autoScroll ?? this.autoScroll,
       orientation: orientation ?? this.orientation,
+      tvMode: tvMode ?? this.tvMode,
     );
   }
 }

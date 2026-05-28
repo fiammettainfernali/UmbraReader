@@ -151,7 +151,20 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
               onSelectionChanged: (selection) =>
                   _update(_settings.copyWith(mode: selection.first)),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 4),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text('TV mode'),
+              subtitle: const Text(
+                'Two-column landscape, full-screen — pair with iOS screen '
+                'mirroring (Control Center → Screen Mirroring) to read on '
+                'a TV with the phone as the remote.',
+              ),
+              value: _settings.tvMode,
+              onChanged: (on) => _update(_settings.copyWith(tvMode: on)),
+            ),
+            const SizedBox(height: 8),
             _label(theme, 'Orientation'),
             SegmentedButton<ReaderOrientation>(
               segments: const [
