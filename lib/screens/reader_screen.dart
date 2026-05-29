@@ -21,6 +21,7 @@ import '../services/reading_progress_store.dart';
 import '../services/tts_service.dart';
 import '../utils/volume_ordering.dart';
 import '../widgets/reader_settings_sheet.dart';
+import 'glossary_screen.dart';
 import 'highlights_screen.dart';
 
 // Layout constants — shared by rendering and pagination so the two agree.
@@ -1248,6 +1249,17 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (wasActive) _startTts(fromCurrentPosition: false);
   }
 
+  void _openGlossary() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => GlossaryScreen(
+          seriesId: widget.volume.seriesOpdsId,
+          title: widget.volume.title,
+        ),
+      ),
+    );
+  }
+
   Future<void> _openSettings() async {
     final voices = await _ttsService.availableVoices();
     final prefs = ReaderPreferences();
@@ -1741,6 +1753,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                       onShowContents: _showTableOfContents,
                       onSearch: _openSearch,
                       onBookmarks: _openBookmarks,
+                      onGlossary: _openGlossary,
                     ),
                   ),
                 ),
@@ -2176,6 +2189,7 @@ class _TopBar extends StatelessWidget {
     required this.onShowContents,
     required this.onSearch,
     required this.onBookmarks,
+    required this.onGlossary,
   });
 
   final double height;
@@ -2188,6 +2202,7 @@ class _TopBar extends StatelessWidget {
   final VoidCallback onShowContents;
   final VoidCallback onSearch;
   final VoidCallback onBookmarks;
+  final VoidCallback onGlossary;
 
   @override
   Widget build(BuildContext context) {
@@ -2240,6 +2255,12 @@ class _TopBar extends StatelessWidget {
                 color: preset.text,
                 tooltip: 'Bookmarks',
                 onPressed: onBookmarks,
+              ),
+              IconButton(
+                icon: const Icon(Icons.people_outline),
+                color: preset.text,
+                tooltip: 'Glossary',
+                onPressed: onGlossary,
               ),
               IconButton(
                 icon: const Icon(Icons.text_fields),

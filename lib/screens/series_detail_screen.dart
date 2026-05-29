@@ -16,6 +16,7 @@ import '../services/settings_service.dart';
 import '../widgets/add_to_collection_sheet.dart';
 import '../widgets/cached_cover.dart';
 import 'filtered_series_screen.dart';
+import 'glossary_screen.dart';
 import 'reader_screen.dart';
 
 /// Download state of a single volume, derived per build.
@@ -341,6 +342,18 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
       appBar: AppBar(
         title: Text(series.title),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.people_outline),
+            tooltip: 'Character glossary',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => GlossaryScreen(
+                  seriesId: series.opdsId,
+                  title: series.title,
+                ),
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.collections_bookmark_outlined),
             tooltip: 'Add to collection',
