@@ -25,6 +25,7 @@ import 'reader_screen.dart';
 import 'series_detail_screen.dart';
 import 'settings_screen.dart';
 import 'stats_screen.dart';
+import 'storage_screen.dart';
 
 /// How the library grid is ordered.
 enum LibrarySort {
@@ -646,6 +647,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  Future<void> _openStorage() async {
+    final settings = _settings;
+    if (settings == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => StorageScreen(settings: settings),
+      ),
+    );
+    // Downloads may have been deleted — refresh the update badges.
+    await _loadDownloads();
+  }
+
   /// Opens a randomly chosen series — quick discovery for big libraries.
   void _openRandom() {
     final library = _library;
@@ -843,6 +856,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         _openCollections();
                       case 'stats':
                         _openStats();
+                      case 'storage':
+                        _openStorage();
                       case 'backup':
                         _openBackup();
                       case 'settings':
@@ -864,6 +879,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         contentPadding: EdgeInsets.zero,
                         leading: Icon(Icons.insights_outlined),
                         title: Text('Reading stats'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'storage',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.sd_storage_outlined),
+                        title: Text('Manage storage'),
                       ),
                     ),
                     PopupMenuItem(

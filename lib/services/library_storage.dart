@@ -101,6 +101,9 @@ class DownloadStore {
 
   bool isDownloaded(Volume volume) => recordFor(volume) != null;
 
+  /// Every download record, keyed by `seriesOpdsId/fileName`.
+  Map<String, DownloadRecord> get allRecords => Map.unmodifiable(_records);
+
   /// Every download record belonging to a series.
   Iterable<DownloadRecord> recordsForSeries(int seriesId) {
     final prefix = '$seriesId/';
