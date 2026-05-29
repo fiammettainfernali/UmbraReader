@@ -107,8 +107,16 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   }
 
   Future<void> _loadVolumes() async {
+    // Show the cached volume list immediately if we have one, so downloaded
+    // books open instantly offline without waiting on a network timeout.
+    final cached = _libraryCache.volumesFor(widget.series.opdsId);
     setState(() {
-      _loadingVolumes = true;
+      if (cached != null && cached.isNotEmpty) {
+        _volumes = cached;
+        _loadingVolumes = false;
+      } else {
+        _loadingVolumes = true;
+      }
       _volumesError = null;
     });
     try {
@@ -122,18 +130,21 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
         _offline = false;
         _loadingVolumes = false;
       });
-    } on OpdsException catch (e) {
+    } on Exception catch (e) {
+      // Any failure — timeout, socket error, OPDS error — falls back to the
+      // cached list so offline reading keeps working. Only a series we've
+      // never fetched (no cache) shows an error.
       if (!mounted) return;
-      // Offline — fall back to the cached volume list so downloaded books
-      // can still be opened.
-      final cached = _libraryCache.volumesFor(widget.series.opdsId);
       setState(() {
         _loadingVolumes = false;
-        if (cached != null && cached.isNotEmpty) {
-          _volumes = cached;
+        if (_volumes != null && _volumes!.isNotEmpty) {
           _offline = true;
         } else {
-          _volumesError = e.message;
+          _volumesError = e is OpdsException
+              ? e.message
+              : 'Could not reach the server, and this series hasn\'t been '
+                    'opened online yet, so there\'s no offline copy of its '
+                    'volume list.';
         }
       });
     }
