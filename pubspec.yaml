@@ -54,10 +54,16 @@ dependencies:
 
   # Text-to-speech (read-aloud) — wraps iOS AVSpeechSynthesizer.
   flutter_tts: ^4.2.0
-  share_plus: ^13.1.0
+  # Pinned to 12.x: share_plus 13 needs win32 ^6, which conflicts with
+  # file_picker's win32 ^5. The SharePlus.instance.share(ShareParams) API we
+  # use is identical across 12 and 13.
+  share_plus: ^12.0.2
 
   # Connection-type detection, so auto-download can be Wi-Fi-only.
   connectivity_plus: ^6.1.0
+
+  # Picking EPUB files from Files / iCloud Drive to import sideloaded books.
+  file_picker: ^8.1.4
 
 dev_dependencies:
   flutter_test:

@@ -21,6 +21,7 @@ import '../utils/volume_ordering.dart';
 import '../widgets/cached_cover.dart';
 import 'backup_screen.dart';
 import 'collections_screen.dart';
+import 'imported_books_screen.dart';
 import 'reader_screen.dart';
 import 'series_detail_screen.dart';
 import 'settings_screen.dart';
@@ -647,6 +648,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
+  Future<void> _openImported() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const ImportedBooksScreen()),
+    );
+    // An imported book may have gained reading progress.
+    await _loadReading();
+  }
+
   Future<void> _openStorage() async {
     final settings = _settings;
     if (settings == null) return;
@@ -858,6 +867,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         _openStats();
                       case 'storage':
                         _openStorage();
+                      case 'imported':
+                        _openImported();
                       case 'backup':
                         _openBackup();
                       case 'settings':
@@ -887,6 +898,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         contentPadding: EdgeInsets.zero,
                         leading: Icon(Icons.sd_storage_outlined),
                         title: Text('Manage storage'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'imported',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.upload_file_outlined),
+                        title: Text('Imported books'),
                       ),
                     ),
                     PopupMenuItem(
