@@ -4,11 +4,16 @@ import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/collection.dart';
+import 'cloud_sync_service.dart';
 
 /// Persists user-defined library shelves ("Favourites", "Save for later",
 /// etc.). Stored as a single JSON list in SharedPreferences.
 class CollectionStore {
   static const _key = 'collections';
+
+  /// Timestamp of the last local edit — drives whole-set last-write-wins when
+  /// merging the iCloud copy.
+  static const _modifiedKey = 'collections_modified_at';
   static final _rng = Random();
 
   /// All collections, ordered by creation time (oldest first).
@@ -104,5 +109,54 @@ class CollectionStore {
       _key,
       jsonEncode([for (final c in all) c.toJson()]),
     );
+    await prefs.setString(_modifiedKey, DateTime.now().toIso8601String());
+    CloudSyncService().pushCollections();
+  }
+
+  // ── iCloud sync (see CloudSyncService) ─────────────────────────────────
+
+  /// Serialises the whole collection set plus its last-modified time for the
+  /// cloud. Merging is whole-set last-write-wins, so the timestamp travels
+  /// with the data.
+  Future<String> exportSyncBlob() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_key);
+    final Object? collections;
+    try {
+      collections = raw == null || raw.isEmpty ? <dynamic>[] : jsonDecode(raw);
+    } on FormatException {
+      return jsonEncode({'modifiedAt': '', 'collections': <dynamic>[]});
+    }
+    return jsonEncode({
+      'modifiedAt': prefs.getString(_modifiedKey) ?? '',
+      'collections': collections,
+    });
+  }
+
+  /// Replaces the local collection set with the cloud copy when the cloud's
+  /// modified time is newer. Returns true if local data changed.
+  Future<bool> mergeSyncBlob(String blob) async {
+    if (blob.isEmpty) return false;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(blob);
+    } on FormatException {
+      return false;
+    }
+    if (decoded is! Map) return false;
+    final cloudModified = DateTime.tryParse(decoded['modifiedAt'] as String? ?? '');
+    if (cloudModified == null) return false;
+    final prefs = await SharedPreferences.getInstance();
+    final localModified = DateTime.tryParse(
+      prefs.getString(_modifiedKey) ?? '',
+    );
+    if (localModified != null && !cloudModified.isAfter(localModified)) {
+      return false;
+    }
+    final collections = decoded['collections'];
+    if (collections is! List) return false;
+    await prefs.setString(_key, jsonEncode(collections));
+    await prefs.setString(_modifiedKey, cloudModified.toIso8601String());
+    return true;
   }
 }

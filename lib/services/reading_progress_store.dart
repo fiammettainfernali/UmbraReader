@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/volume.dart';
+import 'cloud_sync_service.dart';
 
 /// A saved reading position within a volume.
 class ReadingProgress {
@@ -81,6 +82,7 @@ class ReadingProgressStore {
     await prefs.setInt('$_countPrefix$key', progress.chapterCount);
     await prefs.setString('$_timePrefix$key', DateTime.now().toIso8601String());
     await prefs.setString('$_volumePrefix$key', jsonEncode(volume.toJson()));
+    CloudSyncService().pushReadingProgressSoon();
   }
 
   /// Forgets the saved position for [volume] so it reopens from the start.
@@ -92,6 +94,7 @@ class ReadingProgressStore {
     await prefs.remove('$_countPrefix$key');
     await prefs.remove('$_timePrefix$key');
     await prefs.remove('$_volumePrefix$key');
+    CloudSyncService().pushReadingProgress();
   }
 
   /// Every volume with a saved position, newest first. Legacy entries saved
@@ -136,5 +139,71 @@ class ReadingProgressStore {
       return bt.compareTo(at);
     });
     return entries;
+  }
+
+  // ── iCloud sync (see CloudSyncService) ─────────────────────────────────
+
+  /// Serialises every saved position to a JSON blob for the cloud, keyed by
+  /// the same `seriesId/fileName` used locally, carrying each entry's
+  /// `updatedAt` so the other device can resolve conflicts by recency.
+  Future<String> exportSyncBlob() async {
+    final entries = await allEntries();
+    final map = <String, dynamic>{
+      for (final e in entries)
+        _key(e.volume): {
+          'chapterIndex': e.progress.chapterIndex,
+          'blockIndex': e.progress.blockIndex,
+          'chapterCount': e.progress.chapterCount,
+          'updatedAt': e.progress.updatedAt?.toIso8601String(),
+          'volume': e.volume.toJson(),
+        },
+    };
+    return jsonEncode(map);
+  }
+
+  /// Merges a cloud blob into local storage, last-write-wins per volume by
+  /// `updatedAt`. Returns true if any local entry was created or updated.
+  /// Writes raw keys directly (not via [save]) so the merged entry keeps the
+  /// cloud timestamp instead of stamping "now".
+  Future<bool> mergeSyncBlob(String blob) async {
+    if (blob.isEmpty) return false;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(blob);
+    } on FormatException {
+      return false;
+    }
+    if (decoded is! Map) return false;
+    final prefs = await SharedPreferences.getInstance();
+    var changed = false;
+    for (final entry in decoded.entries) {
+      final key = entry.key;
+      final value = entry.value;
+      if (key is! String || value is! Map) continue;
+      final cloudUpdated = DateTime.tryParse(value['updatedAt'] as String? ?? '');
+      if (cloudUpdated == null) continue;
+      final localUpdated = DateTime.tryParse(
+        prefs.getString('$_timePrefix$key') ?? '',
+      );
+      if (localUpdated != null && !cloudUpdated.isAfter(localUpdated)) continue;
+      final volume = value['volume'];
+      if (volume is! Map) continue;
+      await prefs.setInt(
+        '$_chapterPrefix$key',
+        (value['chapterIndex'] as num?)?.toInt() ?? 0,
+      );
+      await prefs.setInt(
+        '$_blockPrefix$key',
+        (value['blockIndex'] as num?)?.toInt() ?? 0,
+      );
+      await prefs.setInt(
+        '$_countPrefix$key',
+        (value['chapterCount'] as num?)?.toInt() ?? 0,
+      );
+      await prefs.setString('$_timePrefix$key', cloudUpdated.toIso8601String());
+      await prefs.setString('$_volumePrefix$key', jsonEncode(volume));
+      changed = true;
+    }
+    return changed;
   }
 }

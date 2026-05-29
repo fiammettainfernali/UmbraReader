@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'cloud_sync_service.dart';
+
 /// What kind of "no thanks" the user has given a series — fed into the
 /// recommendation engine as a negative signal.
 enum RecommendationFeedback {
@@ -75,5 +77,59 @@ class RecommendationFeedbackStore {
       for (final entry in feedback.entries) '${entry.key}': entry.value.name,
     };
     await prefs.setString(_key, jsonEncode(encoded));
+    CloudSyncService().pushRecFeedback();
+  }
+
+  // ── iCloud sync (see CloudSyncService) ─────────────────────────────────
+
+  /// The feedback map as a JSON blob for the cloud.
+  Future<String> exportSyncBlob() async {
+    final current = await load();
+    return jsonEncode(<String, String>{
+      for (final entry in current.entries) '${entry.key}': entry.value.name,
+    });
+  }
+
+  /// Merges a cloud feedback blob into local, taking the stronger signal per
+  /// series (`reset` beats `dismissed`) and the union of all series. Returns
+  /// true if local data changed. Writes directly so the merge doesn't recurse
+  /// through [_write]'s push hook.
+  Future<bool> mergeSyncBlob(String blob) async {
+    if (blob.isEmpty) return false;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(blob);
+    } on FormatException {
+      return false;
+    }
+    if (decoded is! Map) return false;
+    final local = await load();
+    final merged = Map<int, RecommendationFeedback>.of(local);
+    var changed = false;
+    decoded.forEach((k, v) {
+      final id = int.tryParse(k.toString());
+      if (id == null) return;
+      final cloud = RecommendationFeedback.values
+          .where((e) => e.name == v?.toString())
+          .firstOrNull;
+      if (cloud == null) return;
+      final existing = merged[id];
+      // reset is the stronger signal; otherwise take whichever exists.
+      final winner = (existing == RecommendationFeedback.reset ||
+              cloud == RecommendationFeedback.reset)
+          ? RecommendationFeedback.reset
+          : cloud;
+      if (winner != existing) {
+        merged[id] = winner;
+        changed = true;
+      }
+    });
+    if (!changed) return false;
+    final prefs = await SharedPreferences.getInstance();
+    final encoded = <String, String>{
+      for (final entry in merged.entries) '${entry.key}': entry.value.name,
+    };
+    await prefs.setString(_key, jsonEncode(encoded));
+    return true;
   }
 }

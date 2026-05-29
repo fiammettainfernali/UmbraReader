@@ -11,6 +11,7 @@ import '../services/library_storage.dart';
 import '../services/opds_client.dart';
 import '../services/reading_progress_store.dart';
 import '../services/recommendation_engine.dart';
+import '../services/cloud_sync_service.dart';
 import '../services/recommendation_feedback_store.dart';
 import '../services/settings_service.dart';
 import '../widgets/cached_cover.dart';
@@ -127,11 +128,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    // Repaint the Continue Reading shelf / recommendations when an iCloud
+    // sync from another device merges new progress or feedback in.
+    CloudSyncService().onRemoteMerge = () {
+      if (mounted) _loadReading();
+    };
     _initialize();
   }
 
   @override
   void dispose() {
+    if (CloudSyncService().onRemoteMerge != null) {
+      CloudSyncService().onRemoteMerge = null;
+    }
     _searchController.dispose();
     _scrollController.dispose();
     super.dispose();

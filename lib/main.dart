@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'screens/library_screen.dart';
 import 'screens/onboarding_screen.dart';
+import 'services/cloud_sync_service.dart';
 import 'services/custom_theme_store.dart';
 import 'services/settings_service.dart';
 
@@ -10,6 +11,9 @@ Future<void> main() async {
   // Load user-defined reading themes into the in-memory registry so
   // readerThemeById can find them synchronously.
   await CustomThemeStore().initialize();
+  // Wire iCloud sync (reading progress / collections / rec feedback). The
+  // initial pull runs in the background; no-ops where iCloud is unavailable.
+  await CloudSyncService().initialize();
   runApp(const UmbraReaderApp());
 }
 
