@@ -360,55 +360,94 @@ class _GoalRow extends StatelessWidget {
   }
 }
 
-/// A compact 30-cell horizontal bar where each cell is a day, colored by
-/// how much was read that day. Today is the rightmost cell.
-class _Heatmap extends StatelessWidget {
-  const _Heatmap({required this.dailySeconds});
+/// A GitHub-style contribution calendar: one column per week, seven rows
+/// (Mon–Sun), each cell shaded by how much was read that day. Shows the most
+/// recent [_weeks] weeks, with today in the last column.
+class _CalendarHeatmap extends StatelessWidget {
+  const _CalendarHeatmap({required this.dailySeconds});
 
   final Map<String, int> dailySeconds;
+
+  static const int _weeks = 13;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final today = DateTime.now();
-    final days = <(String, int)>[
-      for (var i = 29; i >= 0; i--)
-        () {
-          final d = today.subtract(Duration(days: i));
-          final key = _dateKey(d);
-          return (key, dailySeconds[key] ?? 0);
-        }(),
-    ];
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    // Start of the current week (Monday = weekday 1).
+    final startOfThisWeek = today.subtract(Duration(days: today.weekday - 1));
+    final firstColumn = startOfThisWeek.subtract(
+      Duration(days: (_weeks - 1) * 7),
+    );
+
     var maxSec = 0;
-    for (final (_, s) in days) {
+    for (final s in dailySeconds.values) {
       if (s > maxSec) maxSec = s;
     }
     final empty = theme.colorScheme.surfaceContainerHighest;
     final accent = theme.colorScheme.primary;
-    return SizedBox(
-      height: 28,
-      child: Row(
-        children: [
-          for (final (_, seconds) in days)
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 1.5),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: seconds == 0
-                        ? empty
-                        : accent.withValues(
-                            alpha: maxSec == 0
-                                ? 0.4
-                                : (seconds / maxSec).clamp(0.2, 1.0),
-                          ),
-                    borderRadius: BorderRadius.circular(3),
+
+    Color cellColor(DateTime day) {
+      if (day.isAfter(today)) return Colors.transparent;
+      final seconds = dailySeconds[_dateKey(day)] ?? 0;
+      if (seconds == 0) return empty;
+      final intensity = maxSec == 0 ? 0.4 : (seconds / maxSec).clamp(0.25, 1.0);
+      return accent.withValues(alpha: intensity);
+    }
+
+    const labels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Weekday labels down the left.
+        Column(
+          children: [
+            for (final l in labels)
+              SizedBox(
+                height: 18,
+                child: Center(
+                  child: Text(
+                    l,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                      fontSize: 9,
+                    ),
                   ),
                 ),
               ),
-            ),
-        ],
-      ),
+          ],
+        ),
+        const SizedBox(width: 4),
+        Expanded(
+          child: Row(
+            children: [
+              for (var w = 0; w < _weeks; w++)
+                Expanded(
+                  child: Column(
+                    children: [
+                      for (var d = 0; d < 7; d++)
+                        Padding(
+                          padding: const EdgeInsets.all(1.5),
+                          child: AspectRatio(
+                            aspectRatio: 1,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: cellColor(
+                                  firstColumn.add(Duration(days: w * 7 + d)),
+                                ),
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
