@@ -198,7 +198,7 @@ class _StatsScreenState extends State<StatsScreen> {
               child: _StatCard(
                 icon: Icons.local_fire_department_outlined,
                 value: streak == 0 ? '—' : '$streak',
-                label: streak == 1 ? 'day streak' : 'day streak',
+                label: streak == 1 ? 'day streak' : 'days streak',
               ),
             ),
           ],
@@ -211,16 +211,19 @@ class _StatsScreenState extends State<StatsScreen> {
         ),
         const SizedBox(height: 24),
         Text(
-          'Last 30 days',
+          'Reading activity',
           style: theme.textTheme.titleSmall?.copyWith(
             fontWeight: FontWeight.w600,
           ),
         ),
         const SizedBox(height: 8),
-        _Heatmap(dailySeconds: _activity.dailySeconds),
-        const SizedBox(height: 6),
+        _CalendarHeatmap(dailySeconds: _activity.dailySeconds),
+        const SizedBox(height: 8),
         Text(
-          'This week: $weekTime',
+          'This week: $weekTime'
+          '${_activity.longestStreak() > 0 ? '  ·  Longest streak: '
+              '${_activity.longestStreak()} '
+              '${_activity.longestStreak() == 1 ? 'day' : 'days'}' : ''}',
           style: theme.textTheme.labelMedium?.copyWith(
             color: theme.colorScheme.outline,
           ),

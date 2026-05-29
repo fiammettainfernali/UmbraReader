@@ -54,6 +54,30 @@ class ReadingActivity {
     }
     return streak;
   }
+
+  /// The longest run of consecutive days with any reading, across all
+  /// history.
+  int longestStreak() {
+    final dates = <DateTime>[];
+    for (final entry in dailySeconds.entries) {
+      if (entry.value <= 0) continue;
+      final d = DateTime.tryParse(entry.key);
+      if (d != null) dates.add(DateTime(d.year, d.month, d.day));
+    }
+    if (dates.isEmpty) return 0;
+    dates.sort();
+    var longest = 1;
+    var run = 1;
+    for (var i = 1; i < dates.length; i++) {
+      if (dates[i].difference(dates[i - 1]).inDays == 1) {
+        run++;
+        if (run > longest) longest = run;
+      } else {
+        run = 1;
+      }
+    }
+    return longest;
+  }
 }
 
 /// Persists reading-time activity across app launches.
