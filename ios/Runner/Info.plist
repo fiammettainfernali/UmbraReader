@@ -30,6 +30,13 @@
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Umbra Reader connects to your Novel Grabber library on your local network to sync and download your books.</string>
+	<!-- The file-import picker bundles photo-library and camera APIs that
+	     Apple requires purpose strings for, even though Umbra Reader only
+	     ever opens the document picker and never invokes either. -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Umbra Reader does not access your photo library. This permission is required by the file-import component but is never used.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Umbra Reader does not use the camera. This permission is required by the file-import component but is never used.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- Novel Grabber's OPDS server runs over plain HTTP on the LAN.
