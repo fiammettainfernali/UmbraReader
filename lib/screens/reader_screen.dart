@@ -19,6 +19,7 @@ import '../services/reader_preferences.dart';
 import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
 import '../services/tts_service.dart';
+import '../utils/volume_ordering.dart';
 import '../widgets/reader_settings_sheet.dart';
 import 'highlights_screen.dart';
 
@@ -618,11 +619,14 @@ class _ReaderScreenState extends State<ReaderScreen>
   Future<void> _maybeShowEndOfVolumePrompt() async {
     final cache = LibraryCache(LibraryStorage());
     await cache.load();
-    final volumes = cache.volumesFor(widget.volume.seriesOpdsId);
-    if (volumes == null || volumes.isEmpty) return;
+    final cached = cache.volumesFor(widget.volume.seriesOpdsId);
+    if (cached == null || cached.isEmpty) return;
+    final volumes = volumesInReadingOrder(cached);
     final currentIdx = volumes.indexWhere(
       (v) => v.fileName == widget.volume.fileName,
     );
+    // No match, or this is the latest volume in reading order → nothing to
+    // advance to, so stay put silently.
     if (currentIdx < 0 || currentIdx >= volumes.length - 1) return;
     final next = volumes[currentIdx + 1];
     final downloaded = await LibraryStorage().epubFile(next).then(
