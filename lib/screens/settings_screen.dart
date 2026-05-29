@@ -22,12 +22,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _testing = false;
   bool _obscurePassword = true;
 
+  bool _autoDownload = true;
+  bool _autoDownloadWifiOnly = true;
+
   @override
   void initState() {
     super.initState();
     _urlController = TextEditingController(text: widget.initial.baseUrl);
     _usernameController = TextEditingController(text: widget.initial.username);
     _passwordController = TextEditingController(text: widget.initial.password);
+    _loadDownloadPrefs();
+  }
+
+  Future<void> _loadDownloadPrefs() async {
+    final auto = await _settingsService.autoDownloadNext();
+    final wifi = await _settingsService.autoDownloadWifiOnly();
+    if (!mounted) return;
+    setState(() {
+      _autoDownload = auto;
+      _autoDownloadWifiOnly = wifi;
+    });
   }
 
   @override
@@ -160,6 +174,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   )
                 : const Icon(Icons.wifi_tethering),
             label: Text(_testing ? 'Testing…' : 'Test connection'),
+          ),
+          const SizedBox(height: 28),
+          const Divider(),
+          const SizedBox(height: 12),
+          Text(
+            'Downloads',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Auto-download next volume'),
+            subtitle: const Text(
+              'Keep the next volume of books you\'re reading ready offline, '
+              'so it\'s already there when you finish one.',
+            ),
+            value: _autoDownload,
+            onChanged: (value) {
+              setState(() => _autoDownload = value);
+              _settingsService.setAutoDownloadNext(value);
+            },
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Wi-Fi only'),
+            subtitle: const Text(
+              'Only auto-download on Wi-Fi, never on cellular data.',
+            ),
+            value: _autoDownloadWifiOnly,
+            onChanged: _autoDownload
+                ? (value) {
+                    setState(() => _autoDownloadWifiOnly = value);
+                    _settingsService.setAutoDownloadWifiOnly(value);
+                  }
+                : null,
           ),
         ],
       ),

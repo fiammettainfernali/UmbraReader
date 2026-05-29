@@ -11,6 +11,7 @@ import '../services/opds_client.dart';
 import '../services/reading_progress_store.dart';
 import '../services/recommendation_engine.dart';
 import '../services/recommendation_feedback_store.dart';
+import '../services/series_status_store.dart';
 import '../services/settings_service.dart';
 import '../widgets/add_to_collection_sheet.dart';
 import '../widgets/cached_cover.dart';
@@ -58,6 +59,10 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   /// series' genres, author, length and description keywords.
   List<Recommendation> _similar = const [];
 
+  /// The user's manual reading status for this series.
+  final _statusStore = SeriesStatusStore();
+  SeriesStatus _status = SeriesStatus.none;
+
   @override
   void initState() {
     super.initState();
@@ -77,6 +82,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
       allSeries: cache.series,
       feedback: feedback,
     );
+    final status = await _statusStore.statusFor(widget.series.opdsId);
     setState(() {
       _store = store;
       _libraryCache = cache;
@@ -86,9 +92,17 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
         store: store,
       );
       _similar = similar;
+      _status = status;
       _ready = true;
     });
     await _loadVolumes();
+  }
+
+  Future<void> _setStatus(SeriesStatus status) async {
+    // Tapping the active status again clears it (back to inferred).
+    final next = status == _status ? SeriesStatus.none : status;
+    setState(() => _status = next);
+    await _statusStore.setStatus(widget.series.opdsId, next);
   }
 
   Future<void> _loadVolumes() async {
@@ -365,6 +379,29 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
                   setState(() => _descriptionExpanded = !_descriptionExpanded),
             ),
           ],
+          const SizedBox(height: 20),
+          Text(
+            'My status',
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: Theme.of(context).colorScheme.outline,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: [
+              for (final status in const [
+                SeriesStatus.reading,
+                SeriesStatus.caughtUp,
+                SeriesStatus.dropped,
+              ])
+                ChoiceChip(
+                  label: Text(status.label),
+                  selected: _status == status,
+                  onSelected: (_) => _setStatus(status),
+                ),
+            ],
+          ),
           const SizedBox(height: 24),
           const Divider(),
           const SizedBox(height: 8),

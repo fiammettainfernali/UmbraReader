@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:math';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 
 import '../models/download_record.dart';
@@ -13,7 +15,9 @@ import '../services/reading_progress_store.dart';
 import '../services/recommendation_engine.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/recommendation_feedback_store.dart';
+import '../services/series_status_store.dart';
 import '../services/settings_service.dart';
+import '../utils/volume_ordering.dart';
 import '../widgets/cached_cover.dart';
 import 'backup_screen.dart';
 import 'collections_screen.dart';
@@ -41,7 +45,8 @@ enum ReadingStateFilter {
   any('All'),
   inProgress('Reading'),
   unread('Unread'),
-  finished('Finished');
+  finished('Finished'),
+  dropped('Dropped');
 
   const ReadingStateFilter(this.label);
 
@@ -270,6 +275,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
       // Recompute "Continue reading" + recommendations against the fresh
       // series list (its updatedAt advances after a recompile, etc.).
       await _loadReading();
+      // Pull the next volume of in-progress series in the background so it's
+      // ready offline when the reader finishes the current one.
+      unawaited(_autoDownloadNextVolumes());
     } on OpdsException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -282,6 +290,72 @@ class _LibraryScreenState extends State<LibraryScreen> {
           _error = e.message;
         }
       });
+    }
+  }
+
+  /// Best-effort background fetch of the next volume for each in-progress
+  /// series, so finishing one rolls straight into the next without a manual
+  /// download. Bounded to one volume per series per sync, gated by the
+  /// auto-download setting and (optionally) Wi-Fi.
+  Future<void> _autoDownloadNextVolumes() async {
+    final settings = _settings;
+    final downloads = _downloads;
+    if (settings == null || !settings.isConfigured || downloads == null) return;
+    if (!await _settingsService.autoDownloadNext()) return;
+    if (await _settingsService.autoDownloadWifiOnly() && !await _onWifi()) {
+      return;
+    }
+
+    // Most-recently-read entry per started series (so the just-finished
+    // volume's successor is the one we pull).
+    final perSeries = <int, ReadingEntry>{};
+    for (final e in _allReadingEntries) {
+      if (!e.progress.isStarted) continue;
+      final existing = perSeries[e.volume.seriesOpdsId];
+      final et = e.progress.updatedAt;
+      final xt = existing?.progress.updatedAt;
+      if (existing == null || (et != null && (xt == null || et.isAfter(xt)))) {
+        perSeries[e.volume.seriesOpdsId] = e;
+      }
+    }
+    if (perSeries.isEmpty) return;
+
+    final client = OpdsClient(settings);
+    final service = DownloadService(
+      settings: settings,
+      storage: LibraryStorage(),
+      store: downloads,
+    );
+    var pulled = false;
+    for (final entry in perSeries.values) {
+      try {
+        final volumes = volumesInReadingOrder(
+          await client.fetchVolumes(entry.volume.seriesOpdsId),
+        );
+        final idx = volumes.indexWhere(
+          (v) => v.fileName == entry.volume.fileName,
+        );
+        if (idx < 0 || idx >= volumes.length - 1) continue;
+        final next = volumes[idx + 1];
+        if (downloads.isDownloaded(next)) continue;
+        await service.download(next, onProgress: (_) {});
+        pulled = true;
+      } on Exception {
+        // Best-effort per series — a failure here never blocks the library.
+      }
+    }
+    if (pulled && mounted) await _loadDownloads();
+  }
+
+  /// True on Wi-Fi or ethernet. On any error we report false so auto-download
+  /// errs toward *not* spending cellular data.
+  Future<bool> _onWifi() async {
+    try {
+      final result = await Connectivity().checkConnectivity();
+      return result.contains(ConnectivityResult.wifi) ||
+          result.contains(ConnectivityResult.ethernet);
+    } on Exception {
+      return false;
     }
   }
 

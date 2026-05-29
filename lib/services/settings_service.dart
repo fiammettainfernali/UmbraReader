@@ -60,6 +60,9 @@ class SettingsService {
   static const _kPassword = 'opds_password';
   static const _kOnboardingDone = 'onboarding_done';
   static const _kDailyGoal = 'daily_minute_goal';
+  static const _kAutoDownloadNext = 'auto_download_next';
+  static const _kAutoDownloadWifiOnly = 'auto_download_wifi_only';
+  static const _kAutoDeleteFinished = 'auto_delete_finished';
 
   Future<OpdsSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -102,5 +105,41 @@ class SettingsService {
     } else {
       await prefs.setInt(_kDailyGoal, minutes);
     }
+  }
+
+  /// When true, finishing a volume (or syncing) pulls the next volume of an
+  /// in-progress series so it's ready offline. Default on.
+  Future<bool> autoDownloadNext() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kAutoDownloadNext) ?? true;
+  }
+
+  Future<void> setAutoDownloadNext(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kAutoDownloadNext, value);
+  }
+
+  /// When true, auto-download only runs on Wi-Fi/ethernet, never cellular.
+  /// Default on.
+  Future<bool> autoDownloadWifiOnly() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kAutoDownloadWifiOnly) ?? true;
+  }
+
+  Future<void> setAutoDownloadWifiOnly(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kAutoDownloadWifiOnly, value);
+  }
+
+  /// When true, a volume's downloaded EPUB is removed once it's been finished
+  /// and the reader has moved on to a later volume. Default OFF — opt-in.
+  Future<bool> autoDeleteFinished() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kAutoDeleteFinished) ?? false;
+  }
+
+  Future<void> setAutoDeleteFinished(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kAutoDeleteFinished, value);
   }
 }
