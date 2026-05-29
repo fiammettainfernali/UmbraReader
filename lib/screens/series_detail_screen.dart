@@ -13,6 +13,7 @@ import '../services/recommendation_engine.dart';
 import '../services/recommendation_feedback_store.dart';
 import '../services/series_status_store.dart';
 import '../services/settings_service.dart';
+import '../utils/volume_ordering.dart';
 import '../widgets/add_to_collection_sheet.dart';
 import '../widgets/cached_cover.dart';
 import 'filtered_series_screen.dart';
@@ -106,13 +107,42 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     await _statusStore.setStatus(widget.series.opdsId, next);
   }
 
+  /// A volume list reconstructed from what's actually downloaded on disk —
+  /// the offline safety net. Works even for a series whose OPDS volume list
+  /// was never cached (e.g. pulled by "Download whole library" or the
+  /// auto-download pass). Sorted into reading order.
+  List<Volume> _volumesFromDownloads() {
+    final volumes = [
+      for (final r in _store.recordsForSeries(widget.series.opdsId))
+        Volume(
+          seriesOpdsId: widget.series.opdsId,
+          title: _titleFromFileName(r.fileName),
+          fileName: r.fileName,
+          downloadUrl: '',
+          fileSizeBytes: r.sizeBytes,
+          updatedAt: r.volumeUpdatedAt,
+        ),
+    ];
+    return volumesInReadingOrder(volumes);
+  }
+
+  String _titleFromFileName(String name) {
+    final dot = name.toLowerCase().lastIndexOf('.epub');
+    final stem = dot > 0 ? name.substring(0, dot) : name;
+    return stem.trim().isEmpty ? name : stem.trim();
+  }
+
   Future<void> _loadVolumes() async {
-    // Show the cached volume list immediately if we have one, so downloaded
-    // books open instantly offline without waiting on a network timeout.
+    // Show a volume list immediately, before any network call, so downloaded
+    // books open instantly offline. Prefer the richer cached OPDS list;
+    // otherwise reconstruct one from the EPUBs on disk.
     final cached = _libraryCache.volumesFor(widget.series.opdsId);
+    final initial = (cached != null && cached.isNotEmpty)
+        ? cached
+        : _volumesFromDownloads();
     setState(() {
-      if (cached != null && cached.isNotEmpty) {
-        _volumes = cached;
+      if (initial.isNotEmpty) {
+        _volumes = initial;
         _loadingVolumes = false;
       } else {
         _loadingVolumes = true;
@@ -131,9 +161,8 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
         _loadingVolumes = false;
       });
     } on Exception catch (e) {
-      // Any failure — timeout, socket error, OPDS error — falls back to the
-      // cached list so offline reading keeps working. Only a series we've
-      // never fetched (no cache) shows an error.
+      // Any failure — timeout, socket error, OPDS error — keeps whatever list
+      // we already showed (cached or disk-derived) so offline reading works.
       if (!mounted) return;
       setState(() {
         _loadingVolumes = false;
@@ -142,9 +171,8 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
         } else {
           _volumesError = e is OpdsException
               ? e.message
-              : 'Could not reach the server, and this series hasn\'t been '
-                    'opened online yet, so there\'s no offline copy of its '
-                    'volume list.';
+              : 'Could not reach the server, and nothing is downloaded for '
+                    'this series yet, so there\'s nothing to read offline.';
         }
       });
     }

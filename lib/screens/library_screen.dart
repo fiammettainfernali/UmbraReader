@@ -392,9 +392,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
     var pulled = false;
     for (final entry in perSeries.values) {
       try {
-        final volumes = volumesInReadingOrder(
-          await client.fetchVolumes(entry.volume.seriesOpdsId),
-        );
+        final fetched = await client.fetchVolumes(entry.volume.seriesOpdsId);
+        // Cache the list so the series opens (and reads) offline later.
+        await _cache?.saveVolumes(entry.volume.seriesOpdsId, fetched);
+        final volumes = volumesInReadingOrder(fetched);
         final idx = volumes.indexWhere(
           (v) => v.fileName == entry.volume.fileName,
         );
@@ -761,6 +762,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       setState(() => _bulkCurrent = series.title);
       try {
         final volumes = await opds.fetchVolumes(series.opdsId);
+        // Cache the list so each series opens (and reads) offline later.
+        await _cache?.saveVolumes(series.opdsId, volumes);
         for (final volume in volumes) {
           if (_needsDownload(volume, store.recordFor(volume))) {
             pending.add(volume);
