@@ -1607,15 +1607,35 @@ class _ReaderScreenState extends State<ReaderScreen>
                       itemBuilder: (context, index) {
                         final chapter = book.chapters[index];
                         final current = index == _chapterIndex;
+                        // Chapters before the current position count as read.
+                        final read = index < _chapterIndex;
+                        final scheme = Theme.of(context).colorScheme;
+                        final Widget leading;
+                        if (current) {
+                          leading = Icon(Icons.play_arrow, color: scheme.primary);
+                        } else if (read) {
+                          leading = Icon(
+                            Icons.check_circle,
+                            size: 20,
+                            color: scheme.primary.withValues(alpha: 0.55),
+                          );
+                        } else {
+                          leading = Icon(
+                            Icons.circle_outlined,
+                            size: 20,
+                            color: scheme.outlineVariant,
+                          );
+                        }
                         return ListTile(
                           selected: current,
-                          leading: current
-                              ? const Icon(Icons.play_arrow)
-                              : const SizedBox(width: 24),
+                          leading: leading,
                           title: Text(
                             chapter.title,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
+                            style: read && !current
+                                ? TextStyle(color: scheme.outline)
+                                : null,
                           ),
                           onTap: () {
                             Navigator.of(context).pop();

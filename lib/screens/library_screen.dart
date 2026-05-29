@@ -103,6 +103,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// shelf.
   List<ReadingEntry> _allReadingEntries = const [];
 
+  /// Manual per-series reading status set by the user; overrides the status
+  /// inferred from progress in the filter chips.
+  Map<int, SeriesStatus> _seriesStatus = const {};
+
   /// Books that have been started but not finished, newest first.
   List<ReadingEntry> _reading = const [];
 
@@ -193,6 +197,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Future<void> _loadReading() async {
     final entries = await ReadingProgressStore().allEntries();
     final feedback = await RecommendationFeedbackStore().load();
+    final status = await SeriesStatusStore().load();
     final inProgress = entries
         .where((e) => e.progress.isStarted && !e.progress.isFinished)
         .take(12)
@@ -205,6 +210,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (!mounted) return;
     setState(() {
       _allReadingEntries = entries;
+      _seriesStatus = status;
       _reading = inProgress;
       _recommendations = recs;
       _recommendOffset = 0;
@@ -428,23 +434,42 @@ class _LibraryScreenState extends State<LibraryScreen> {
       )) {
         continue;
       }
-      switch (_readingState) {
-        case ReadingStateFilter.any:
-          break;
-        case ReadingStateFilter.inProgress:
-          if (!readState.inProgress.contains(series.opdsId)) continue;
-        case ReadingStateFilter.finished:
-          if (!readState.finished.contains(series.opdsId)) continue;
-        case ReadingStateFilter.unread:
-          if (readState.inProgress.contains(series.opdsId) ||
-              readState.finished.contains(series.opdsId)) {
-            continue;
-          }
+      if (_readingState != ReadingStateFilter.any &&
+          _resolvedState(series, readState) != _readingState) {
+        continue;
       }
       filtered.add(series);
     }
     filtered.sort(_comparatorFor(_sort, readState.lastReadAt));
     return filtered;
+  }
+
+  /// Resolves a series to a single reading state for the filter chips. A
+  /// manual [SeriesStatus] (set on the detail screen) wins; otherwise the
+  /// state is inferred from reading progress.
+  ReadingStateFilter _resolvedState(
+    Series series,
+    ({Set<int> inProgress, Set<int> finished, Map<int, DateTime> lastReadAt})
+        readState,
+  ) {
+    switch (_seriesStatus[series.opdsId]) {
+      case SeriesStatus.dropped:
+        return ReadingStateFilter.dropped;
+      case SeriesStatus.caughtUp:
+        return ReadingStateFilter.finished;
+      case SeriesStatus.reading:
+        return ReadingStateFilter.inProgress;
+      case SeriesStatus.none:
+      case null:
+        break;
+    }
+    if (readState.finished.contains(series.opdsId)) {
+      return ReadingStateFilter.finished;
+    }
+    if (readState.inProgress.contains(series.opdsId)) {
+      return ReadingStateFilter.inProgress;
+    }
+    return ReadingStateFilter.unread;
   }
 
   /// Every distinct genre tag present across the library — used to build the
