@@ -24,6 +24,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   bool _autoDownload = true;
   bool _autoDownloadWifiOnly = true;
+  bool _autoDeleteFinished = false;
 
   @override
   void initState() {
@@ -37,10 +38,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadDownloadPrefs() async {
     final auto = await _settingsService.autoDownloadNext();
     final wifi = await _settingsService.autoDownloadWifiOnly();
+    final autoDelete = await _settingsService.autoDeleteFinished();
     if (!mounted) return;
     setState(() {
       _autoDownload = auto;
       _autoDownloadWifiOnly = wifi;
+      _autoDeleteFinished = autoDelete;
     });
   }
 
@@ -208,6 +211,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     _settingsService.setAutoDownloadWifiOnly(value);
                   }
                 : null,
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Auto-delete finished volumes'),
+            subtitle: const Text(
+              'Once you finish a volume and move on to a later one in the '
+              'same series, remove its download to save space. Your reading '
+              'history is kept, and you can re-download anytime.',
+            ),
+            value: _autoDeleteFinished,
+            onChanged: (value) {
+              setState(() => _autoDeleteFinished = value);
+              _settingsService.setAutoDeleteFinished(value);
+            },
           ),
         ],
       ),

@@ -281,9 +281,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
       // Recompute "Continue reading" + recommendations against the fresh
       // series list (its updatedAt advances after a recompile, etc.).
       await _loadReading();
-      // Pull the next volume of in-progress series in the background so it's
-      // ready offline when the reader finishes the current one.
-      unawaited(_autoDownloadNextVolumes());
+      // Background library upkeep: pull the next volume of in-progress
+      // series, then (if enabled) delete finished volumes we've moved past.
+      unawaited(_runLibraryMaintenance());
     } on OpdsException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -297,6 +297,61 @@ class _LibraryScreenState extends State<LibraryScreen> {
         }
       });
     }
+  }
+
+  /// Runs the background download + cleanup passes in order (download first
+  /// so a freshly-pulled next volume is never a delete candidate).
+  Future<void> _runLibraryMaintenance() async {
+    await _autoDownloadNextVolumes();
+    await _autoDeleteFinishedVolumes();
+  }
+
+  /// When enabled, removes the downloaded EPUB of any volume the reader has
+  /// finished *and* moved past (a later volume in the same series has been
+  /// started). Reading progress/history is left intact, so the volume still
+  /// shows as finished and can be re-downloaded. Uses only local data — no
+  /// network — keying volume order off the volume number.
+  Future<void> _autoDeleteFinishedVolumes() async {
+    if (!await _settingsService.autoDeleteFinished()) return;
+    final settings = _settings;
+    final downloads = _downloads;
+    if (settings == null || downloads == null) return;
+
+    final bySeries = <int, List<ReadingEntry>>{};
+    for (final e in _allReadingEntries) {
+      bySeries.putIfAbsent(e.volume.seriesOpdsId, () => []).add(e);
+    }
+    final service = DownloadService(
+      settings: settings,
+      storage: LibraryStorage(),
+      store: downloads,
+    );
+    var changed = false;
+    for (final entries in bySeries.values) {
+      // Highest volume number the reader has actually started in this series.
+      int? maxStarted;
+      for (final e in entries) {
+        if (!e.progress.isStarted) continue;
+        final n = volumeNumber(e.volume);
+        if (n != null && (maxStarted == null || n > maxStarted)) {
+          maxStarted = n;
+        }
+      }
+      if (maxStarted == null) continue;
+      for (final e in entries) {
+        final n = volumeNumber(e.volume);
+        if (n == null || n >= maxStarted) continue;
+        if (!e.progress.isFinished) continue;
+        if (!downloads.isDownloaded(e.volume)) continue;
+        try {
+          await service.delete(e.volume);
+          changed = true;
+        } on Exception {
+          // Best-effort.
+        }
+      }
+    }
+    if (changed && mounted) await _loadDownloads();
   }
 
   /// Best-effort background fetch of the next volume for each in-progress
