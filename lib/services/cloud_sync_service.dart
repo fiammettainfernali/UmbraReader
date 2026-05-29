@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
+import 'bookmark_store.dart';
 import 'collection_store.dart';
+import 'reader_preferences.dart';
 import 'reading_progress_store.dart';
 import 'recommendation_feedback_store.dart';
 
@@ -28,6 +30,8 @@ class CloudSyncService {
   static const _kProgress = 'cloud_reading_progress';
   static const _kCollections = 'cloud_collections';
   static const _kRecFeedback = 'cloud_rec_feedback';
+  static const _kBookmarks = 'cloud_bookmarks';
+  static const _kReaderSettings = 'cloud_reader_settings';
 
   /// True while a cloud→local merge is in flight, so the store-write hooks
   /// don't bounce the just-merged data straight back up to the cloud.
@@ -100,6 +104,16 @@ class CloudSyncService {
     _set(_kRecFeedback, await RecommendationFeedbackStore().exportSyncBlob());
   }
 
+  Future<void> pushBookmarks() async {
+    if (_merging) return;
+    _set(_kBookmarks, await BookmarkStore().exportSyncBlob());
+  }
+
+  Future<void> pushReaderSettings() async {
+    if (_merging) return;
+    _set(_kReaderSettings, await ReaderPreferences().exportSyncBlob());
+  }
+
   // ── pull + merge: cloud → local ────────────────────────────────────────
 
   Future<void> pullAndMerge() async {
@@ -121,6 +135,16 @@ class CloudSyncService {
           await RecommendationFeedbackStore().mergeSyncBlob(rec)) {
         changed = true;
       }
+      final bookmarks = await _get(_kBookmarks);
+      if (bookmarks != null &&
+          await BookmarkStore().mergeSyncBlob(bookmarks)) {
+        changed = true;
+      }
+      final readerSettings = await _get(_kReaderSettings);
+      if (readerSettings != null &&
+          await ReaderPreferences().mergeSyncBlob(readerSettings)) {
+        changed = true;
+      }
     } finally {
       _merging = false;
     }
@@ -131,6 +155,8 @@ class CloudSyncService {
       await pushReadingProgress();
       await pushCollections();
       await pushRecFeedback();
+      await pushBookmarks();
+      await pushReaderSettings();
       onRemoteMerge?.call();
     }
   }

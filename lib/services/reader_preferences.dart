@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/reader_settings.dart';
 import '../models/volume.dart';
+import 'cloud_sync_service.dart';
 
 /// Loads and saves the reader's [ReaderSettings] via [SharedPreferences].
 ///
@@ -30,6 +33,17 @@ class ReaderPreferences {
 
   /// Marker key telling us a per-volume override has been opted into.
   static const _kOverrideMarker = 'reader_override_marker';
+
+  /// When the global reader settings were last changed — drives whole-set
+  /// last-write-wins when merging the iCloud copy.
+  static const _kGlobalModified = 'reader_settings_modified';
+
+  /// The global setting keys, in the order they serialise for sync.
+  static const _globalKeys = [
+    _kMode, _kThemeId, _kFontFamily, _kFontSize, _kLineHeight, _kMargin,
+    _kSpeechRate, _kVoiceName, _kVoiceLocale, _kBoldText, _kItalicText,
+    _kBrightness, _kTextAlign, _kAutoScroll, _kOrientation, _kTvMode,
+  ];
 
   /// Per-volume keys are global keys prefixed with this + the volume's id
   /// (e.g. `book:42/Lord-of-the-Mysteries-Vol-03.epub/reader_font_size`).
@@ -92,6 +106,72 @@ class ReaderPreferences {
     await prefs.setBool('$p$_kAutoScroll', settings.autoScroll);
     await prefs.setString('$p$_kOrientation', settings.orientation.name);
     await prefs.setBool('$p$_kTvMode', settings.tvMode);
+    // Only global changes participate in iCloud sync; per-volume overrides
+    // stay on the device that set them.
+    if (p.isEmpty) {
+      await prefs.setString(
+        _kGlobalModified,
+        DateTime.now().toIso8601String(),
+      );
+      CloudSyncService().pushReaderSettings();
+    }
+  }
+
+  // ── iCloud sync (see CloudSyncService) ─────────────────────────────────
+
+  /// The global reader settings (and their last-modified time) as a JSON
+  /// blob. Per-volume overrides are intentionally excluded.
+  Future<String> exportSyncBlob() async {
+    final prefs = await SharedPreferences.getInstance();
+    final values = <String, dynamic>{};
+    for (final key in _globalKeys) {
+      final v = prefs.get(key);
+      if (v != null) values[key] = v;
+    }
+    return jsonEncode({
+      'modifiedAt': prefs.getString(_kGlobalModified) ?? '',
+      'values': values,
+    });
+  }
+
+  /// Overwrites the global reader settings with the cloud copy when its
+  /// modified time is newer. Returns true if local settings changed.
+  Future<bool> mergeSyncBlob(String blob) async {
+    if (blob.isEmpty) return false;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(blob);
+    } on FormatException {
+      return false;
+    }
+    if (decoded is! Map) return false;
+    final cloudModified =
+        DateTime.tryParse(decoded['modifiedAt'] as String? ?? '');
+    if (cloudModified == null) return false;
+    final prefs = await SharedPreferences.getInstance();
+    final localModified =
+        DateTime.tryParse(prefs.getString(_kGlobalModified) ?? '');
+    if (localModified != null && !cloudModified.isAfter(localModified)) {
+      return false;
+    }
+    final values = decoded['values'];
+    if (values is! Map) return false;
+    for (final key in _globalKeys) {
+      final v = values[key];
+      if (v is bool) {
+        await prefs.setBool(key, v);
+      } else if (v is int) {
+        await prefs.setInt(key, v);
+      } else if (v is double) {
+        await prefs.setDouble(key, v);
+      } else if (v is num) {
+        await prefs.setDouble(key, v.toDouble());
+      } else if (v is String) {
+        await prefs.setString(key, v);
+      }
+    }
+    await prefs.setString(_kGlobalModified, cloudModified.toIso8601String());
+    return true;
   }
 
   Future<bool> hasOverride(Volume volume) async {
