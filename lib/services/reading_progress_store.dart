@@ -61,6 +61,11 @@ class ReadingProgressStore {
   static const _timePrefix = 'reading_time:';
   static const _volumePrefix = 'reading_volume:';
 
+  /// Volume keys the user has hidden from the Continue Reading shelf. The
+  /// saved position is kept; the book just stops surfacing on the home shelf
+  /// until it's read again.
+  static const _hiddenKey = 'continue_hidden';
+
   String _key(Volume volume) => '${volume.seriesOpdsId}/${volume.fileName}';
 
   Future<ReadingProgress> load(Volume volume) async {
@@ -82,6 +87,11 @@ class ReadingProgressStore {
     await prefs.setInt('$_countPrefix$key', progress.chapterCount);
     await prefs.setString('$_timePrefix$key', DateTime.now().toIso8601String());
     await prefs.setString('$_volumePrefix$key', jsonEncode(volume.toJson()));
+    // Reading a volume again un-hides it from the Continue shelf.
+    final hidden = prefs.getStringList(_hiddenKey);
+    if (hidden != null && hidden.remove(key)) {
+      await prefs.setStringList(_hiddenKey, hidden);
+    }
     CloudSyncService().pushReadingProgressSoon();
   }
 
@@ -95,6 +105,21 @@ class ReadingProgressStore {
     await prefs.remove('$_timePrefix$key');
     await prefs.remove('$_volumePrefix$key');
     CloudSyncService().pushReadingProgress();
+  }
+
+  /// Volume keys currently hidden from the Continue Reading shelf.
+  Future<Set<String>> hiddenFromContinue() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getStringList(_hiddenKey) ?? const []).toSet();
+  }
+
+  /// Hides [volume] from the Continue Reading shelf without forgetting its
+  /// saved place. Reopening (and reading) it un-hides it again.
+  Future<void> hideFromContinue(Volume volume) async {
+    final prefs = await SharedPreferences.getInstance();
+    final set = (prefs.getStringList(_hiddenKey) ?? const []).toSet()
+      ..add(_key(volume));
+    await prefs.setStringList(_hiddenKey, set.toList());
   }
 
   /// Every volume with a saved position, newest first. Legacy entries saved

@@ -202,8 +202,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final entries = await ReadingProgressStore().allEntries();
     final feedback = await RecommendationFeedbackStore().load();
     final status = await SeriesStatusStore().load();
+    final hidden = await ReadingProgressStore().hiddenFromContinue();
+    // The Continue shelf excludes volumes the user hid; the filter chips
+    // (which use _allReadingEntries) still count them as in-progress.
     final inProgress = entries
-        .where((e) => e.progress.isStarted && !e.progress.isFinished)
+        .where((e) =>
+            e.progress.isStarted &&
+            !e.progress.isFinished &&
+            !hidden.contains('${e.volume.seriesOpdsId}/${e.volume.fileName}'))
         .take(12)
         .toList();
     final recs = const RecommendationEngine(maxResults: 40).recommend(
@@ -809,7 +815,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ListTile(
               leading: const Icon(Icons.remove_circle_outline),
               title: const Text('Remove from Currently Reading'),
-              subtitle: const Text('Forgets your saved place in this volume'),
+              subtitle: const Text(
+                'Keeps your place; reappears when you read it again',
+              ),
               onTap: () => Navigator.pop(ctx, 'remove'),
             ),
           ],
@@ -820,7 +828,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (action == 'resume') {
       _openVolume(entry.volume);
     } else if (action == 'remove') {
-      await ReadingProgressStore().clear(entry.volume);
+      await ReadingProgressStore().hideFromContinue(entry.volume);
       await _loadReading();
     }
   }
