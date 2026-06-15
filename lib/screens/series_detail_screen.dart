@@ -65,6 +65,10 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   final _statusStore = SeriesStatusStore();
   SeriesStatus _status = SeriesStatus.none;
 
+  /// Saved reading progress per volume (keyed by fileName) for this series,
+  /// so each volume tile can show read / in-progress / unread.
+  Map<String, ReadingProgress> _reading = const {};
+
   @override
   void initState() {
     super.initState();
@@ -97,7 +101,20 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
       _status = status;
       _ready = true;
     });
+    await _loadReading();
     await _loadVolumes();
+  }
+
+  Future<void> _loadReading() async {
+    final entries = await ReadingProgressStore().allEntries();
+    if (!mounted) return;
+    setState(() {
+      _reading = {
+        for (final e in entries)
+          if (e.volume.seriesOpdsId == widget.series.opdsId)
+            e.volume.fileName: e.progress,
+      };
+    });
   }
 
   Future<void> _setStatus(SeriesStatus status) async {
@@ -307,10 +324,12 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     setState(() => _similar = updated);
   }
 
-  void _openReader(Volume volume) {
-    Navigator.of(context).push(
+  Future<void> _openReader(Volume volume) async {
+    await Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => ReaderScreen(volume: volume)),
     );
+    // Refresh per-volume progress markers on return from the reader.
+    await _loadReading();
   }
 
   void _openAuthor(String author) {
@@ -563,6 +582,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
               volume: volume,
               status: _statusOf(volume),
               progress: _progress[volume.fileName] ?? 0,
+              reading: _reading[volume.fileName],
               onDownload: () => _download(volume),
               onDelete: () => _delete(volume),
               onShare: () => _share(volume),
@@ -851,6 +871,7 @@ class _VolumeTile extends StatelessWidget {
     required this.volume,
     required this.status,
     required this.progress,
+    required this.reading,
     required this.onDownload,
     required this.onDelete,
     required this.onShare,
@@ -861,6 +882,9 @@ class _VolumeTile extends StatelessWidget {
   final Volume volume;
   final _VolumeStatus status;
   final double progress;
+
+  /// Saved reading progress for this volume, or null if never opened.
+  final ReadingProgress? reading;
   final VoidCallback onDownload;
   final VoidCallback onDelete;
   final VoidCallback onShare;
@@ -874,7 +898,7 @@ class _VolumeTile extends StatelessWidget {
     final theme = Theme.of(context);
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      leading: const Icon(Icons.menu_book_outlined),
+      leading: _leading(theme),
       title: Text(
         volume.title,
         maxLines: 2,
@@ -891,13 +915,46 @@ class _VolumeTile extends StatelessWidget {
     );
   }
 
+  /// Leading icon doubles as a reading-progress marker: a check for finished,
+  /// a small progress ring for in-progress, the plain book icon otherwise.
+  Widget _leading(ThemeData theme) {
+    final r = reading;
+    if (r != null && r.isFinished) {
+      return Icon(Icons.check_circle, color: theme.colorScheme.primary);
+    }
+    if (r != null && r.isStarted) {
+      return SizedBox(
+        width: 24,
+        height: 24,
+        child: CircularProgressIndicator(
+          value: r.fraction > 0 ? r.fraction : null,
+          strokeWidth: 3,
+          backgroundColor: theme.colorScheme.surfaceContainerHighest,
+        ),
+      );
+    }
+    return const Icon(Icons.menu_book_outlined);
+  }
+
   String _subtitle() {
     final size = _formatBytes(volume.fileSizeBytes);
-    return switch (status) {
+    // Prefix reading state when there is any.
+    final r = reading;
+    String? readLabel;
+    if (r != null && r.isFinished) {
+      readLabel = 'Finished';
+    } else if (r != null && r.isStarted) {
+      readLabel = r.chapterCount > 0
+          ? 'Reading · ch ${r.chapterIndex + 1}/${r.chapterCount}'
+          : 'Reading · ch ${r.chapterIndex + 1}';
+    }
+    final base = switch (status) {
       _VolumeStatus.downloaded => '$size  ·  Tap to read',
-      _VolumeStatus.updateAvailable => '$size  ·  Update available · tap to read',
+      _VolumeStatus.updateAvailable =>
+        '$size  ·  Update available · tap to read',
       _ => '$size  ·  updated ${_formatDate(volume.updatedAt)}',
     };
+    return readLabel == null ? base : '$readLabel  ·  $base';
   }
 
   Widget _trailing(BuildContext context) {
