@@ -18,9 +18,11 @@ import '../services/recommendation_feedback_store.dart';
 import '../services/series_status_store.dart';
 import '../services/settings_service.dart';
 import '../utils/volume_ordering.dart';
+import '../widgets/add_to_collection_sheet.dart';
 import '../widgets/cached_cover.dart';
 import 'backup_screen.dart';
 import 'collections_screen.dart';
+import 'glossary_screen.dart';
 import 'imported_books_screen.dart';
 import 'reader_screen.dart';
 import 'series_detail_screen.dart';
@@ -685,6 +687,144 @@ class _LibraryScreenState extends State<LibraryScreen> {
     await _loadReading();
   }
 
+  /// Long-press menu for a series cover in the grid: open, add to a
+  /// collection, jump to the glossary, or set/clear the manual status.
+  Future<void> _seriesCardMenu(Series series) async {
+    final settings = _settings;
+    final current = _seriesStatus[series.opdsId] ?? SeriesStatus.none;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(
+                series.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              subtitle: Text(series.author),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.menu_book_outlined),
+              title: const Text('Open'),
+              onTap: () => Navigator.pop(ctx, 'open'),
+            ),
+            if (settings != null)
+              ListTile(
+                leading: const Icon(Icons.collections_bookmark_outlined),
+                title: const Text('Add to collection'),
+                onTap: () => Navigator.pop(ctx, 'collection'),
+              ),
+            ListTile(
+              leading: const Icon(Icons.people_outline),
+              title: const Text('Character glossary'),
+              onTap: () => Navigator.pop(ctx, 'glossary'),
+            ),
+            const Divider(height: 1),
+            for (final s in const [
+              SeriesStatus.reading,
+              SeriesStatus.caughtUp,
+              SeriesStatus.dropped,
+            ])
+              ListTile(
+                leading: Icon(
+                  current == s ? Icons.check : Icons.label_outline,
+                ),
+                title: Text('Mark: ${s.label}'),
+                onTap: () => Navigator.pop(ctx, 'status:${s.name}'),
+              ),
+            if (current != SeriesStatus.none)
+              ListTile(
+                leading: const Icon(Icons.clear),
+                title: const Text('Clear status'),
+                onTap: () => Navigator.pop(ctx, 'status:none'),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (action == null || !mounted) return;
+    if (action == 'open') {
+      _openSeries(series);
+    } else if (action == 'glossary') {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => GlossaryScreen(
+            seriesId: series.opdsId,
+            title: series.title,
+          ),
+        ),
+      );
+    } else if (action == 'collection' && settings != null) {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        builder: (_) => AddToCollectionSheet(
+          seriesId: series.opdsId,
+          seriesTitle: series.title,
+        ),
+      );
+    } else if (action.startsWith('status:')) {
+      final name = action.substring('status:'.length);
+      final status = name == 'none'
+          ? SeriesStatus.none
+          : SeriesStatus.fromName(name);
+      await SeriesStatusStore().setStatus(series.opdsId, status);
+      await _loadReading();
+    }
+  }
+
+  /// Long-press menu for a Continue Reading entry (hero or shelf card).
+  Future<void> _continueCardMenu(ReadingEntry entry) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(
+                entry.volume.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.play_arrow),
+              title: const Text('Resume reading'),
+              onTap: () => Navigator.pop(ctx, 'resume'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.remove_circle_outline),
+              title: const Text('Remove from Currently Reading'),
+              subtitle: const Text('Forgets your saved place in this volume'),
+              onTap: () => Navigator.pop(ctx, 'remove'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (action == null || !mounted) return;
+    if (action == 'resume') {
+      _openVolume(entry.volume);
+    } else if (action == 'remove') {
+      await ReadingProgressStore().clear(entry.volume);
+      await _loadReading();
+    }
+  }
+
   // ── library-wide download ────────────────────────────────────────────────
 
   /// True when a volume isn't downloaded, or the server has a newer build of
@@ -995,6 +1135,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     : const {},
                 updateAvailable: _seriesHasUpdate(visible[index]),
                 onTap: () => _openSeries(visible[index]),
+                onLongPress: () => _seriesCardMenu(visible[index]),
               ),
             ),
           ),
@@ -1110,6 +1251,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: () => _openVolume(entry.volume),
+          onLongPress: () => _continueCardMenu(entry),
           child: SizedBox(
             height: 148,
             child: Padding(
@@ -1249,6 +1391,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 series: seriesById[entry.volume.seriesOpdsId],
                 imageHeaders: headers,
                 onTap: () => _openVolume(entry.volume),
+                onLongPress: () => _continueCardMenu(entry),
               );
             },
           ),
@@ -1550,6 +1693,7 @@ class _SeriesCard extends StatelessWidget {
     required this.imageHeaders,
     required this.updateAvailable,
     required this.onTap,
+    required this.onLongPress,
   });
 
   final Series series;
@@ -1558,12 +1702,14 @@ class _SeriesCard extends StatelessWidget {
   /// True when the series has content newer than what's been downloaded.
   final bool updateAvailable;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       behavior: HitTestBehavior.opaque,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1631,6 +1777,7 @@ class _ContinueCard extends StatelessWidget {
     required this.series,
     required this.imageHeaders,
     required this.onTap,
+    required this.onLongPress,
   });
 
   final ReadingEntry entry;
@@ -1639,6 +1786,7 @@ class _ContinueCard extends StatelessWidget {
   final Series? series;
   final Map<String, String> imageHeaders;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -1650,6 +1798,7 @@ class _ContinueCard extends StatelessWidget {
         : 'Chapter ${progress.chapterIndex + 1}';
     return GestureDetector(
       onTap: onTap,
+      onLongPress: onLongPress,
       behavior: HitTestBehavior.opaque,
       child: SizedBox(
         width: 124,
