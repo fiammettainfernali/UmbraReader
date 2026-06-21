@@ -21,6 +21,7 @@ class _ManageScreenState extends State<ManageScreen> {
   late final ControlClient _client = ControlClient(widget.settings);
 
   ControlStatus? _status;
+  AutoUpdateSchedule? _schedule;
   ControlProgress? _progress;
   String? _error;
   bool _loading = true;
@@ -47,9 +48,16 @@ class _ManageScreenState extends State<ManageScreen> {
     });
     try {
       final status = await _client.status();
+      AutoUpdateSchedule? schedule;
+      try {
+        schedule = await _client.schedule();
+      } on ControlException {
+        schedule = null; // older server without the schedule endpoint
+      }
       if (!mounted) return;
       setState(() {
         _status = status;
+        _schedule = schedule;
         _loading = false;
       });
     } on ControlException catch (e) {
@@ -121,6 +129,29 @@ class _ManageScreenState extends State<ManageScreen> {
       ),
     );
     await _refreshQuiet();
+  }
+
+  Future<void> _editSchedule() async {
+    final current = _schedule ??
+        const AutoUpdateSchedule(mode: 'off', intervalMinutes: 60);
+    final result = await showDialog<AutoUpdateSchedule>(
+      context: context,
+      builder: (_) => _ScheduleDialog(initial: current),
+    );
+    if (result == null) return;
+    await _run(
+      () => _client.setSchedule(
+        result.mode,
+        intervalMinutes: result.intervalMinutes,
+      ),
+      'Auto-update schedule saved',
+    );
+    try {
+      final s = await _client.schedule();
+      if (mounted) setState(() => _schedule = s);
+    } on ControlException {
+      // keep last known
+    }
   }
 
   Future<void> _addByUrl() async {
@@ -370,6 +401,26 @@ class _ManageScreenState extends State<ManageScreen> {
           ),
           const SizedBox(height: 20),
 
+          // ── auto-update schedule ───────────────────────────────────
+          if (_schedule != null) ...[
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.schedule),
+              title: const Text('Auto-update'),
+              subtitle: Text(
+                _scheduleLabel(_schedule!),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+              trailing: TextButton(
+                onPressed: _busy ? null : _editSchedule,
+                child: const Text('Edit'),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+
           // ── queue ──────────────────────────────────────────────────
           Text(
             'Queue (${status.queue.length})',
@@ -394,6 +445,22 @@ class _ManageScreenState extends State<ManageScreen> {
         ],
       ),
     );
+  }
+
+  String _scheduleLabel(AutoUpdateSchedule s) {
+    switch (s.mode) {
+      case 'interval':
+        final m = s.intervalMinutes;
+        if (m % 60 == 0) {
+          final h = m ~/ 60;
+          return 'Every $h hour${h == 1 ? '' : 's'}';
+        }
+        return 'Every $m min';
+      case 'schedule':
+        return 'On a set schedule (edit times in the desktop app)';
+      default:
+        return 'Off';
+    }
   }
 
   Widget _queueRow(ThemeData theme, QueueEntry e, int index, int count) {
@@ -435,6 +502,91 @@ class _ManageScreenState extends State<ManageScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Editor for the auto-update schedule. Supports Off and Every-N (interval).
+/// A server already on the desktop-only "schedule" (specific times) mode keeps
+/// that noted but switching away here is one-way.
+class _ScheduleDialog extends StatefulWidget {
+  const _ScheduleDialog({required this.initial});
+
+  final AutoUpdateSchedule initial;
+
+  @override
+  State<_ScheduleDialog> createState() => _ScheduleDialogState();
+}
+
+class _ScheduleDialogState extends State<_ScheduleDialog> {
+  late String _mode = widget.initial.mode;
+  late final TextEditingController _interval = TextEditingController(
+    text: '${widget.initial.intervalMinutes}',
+  );
+
+  @override
+  void dispose() {
+    _interval.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isScheduleMode = _mode == 'schedule';
+    return AlertDialog(
+      title: const Text('Auto-update'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'off', label: Text('Off')),
+              ButtonSegment(value: 'interval', label: Text('Interval')),
+            ],
+            selected: {isScheduleMode ? 'interval' : _mode},
+            onSelectionChanged: (s) => setState(() => _mode = s.first),
+          ),
+          if (isScheduleMode)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                'Currently on a fixed-times schedule set in the desktop app. '
+                'Choosing Off or Interval here replaces it.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          if (_mode == 'interval' && !isScheduleMode) ...[
+            const SizedBox(height: 16),
+            TextField(
+              controller: _interval,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Every (minutes)',
+                hintText: 'e.g. 360 for 6 hours',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final mode = isScheduleMode ? 'interval' : _mode;
+            final minutes = int.tryParse(_interval.text.trim()) ??
+                widget.initial.intervalMinutes;
+            Navigator.of(context).pop(
+              AutoUpdateSchedule(mode: mode, intervalMinutes: minutes),
+            );
+          },
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

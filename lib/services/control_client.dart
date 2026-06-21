@@ -81,6 +81,21 @@ class ControlStatus {
   );
 }
 
+/// Novel Grabber's recurring auto-update setting.
+class AutoUpdateSchedule {
+  const AutoUpdateSchedule({required this.mode, required this.intervalMinutes});
+
+  /// "off", "interval", or "schedule" (specific times — read-only in the app).
+  final String mode;
+  final int intervalMinutes;
+
+  factory AutoUpdateSchedule.fromJson(Map<String, dynamic> j) =>
+      AutoUpdateSchedule(
+        mode: j['mode'] as String? ?? 'off',
+        intervalMinutes: (j['intervalMinutes'] as num?)?.toInt() ?? 60,
+      );
+}
+
 /// One result from a site search.
 class SearchHit {
   const SearchHit({
@@ -187,6 +202,22 @@ class ControlClient {
   }
 
   Future<void> checkAllUpdates() => _post('/api/updates/check-all', null);
+
+  /// Reads the auto-update schedule: {mode, intervalMinutes}.
+  Future<AutoUpdateSchedule> schedule() async {
+    final json = await _get('/api/schedule');
+    return AutoUpdateSchedule.fromJson(json);
+  }
+
+  /// Sets the auto-update schedule. [intervalMinutes] applies when mode is
+  /// "interval".
+  Future<void> setSchedule(String mode, {int? intervalMinutes}) => _post(
+    '/api/schedule',
+    {
+      'mode': mode,
+      'intervalMinutes': ?intervalMinutes,
+    },
+  );
 
   Future<void> checkUpdates(int novelId) =>
       _post('/api/novels/$novelId/check-updates', null);
