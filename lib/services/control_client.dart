@@ -50,6 +50,7 @@ class ControlStatus {
     required this.current,
     required this.queue,
     required this.sources,
+    required this.searchSites,
   });
 
   final bool active;
@@ -57,6 +58,9 @@ class ControlStatus {
   final QueueEntry? current;
   final List<QueueEntry> queue;
   final List<String> sources;
+
+  /// Scraper SITE_NAMEs that support keyword search (the search source picker).
+  final List<String> searchSites;
 
   factory ControlStatus.fromJson(Map<String, dynamic> json) => ControlStatus(
     active: json['active'] == true,
@@ -71,6 +75,37 @@ class ControlStatus {
     sources: [
       for (final s in (json['sources'] as List? ?? const [])) s.toString(),
     ],
+    searchSites: [
+      for (final s in (json['searchSites'] as List? ?? const [])) s.toString(),
+    ],
+  );
+}
+
+/// One result from a site search.
+class SearchHit {
+  const SearchHit({
+    required this.title,
+    required this.author,
+    required this.url,
+    required this.coverUrl,
+    required this.latestChapter,
+    required this.site,
+  });
+
+  final String title;
+  final String author;
+  final String url;
+  final String coverUrl;
+  final String latestChapter;
+  final String site;
+
+  factory SearchHit.fromJson(Map<String, dynamic> j) => SearchHit(
+    title: j['title'] as String? ?? '',
+    author: j['author'] as String? ?? '',
+    url: j['url'] as String? ?? '',
+    coverUrl: j['coverUrl'] as String? ?? '',
+    latestChapter: j['latestChapter'] as String? ?? '',
+    site: j['site'] as String? ?? '',
   );
 }
 
@@ -135,6 +170,21 @@ class ControlClient {
 
   Future<void> addNovel(String url) =>
       _post('/api/novels', {'url': url});
+
+  /// Searches a single source (by SITE_NAME) for novels matching [query].
+  Future<List<SearchHit>> search(
+    String query, {
+    required String site,
+    int page = 1,
+  }) async {
+    final q = Uri.encodeQueryComponent(query);
+    final s = Uri.encodeQueryComponent(site);
+    final json = await _get('/api/search?q=$q&site=$s&page=$page');
+    return [
+      for (final r in (json['results'] as List? ?? const []))
+        if (r is Map<String, dynamic>) SearchHit.fromJson(r),
+    ];
+  }
 
   Future<void> checkAllUpdates() => _post('/api/updates/check-all', null);
 

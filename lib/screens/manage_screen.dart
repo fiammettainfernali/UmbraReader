@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../services/control_client.dart';
 import '../services/settings_service.dart';
+import 'novel_search_screen.dart';
 
 /// Remote control for Novel Grabber: server/job status, a live download
 /// queue, add-by-URL, and library-wide update checks — over the control API.
@@ -109,6 +110,19 @@ class _ManageScreenState extends State<ManageScreen> {
     }
   }
 
+  Future<void> _openSearch() async {
+    final sites = _status?.searchSites ?? const <String>[];
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => NovelSearchScreen(
+          settings: widget.settings,
+          sites: sites,
+        ),
+      ),
+    );
+    await _refreshQuiet();
+  }
+
   Future<void> _addByUrl() async {
     final controller = TextEditingController();
     final url = await showDialog<String>(
@@ -148,6 +162,11 @@ class _ManageScreenState extends State<ManageScreen> {
       appBar: AppBar(
         title: const Text('Manage server'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.travel_explore),
+            tooltip: 'Find novels',
+            onPressed: _status == null ? null : _openSearch,
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh',
