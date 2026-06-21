@@ -24,6 +24,7 @@ import 'backup_screen.dart';
 import 'collections_screen.dart';
 import 'glossary_screen.dart';
 import 'imported_books_screen.dart';
+import 'manage_screen.dart';
 import 'reader_screen.dart';
 import 'series_detail_screen.dart';
 import 'settings_screen.dart';
@@ -665,6 +666,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
     await _loadReading();
   }
 
+  void _openManage() {
+    final settings = _settings;
+    if (settings == null || !settings.isConfigured) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => ManageScreen(settings: settings)),
+    );
+  }
+
   Future<void> _openStorage() async {
     final settings = _settings;
     if (settings == null) return;
@@ -1020,6 +1029,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         _openStorage();
                       case 'imported':
                         _openImported();
+                      case 'manage':
+                        _openManage();
                       case 'backup':
                         _openBackup();
                       case 'settings':
@@ -1057,6 +1068,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         contentPadding: EdgeInsets.zero,
                         leading: Icon(Icons.upload_file_outlined),
                         title: Text('Imported books'),
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: 'manage',
+                      child: ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: Icon(Icons.cloud_sync_outlined),
+                        title: Text('Manage server'),
                       ),
                     ),
                     PopupMenuItem(

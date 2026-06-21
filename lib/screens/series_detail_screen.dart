@@ -10,6 +10,7 @@ import '../services/library_storage.dart';
 import '../services/opds_client.dart';
 import '../services/reading_progress_store.dart';
 import '../services/recommendation_engine.dart';
+import '../services/control_client.dart';
 import '../services/recommendation_feedback_store.dart';
 import '../services/series_status_store.dart';
 import '../services/settings_service.dart';
@@ -368,6 +369,19 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     );
   }
 
+  /// Asks Novel Grabber to scrape any new chapters for this series via the
+  /// control API. Needs the server reachable; surfaces the result as a snack.
+  Future<void> _checkForUpdates() async {
+    try {
+      await ControlClient(widget.settings).checkUpdates(widget.series.opdsId);
+      if (!mounted) return;
+      _snack('Checking “${widget.series.title}” for new chapters…');
+    } on ControlException catch (e) {
+      if (!mounted) return;
+      _snack(e.message, isError: true);
+    }
+  }
+
   Future<void> _addToCollection() async {
     await showModalBottomSheet<void>(
       context: context,
@@ -400,6 +414,11 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
       appBar: AppBar(
         title: Text(series.title),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.sync),
+            tooltip: 'Check for new chapters',
+            onPressed: _checkForUpdates,
+          ),
           IconButton(
             icon: const Icon(Icons.people_outline),
             tooltip: 'Character glossary',
