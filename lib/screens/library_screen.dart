@@ -131,6 +131,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// been downloaded. Null until first loaded.
   DownloadStore? _downloads;
 
+  /// Throttle for the background library-maintenance pass (auto-download next
+  /// volume + auto-delete). It must NOT run on every sync/pull-to-refresh —
+  /// doing so stacked sequential per-series network fetches and downloads
+  /// that saturated the connection and slowed manual checking/downloading.
+  DateTime? _lastMaintenance;
+  bool _maintenanceRunning = false;
+  static const _maintenanceInterval = Duration(minutes: 30);
+
   // ── library-wide "download everything" state ─────────────────────────────
   bool _bulkDownloading = false;
   bool _bulkCancel = false;
@@ -312,9 +320,26 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   /// Runs the background download + cleanup passes in order (download first
   /// so a freshly-pulled next volume is never a delete candidate).
+  ///
+  /// Heavily throttled: it skips if a pass is already running or if one ran
+  /// within [_maintenanceInterval]. Without this it fired on every sync /
+  /// pull-to-refresh, stacking per-series network fetches that competed with
+  /// the user's own checking/downloading.
   Future<void> _runLibraryMaintenance() async {
-    await _autoDownloadNextVolumes();
-    await _autoDeleteFinishedVolumes();
+    if (_maintenanceRunning) return;
+    final last = _lastMaintenance;
+    if (last != null &&
+        DateTime.now().difference(last) < _maintenanceInterval) {
+      return;
+    }
+    _maintenanceRunning = true;
+    _lastMaintenance = DateTime.now();
+    try {
+      await _autoDownloadNextVolumes();
+      await _autoDeleteFinishedVolumes();
+    } finally {
+      _maintenanceRunning = false;
+    }
   }
 
   /// When enabled, removes the downloaded EPUB of any volume the reader has
