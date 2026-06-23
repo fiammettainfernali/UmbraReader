@@ -1026,7 +1026,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
           controller: _scrollController,
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
-            SliverAppBar.large(
+            SliverAppBar(
+              // Compact + pinned instead of the big collapsing header: trims
+              // the cluttered top space and, importantly, lets pull-to-refresh
+              // trigger from anywhere at the top (the large app bar used to
+              // swallow the downward drag to re-expand itself first).
+              pinned: true,
               title: const Text('Library'),
               actions: [
                 if ((_library?.isNotEmpty ?? false))
