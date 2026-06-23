@@ -1162,21 +1162,27 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final all = _library ?? const <Series>[];
     if (all.isNotEmpty) {
       final visible = _visibleLibrary;
+      // Shelves are the "home" view: only show them on the default, unfiltered
+      // list. Once the user narrows to a reading-state chip (Reading / Unread /
+      // Finished / Dropped) or searches, drop straight to the matching grid —
+      // recently-updated/recommended aren't relevant to a filtered browse.
+      final showShelves = _searchQuery.trim().isEmpty &&
+          _readingState == ReadingStateFilter.any;
       return [
         if (_offline) SliverToBoxAdapter(child: _buildOfflineBanner()),
         if (_bulkDownloading)
           SliverToBoxAdapter(child: _buildBulkBanner()),
         SliverToBoxAdapter(child: _buildControls(all.length, visible.length)),
-        if (_reading.isNotEmpty && _searchQuery.trim().isEmpty)
+        if (showShelves && _reading.isNotEmpty)
           SliverToBoxAdapter(child: _buildContinueHero()),
-        if (_reading.length > 1 && _searchQuery.trim().isEmpty)
+        if (showShelves && _reading.length > 1)
           SliverToBoxAdapter(child: _buildContinueShelf()),
-        if (_searchQuery.trim().isEmpty && _recentlyUpdated.isNotEmpty)
+        if (showShelves && _recentlyUpdated.isNotEmpty)
           SliverToBoxAdapter(child: _buildRecentShelf()),
-        if (_recommendations.isNotEmpty && _searchQuery.trim().isEmpty)
+        if (showShelves && _recommendations.isNotEmpty)
           SliverToBoxAdapter(child: _buildRecommendedShelf()),
         // Distinct header so the full grid doesn't blend into the shelf above.
-        if (visible.isNotEmpty && _searchQuery.trim().isEmpty)
+        if (showShelves && visible.isNotEmpty)
           SliverToBoxAdapter(child: _sectionHeader('All books')),
         if (visible.isEmpty)
           SliverFillRemaining(
