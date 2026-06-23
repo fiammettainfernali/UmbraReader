@@ -30,14 +30,69 @@ class UmbraReaderApp extends StatelessWidget {
     );
   }
 
-  /// A single dark theme for now. Phase 4 replaces this with a full theme
-  /// engine (multiple presets, adjustable colors / fonts / spacing).
+  /// The app's "comfy witchy library" theme: a deep dusk-plum dark scheme
+  /// with a warm candlelight-amber accent, an elegant serif for headings, and
+  /// soft rounded surfaces. (This is the app chrome — the *reader* still uses
+  /// its own page themes.)
   ThemeData _buildTheme() {
-    return ThemeData(
-      colorScheme: ColorScheme.fromSeed(
-        // A muted dusk purple — fitting for "umbra" (shadow).
-        seedColor: const Color(0xFF8B7BC4),
-        brightness: Brightness.dark,
+    final scheme =
+        ColorScheme.fromSeed(
+          // A muted dusk purple — fitting for "umbra" (shadow).
+          seedColor: const Color(0xFF8B7BC4),
+          brightness: Brightness.dark,
+        ).copyWith(
+          // Warm candlelight gold for accents (section motifs, highlights).
+          tertiary: const Color(0xFFE3B873),
+          onTertiary: const Color(0xFF2A1F0A),
+        );
+
+    final base = ThemeData(
+      colorScheme: scheme,
+      brightness: Brightness.dark,
+      scaffoldBackgroundColor: const Color(0xFF14111C), // deep dusk
+    );
+
+    // A warm book serif for headings/titles (the dark-academia library feel),
+    // using an iOS system font so it needs no download and works offline; body
+    // and labels stay in the clean default for legibility.
+    const heading = 'Georgia';
+    TextStyle? h(TextStyle? s) => s?.copyWith(fontFamily: heading);
+    final t = base.textTheme;
+    final textTheme = t.copyWith(
+      displayLarge: h(t.displayLarge),
+      displayMedium: h(t.displayMedium),
+      displaySmall: h(t.displaySmall),
+      headlineLarge: h(t.headlineLarge),
+      headlineMedium: h(t.headlineMedium),
+      headlineSmall: h(t.headlineSmall),
+      titleLarge: h(t.titleLarge)?.copyWith(fontWeight: FontWeight.w600),
+      titleMedium: h(t.titleMedium)?.copyWith(fontWeight: FontWeight.w600),
+    );
+
+    return base.copyWith(
+      textTheme: textTheme,
+      appBarTheme: AppBarTheme(
+        backgroundColor: base.scaffoldBackgroundColor,
+        surfaceTintColor: Colors.transparent,
+        centerTitle: false,
+        titleTextStyle: TextStyle(
+          fontFamily: heading,
+          fontSize: 24,
+          fontWeight: FontWeight.w600,
+          color: scheme.onSurface,
+        ),
+      ),
+      cardTheme: CardThemeData(
+        color: scheme.surfaceContainerHigh,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+      ),
+      chipTheme: base.chipTheme.copyWith(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
       ),
     );
   }
