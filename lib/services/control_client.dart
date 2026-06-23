@@ -194,7 +194,13 @@ class ControlClient {
   }) async {
     final q = Uri.encodeQueryComponent(query);
     final s = Uri.encodeQueryComponent(site);
-    final json = await _get('/api/search?q=$q&site=$s&page=$page');
+    // Searching scrapes a live results page (sometimes through anti-bot
+    // layers), which is far slower than a status read — give it room so the
+    // server's own search timeout governs instead of cutting off early.
+    final json = await _get(
+      '/api/search?q=$q&site=$s&page=$page',
+      timeout: const Duration(seconds: 45),
+    );
     return [
       for (final r in (json['results'] as List? ?? const []))
         if (r is Map<String, dynamic>) SearchHit.fromJson(r),
@@ -241,12 +247,18 @@ class ControlClient {
 
   // ── low-level ──────────────────────────────────────────────────────────
 
-  Future<Map<String, dynamic>> _get(String path) async {
+  Future<Map<String, dynamic>> _get(
+    String path, {
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
     final http.Response res;
     try {
-      res = await http
-          .get(_u(path), headers: _auth)
-          .timeout(const Duration(seconds: 12));
+      res = await http.get(_u(path), headers: _auth).timeout(timeout);
+    } on TimeoutException {
+      throw ControlException(
+        'The server took too long to respond. The source site may be slow '
+        'or blocking requests — try again, or pick a different source.',
+      );
     } on Exception catch (e) {
       throw ControlException('Could not reach Novel Grabber.\n($e)');
     }
@@ -257,6 +269,15 @@ class ControlClient {
       );
     }
     if (res.statusCode != 200) {
+      // Surface the server's own error message when it sent one.
+      try {
+        final d = jsonDecode(res.body);
+        if (d is Map && d['error'] is String) {
+          throw ControlException(d['error'] as String);
+        }
+      } on FormatException {
+        // fall through to the generic message
+      }
       throw ControlException('Server returned HTTP ${res.statusCode}.');
     }
     final decoded = jsonDecode(res.body);
