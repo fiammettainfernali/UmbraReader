@@ -59,8 +59,15 @@ class OpdsClient {
       throw OpdsException('Server returned HTTP ${response.statusCode}.');
     }
 
-    return _parseLibraryFeed(response.body);
+    return _parseLibraryFeed(_decodeUtf8(response));
   }
+
+  /// Decodes the response body as UTF-8 from the raw bytes. The OPDS feed is
+  /// always UTF-8, but the server omits `charset` from its Content-Type, so
+  /// `response.body` would otherwise be decoded as latin-1 — turning smart
+  /// quotes, em-dashes and accented characters in titles into mojibake.
+  String _decodeUtf8(http.Response response) =>
+      utf8.decode(response.bodyBytes, allowMalformed: true);
 
   /// Fetches every volume (EPUB batch) of one series.
   ///
@@ -89,7 +96,7 @@ class OpdsClient {
 
     final XmlDocument doc;
     try {
-      doc = XmlDocument.parse(response.body);
+      doc = XmlDocument.parse(_decodeUtf8(response));
     } on XmlException catch (e) {
       throw OpdsException('The volume feed was not valid OPDS.\n($e)');
     }

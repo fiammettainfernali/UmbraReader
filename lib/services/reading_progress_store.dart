@@ -12,6 +12,7 @@ class ReadingProgress {
     required this.blockIndex,
     this.chapterCount = 0,
     this.updatedAt,
+    this.endReached = false,
   });
 
   final int chapterIndex;
@@ -25,11 +26,18 @@ class ReadingProgress {
   /// When this position was last saved, or null for legacy entries.
   final DateTime? updatedAt;
 
+  /// True once the reader has actually reached the end of the final chapter —
+  /// the real "finished" signal. Being *on* the last chapter isn't enough,
+  /// since you can stop mid-way through it.
+  final bool endReached;
+
   /// True once the book has been opened past its very first paragraph.
   bool get isStarted => chapterIndex > 0 || blockIndex > 0;
 
-  /// True when the reader has reached the last chapter.
-  bool get isFinished => chapterCount > 0 && chapterIndex >= chapterCount - 1;
+  /// True only when the reader has read through to the end of the last
+  /// chapter. (Just being on the last chapter no longer counts — that
+  /// dropped mid-final-chapter books off the Continue Reading shelf.)
+  bool get isFinished => endReached;
 
   /// Fraction (0..1) of the book read, by chapter — 0 when unknown.
   double get fraction => chapterCount > 1
@@ -60,6 +68,18 @@ class ReadingProgressStore {
   static const _countPrefix = 'reading_count:';
   static const _timePrefix = 'reading_time:';
   static const _volumePrefix = 'reading_volume:';
+  static const _endPrefix = 'reading_end:';
+
+  /// Reads the stored end-reached flag for [key], falling back for legacy
+  /// entries (saved before the flag existed) to "on the last chapter" so
+  /// books finished under the old scheme stay finished.
+  bool _readEndReached(SharedPreferences prefs, String key) {
+    final stored = prefs.getBool('$_endPrefix$key');
+    if (stored != null) return stored;
+    final chapter = prefs.getInt('$_chapterPrefix$key') ?? 0;
+    final count = prefs.getInt('$_countPrefix$key') ?? 0;
+    return count > 0 && chapter >= count - 1;
+  }
 
   /// Volume keys the user has hidden from the Continue Reading shelf. The
   /// saved position is kept; the book just stops surfacing on the home shelf
@@ -76,6 +96,7 @@ class ReadingProgressStore {
       blockIndex: prefs.getInt('$_blockPrefix$key') ?? 0,
       chapterCount: prefs.getInt('$_countPrefix$key') ?? 0,
       updatedAt: DateTime.tryParse(prefs.getString('$_timePrefix$key') ?? ''),
+      endReached: _readEndReached(prefs, key),
     );
   }
 
@@ -87,6 +108,7 @@ class ReadingProgressStore {
     await prefs.setInt('$_countPrefix$key', progress.chapterCount);
     await prefs.setString('$_timePrefix$key', DateTime.now().toIso8601String());
     await prefs.setString('$_volumePrefix$key', jsonEncode(volume.toJson()));
+    await prefs.setBool('$_endPrefix$key', progress.endReached);
     // Reading a volume again un-hides it from the Continue shelf.
     final hidden = prefs.getStringList(_hiddenKey);
     if (hidden != null && hidden.remove(key)) {
@@ -104,6 +126,7 @@ class ReadingProgressStore {
     await prefs.remove('$_countPrefix$key');
     await prefs.remove('$_timePrefix$key');
     await prefs.remove('$_volumePrefix$key');
+    await prefs.remove('$_endPrefix$key');
     CloudSyncService().pushReadingProgress();
   }
 
@@ -151,6 +174,7 @@ class ReadingProgressStore {
             updatedAt: DateTime.tryParse(
               prefs.getString('$_timePrefix$key') ?? '',
             ),
+            endReached: _readEndReached(prefs, key),
           ),
         ),
       );
@@ -180,6 +204,7 @@ class ReadingProgressStore {
           'blockIndex': e.progress.blockIndex,
           'chapterCount': e.progress.chapterCount,
           'updatedAt': e.progress.updatedAt?.toIso8601String(),
+          'endReached': e.progress.endReached,
           'volume': e.volume.toJson(),
         },
     };
@@ -226,6 +251,7 @@ class ReadingProgressStore {
         (value['chapterCount'] as num?)?.toInt() ?? 0,
       );
       await prefs.setString('$_timePrefix$key', cloudUpdated.toIso8601String());
+      await prefs.setBool('$_endPrefix$key', value['endReached'] == true);
       await prefs.setString('$_volumePrefix$key', jsonEncode(volume));
       changed = true;
     }

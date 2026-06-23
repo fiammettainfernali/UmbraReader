@@ -91,15 +91,28 @@ void main() {
       );
     });
 
-    test('is finished on the last chapter', () {
+    test('is finished only when the end of the last chapter was reached', () {
+      // On the last chapter but NOT at its end → not finished (you can stop
+      // mid-final-chapter; it must stay on the Continue Reading shelf).
       expect(
         const ReadingProgress(
           chapterIndex: 9,
           blockIndex: 0,
           chapterCount: 10,
         ).isFinished,
+        isFalse,
+      );
+      // Reached the end → finished.
+      expect(
+        const ReadingProgress(
+          chapterIndex: 9,
+          blockIndex: 0,
+          chapterCount: 10,
+          endReached: true,
+        ).isFinished,
         isTrue,
       );
+      // Mid-book is never finished.
       expect(
         const ReadingProgress(
           chapterIndex: 5,

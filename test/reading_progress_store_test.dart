@@ -44,6 +44,42 @@ void main() {
     expect(loaded.chapterCount, 0);
   });
 
+  test('endReached round-trips and drives isFinished', () async {
+    final store = ReadingProgressStore();
+    final volume = _volume();
+    // On the last chapter but not at its end → not finished.
+    await store.save(
+      volume,
+      const ReadingProgress(chapterIndex: 9, blockIndex: 3, chapterCount: 10),
+    );
+    expect((await store.load(volume)).isFinished, isFalse);
+    // Reaching the end → finished.
+    await store.save(
+      volume,
+      const ReadingProgress(
+        chapterIndex: 9,
+        blockIndex: 40,
+        chapterCount: 10,
+        endReached: true,
+      ),
+    );
+    expect((await store.load(volume)).isFinished, isTrue);
+  });
+
+  test('legacy entries on the last chapter still count as finished', () async {
+    // Simulate pre-endReached data: raw keys with no reading_end: flag.
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'reading_chapter:1/book.epub': 9,
+      'reading_block:1/book.epub': 0,
+      'reading_count:1/book.epub': 10,
+      'reading_volume:1/book.epub':
+          '{"seriesOpdsId":1,"title":"A Book","fileName":"book.epub",'
+          '"downloadUrl":"http://host/book.epub","fileSizeBytes":1000}',
+    });
+    final loaded = await ReadingProgressStore().load(_volume());
+    expect(loaded.isFinished, isTrue);
+  });
+
   test('clear forgets the saved position', () async {
     final store = ReadingProgressStore();
     final volume = _volume();

@@ -787,14 +787,36 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (!_scrollController.hasClients) return;
       block = _scrollTopBlockIndex();
     }
+    final chapterCount = _book?.chapters.length ?? 0;
+    // "Finished" means the end of the *last* chapter was actually reached —
+    // not merely being on it (you can stop mid-final-chapter).
+    final onLastChapter =
+        chapterCount > 0 && _chapterIndex >= chapterCount - 1;
     _progressStore.save(
       widget.volume,
       ReadingProgress(
         chapterIndex: _chapterIndex,
         blockIndex: block,
-        chapterCount: _book?.chapters.length ?? 0,
+        chapterCount: chapterCount,
+        endReached: onLastChapter && _isAtChapterEnd(),
       ),
     );
+  }
+
+  /// True when the view is at the very end of the current chapter — the last
+  /// page (paged) or scrolled to the bottom (scroll).
+  bool _isAtChapterEnd() {
+    if (_settings.mode == ReadingMode.paged) {
+      if (!_pageController.hasClients) return false;
+      final pages = _pages;
+      if (pages == null || pages.isEmpty) return false;
+      final spreads = (pages.length / _pageStride).ceil();
+      final current = (_pageController.page ?? 0).round();
+      return current >= spreads - 1;
+    }
+    if (!_scrollController.hasClients) return false;
+    final pos = _scrollController.position;
+    return pos.maxScrollExtent > 0 && pos.pixels >= pos.maxScrollExtent - 4;
   }
 
   // ── in-chapter progress ──────────────────────────────────────────────────
@@ -877,15 +899,14 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   void _toggleChrome() {
-    // Remember the page so paged mode lands back on it after the content
-    // area resizes (and re-paginates) for the new chrome visibility.
-    final currentPage = _pageController.hasClients
-        ? (_pageController.page?.round() ?? 0)
-        : 0;
-    setState(() {
-      _chromeVisible = !_chromeVisible;
-      _pageJumpTarget = currentPage;
-    });
+    // Showing/hiding the chrome changes the content padding, which re-paginates
+    // paged mode. Restore by the top *block* — page indices shift when the
+    // page height changes, so remembering the page number landed on the wrong
+    // content.
+    if (_settings.mode == ReadingMode.paged && _pageController.hasClients) {
+      _pendingRestoreBlock = _pagedTopBlockIndex();
+    }
+    setState(() => _chromeVisible = !_chromeVisible);
   }
 
   /// Routes a tap on the page: the left and right edges turn the page, while
