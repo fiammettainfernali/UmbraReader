@@ -8,6 +8,7 @@ import '../services/download_service.dart';
 import '../services/library_cache.dart';
 import '../services/library_storage.dart';
 import '../services/opds_client.dart';
+import '../services/epub_parser.dart';
 import '../services/reading_progress_store.dart';
 import '../services/recommendation_engine.dart';
 import '../services/control_client.dart';
@@ -279,6 +280,36 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
             : null,
       ),
     );
+  }
+
+  /// Maxes out a volume's reading progress — marks it fully read so it counts
+  /// toward stats and shows as finished, for volumes consumed elsewhere (e.g.
+  /// listened to in Speechify). Pulls the real chapter count from the
+  /// downloaded EPUB when available so stats are accurate.
+  Future<void> _markFinished(Volume volume) async {
+    var count = _reading[volume.fileName]?.chapterCount ?? 0;
+    try {
+      final file = await LibraryStorage().epubFile(volume);
+      if (file.existsSync()) {
+        final book = await EpubParser().open(file);
+        if (book.chapters.isNotEmpty) count = book.chapters.length;
+      }
+    } on Exception {
+      // Keep whatever count we had; better to mark finished than fail.
+    }
+    if (count <= 0) count = 1;
+    await ReadingProgressStore().save(
+      volume,
+      ReadingProgress(
+        chapterIndex: count - 1,
+        blockIndex: 0,
+        chapterCount: count,
+        endReached: true,
+      ),
+    );
+    if (!mounted) return;
+    await _loadReading();
+    _snack('Marked “${volume.title}” as finished.');
   }
 
   /// Forgets a volume's saved place, after confirmation.
@@ -606,6 +637,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
               onDelete: () => _delete(volume),
               onShare: () => _share(volume),
               onResetProgress: () => _resetProgress(volume),
+              onMarkFinished: () => _markFinished(volume),
               onOpen:
                   (_statusOf(volume) == _VolumeStatus.downloaded ||
                       _statusOf(volume) == _VolumeStatus.updateAvailable)
@@ -882,7 +914,7 @@ class _Description extends StatelessWidget {
 }
 
 /// Menu actions on a downloaded volume.
-enum _VolumeAction { download, share, resetProgress, delete }
+enum _VolumeAction { download, share, markFinished, resetProgress, delete }
 
 /// One row in the volume list, with a download / progress / downloaded control.
 class _VolumeTile extends StatelessWidget {
@@ -895,6 +927,7 @@ class _VolumeTile extends StatelessWidget {
     required this.onDelete,
     required this.onShare,
     required this.onResetProgress,
+    required this.onMarkFinished,
     required this.onOpen,
   });
 
@@ -908,6 +941,10 @@ class _VolumeTile extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback onShare;
   final VoidCallback onResetProgress;
+
+  /// Marks the volume fully read (e.g. when finished elsewhere, like Speechify)
+  /// so it counts toward reading stats.
+  final VoidCallback onMarkFinished;
 
   /// Opens the reader; null when the volume isn't downloaded yet.
   final VoidCallback? onOpen;
@@ -1010,6 +1047,10 @@ class _VolumeTile extends StatelessWidget {
               child: Text('Share story'),
             ),
             PopupMenuItem(
+              value: _VolumeAction.markFinished,
+              child: Text('Mark as finished'),
+            ),
+            PopupMenuItem(
               value: _VolumeAction.resetProgress,
               child: Text('Reset reading progress'),
             ),
@@ -1034,6 +1075,10 @@ class _VolumeTile extends StatelessWidget {
               child: Text('Share story'),
             ),
             PopupMenuItem(
+              value: _VolumeAction.markFinished,
+              child: Text('Mark as finished'),
+            ),
+            PopupMenuItem(
               value: _VolumeAction.resetProgress,
               child: Text('Reset reading progress'),
             ),
@@ -1052,6 +1097,8 @@ class _VolumeTile extends StatelessWidget {
         onDownload();
       case _VolumeAction.share:
         onShare();
+      case _VolumeAction.markFinished:
+        onMarkFinished();
       case _VolumeAction.resetProgress:
         onResetProgress();
       case _VolumeAction.delete:

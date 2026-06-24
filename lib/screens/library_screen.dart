@@ -847,6 +847,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
               onTap: () => Navigator.pop(ctx, 'resume'),
             ),
             ListTile(
+              leading: const Icon(Icons.menu_book_outlined),
+              title: const Text('Open series'),
+              onTap: () => Navigator.pop(ctx, 'series'),
+            ),
+            ListTile(
               leading: const Icon(Icons.remove_circle_outline),
               title: const Text('Remove from Currently Reading'),
               subtitle: const Text(
@@ -861,10 +866,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (action == null || !mounted) return;
     if (action == 'resume') {
       _openVolume(entry.volume);
+    } else if (action == 'series') {
+      final series = _seriesById(entry.volume.seriesOpdsId);
+      if (series != null) {
+        _openSeries(series);
+      } else {
+        _snack('That series isn\'t in the library list right now.');
+      }
     } else if (action == 'remove') {
       await ReadingProgressStore().hideFromContinue(entry.volume);
       await _loadReading();
     }
+  }
+
+  /// Finds a loaded series by its OPDS id, or null if not in the library list.
+  Series? _seriesById(int opdsId) {
+    for (final s in _library ?? const <Series>[]) {
+      if (s.opdsId == opdsId) return s;
+    }
+    return null;
   }
 
   // ── library-wide download ────────────────────────────────────────────────
