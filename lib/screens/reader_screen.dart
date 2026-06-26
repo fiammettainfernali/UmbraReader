@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/bookmark.dart';
 import '../models/content_block.dart';
@@ -400,6 +402,14 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Periodic timer driving the hands-free auto-scroll, when enabled.
   Timer? _autoScrollTimer;
 
+  /// Periodic timer driving timed auto page-turns in paged mode, when enabled.
+  Timer? _autoPageTimer;
+
+  /// Total width of the centred reading column (text + its own margins) when
+  /// "centred column" is on — keeps lines in the comfortable centre of wide
+  /// displays and XR-glasses optics.
+  static const double _centeredColumnWidth = 620;
+
   /// Block indices in the current chapter that have been highlighted,
   /// mapped to the color the user chose so the renderer can paint each
   /// passage with its own tint.
@@ -487,9 +497,12 @@ class _ReaderScreenState extends State<ReaderScreen>
     // Release any reader-imposed orientation lock so the rest of the app
     // (library, settings) follows the device's normal auto-rotate setting.
     _applyOrientation(ReaderOrientation.auto);
+    // Don't leave the screen pinned awake after leaving the reader.
+    _applyKeepAwake(false);
     WidgetsBinding.instance.removeObserver(this);
     _sleepTimer?.cancel();
     _autoScrollTimer?.cancel();
+    _autoPageTimer?.cancel();
     _nowPlaying.clear();
     _nowPlaying.dispose();
     _ttsService.dispose();
@@ -534,9 +547,11 @@ class _ReaderScreenState extends State<ReaderScreen>
         _loading = false;
       });
       _applyOrientation(settings.orientation);
+      _applyKeepAwake(settings.keepAwake);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _restoreScrollPosition();
         if (_settings.autoScroll) _startAutoScroll();
+        _startAutoPage();
       });
       _refreshHighlights();
     } on EpubException catch (e) {
@@ -934,6 +949,10 @@ class _ReaderScreenState extends State<ReaderScreen>
         next.mode != _settings.mode;
     final orientationChanged = next.orientation != _settings.orientation;
     final tvModeChanged = next.tvMode != _settings.tvMode;
+    final keepAwakeChanged = next.keepAwake != _settings.keepAwake;
+    // Centred-column toggle changes the content width, so paged mode must
+    // re-paginate.
+    final centeredChanged = next.centeredColumn != _settings.centeredColumn;
     // TV mode is paged-only — auto-promote a scroll-mode user when they
     // flip it on so the 2-column layout has something to slice into pages.
     if (next.tvMode && next.mode != ReadingMode.paged) {
@@ -963,9 +982,12 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (orientationChanged || tvModeChanged) {
       _applyOrientation(next.orientation);
     }
-    // Toggling TV mode invalidates the cached pagination since the
-    // column width changes.
-    if (tvModeChanged) {
+    if (keepAwakeChanged) _applyKeepAwake(next.keepAwake);
+    // Restart timed page-turns against the (possibly changed) interval/mode.
+    _startAutoPage();
+    // Toggling TV mode or the centred column changes the content width, so the
+    // cached pagination must be rebuilt.
+    if (tvModeChanged || centeredChanged) {
       _pageKey = null;
       _lastSavedBlock = -1;
     }
@@ -1189,6 +1211,42 @@ class _ReaderScreenState extends State<ReaderScreen>
   void _stopAutoScroll() {
     _autoScrollTimer?.cancel();
     _autoScrollTimer = null;
+  }
+
+  /// Timed auto page-turn for paged mode (the paged analogue of auto-scroll) —
+  /// advances a page every `autoPageSeconds`. Hands-free reading for XR glasses.
+  void _startAutoPage() {
+    _autoPageTimer?.cancel();
+    _autoPageTimer = null;
+    if (_settings.autoPageSeconds <= 0) return;
+    if (_settings.mode != ReadingMode.paged) return;
+    _autoPageTimer = Timer.periodic(
+      Duration(seconds: _settings.autoPageSeconds),
+      (_) {
+        if (!mounted ||
+            _settings.mode != ReadingMode.paged ||
+            _settings.autoPageSeconds <= 0) {
+          _stopAutoPage();
+          return;
+        }
+        _advance(forward: true);
+      },
+    );
+  }
+
+  void _stopAutoPage() {
+    _autoPageTimer?.cancel();
+    _autoPageTimer = null;
+  }
+
+  /// Holds (or releases) the screen-awake lock per the keep-awake setting.
+  /// Best-effort — silently ignored where the plugin is unavailable.
+  Future<void> _applyKeepAwake(bool enabled) async {
+    try {
+      await WakelockPlus.toggle(enable: enabled);
+    } on Exception {
+      // ignore — non-critical
+    }
   }
 
   void _autoScrollTick() {
@@ -1720,7 +1778,12 @@ class _ReaderScreenState extends State<ReaderScreen>
     final book = _book!;
     final preset = _settings.theme;
     final mq = MediaQuery.of(context);
-    _lastContentWidth = mq.size.width - 2 * _settings.margin;
+    // Centred-column mode caps the reading area to a comfortable measure and
+    // centres it (wide side gutters); otherwise it spans the screen.
+    final areaWidth = _settings.centeredColumn
+        ? math.min(mq.size.width, _centeredColumnWidth)
+        : mq.size.width;
+    _lastContentWidth = areaWidth - 2 * _settings.margin;
     final topSpace = mq.padding.top + _topBarHeight;
     final bottomSpace = mq.padding.bottom + _bottomBarHeight;
     // When the chrome is visible, the content sits between the bars. When it's
@@ -1750,11 +1813,16 @@ class _ReaderScreenState extends State<ReaderScreen>
                 Positioned.fill(
                   child: Padding(
                     padding: contentPadding,
-                    child: NotificationListener<ScrollNotification>(
-                      onNotification: _onScrollNotification,
-                      child: _settings.mode == ReadingMode.paged
-                          ? _buildPaged(preset)
-                          : _buildScroll(preset),
+                    child: Center(
+                      child: SizedBox(
+                        width: areaWidth,
+                        child: NotificationListener<ScrollNotification>(
+                          onNotification: _onScrollNotification,
+                          child: _settings.mode == ReadingMode.paged
+                              ? _buildPaged(preset)
+                              : _buildScroll(preset),
+                        ),
+                      ),
                     ),
                   ),
                 ),

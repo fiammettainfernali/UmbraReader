@@ -65,6 +65,10 @@ dependencies:
   # Picking EPUB files from Files / iCloud Drive to import sideloaded books.
   file_picker: ^8.1.4
 
+  # Keeps the screen awake during hands-free reading (auto-scroll / auto-turn
+  # / XR-glasses use, where the phone is the source display).
+  wakelock_plus: ^1.2.8
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

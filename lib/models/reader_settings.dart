@@ -45,6 +45,9 @@ class ReaderSettings {
     required this.autoScroll,
     required this.orientation,
     required this.tvMode,
+    required this.centeredColumn,
+    required this.keepAwake,
+    required this.autoPageSeconds,
   });
 
   final ReadingMode mode;
@@ -98,6 +101,19 @@ class ReaderSettings {
   /// brightness slider to dim the phone itself.
   final bool tvMode;
 
+  /// Constrains body text to a comfortable centred column with wide side
+  /// margins. Great on big/wide displays (and XR glasses, whose lenses are
+  /// sharpest in the centre).
+  final bool centeredColumn;
+
+  /// Keeps the screen awake while reading — important when the phone is the
+  /// source display for XR glasses or auto-advance is running.
+  final bool keepAwake;
+
+  /// Seconds between automatic page turns in paged mode (the paged analogue
+  /// of auto-scroll). 0 disables it.
+  final int autoPageSeconds;
+
   static const defaults = ReaderSettings(
     mode: ReadingMode.scroll,
     themeId: 'dark',
@@ -115,6 +131,9 @@ class ReaderSettings {
     autoScroll: false,
     orientation: ReaderOrientation.auto,
     tvMode: false,
+    centeredColumn: false,
+    keepAwake: false,
+    autoPageSeconds: 0,
   );
 
   ReaderThemePreset get theme => readerThemeById(themeId);
@@ -136,6 +155,9 @@ class ReaderSettings {
     bool? autoScroll,
     ReaderOrientation? orientation,
     bool? tvMode,
+    bool? centeredColumn,
+    bool? keepAwake,
+    int? autoPageSeconds,
   }) {
     return ReaderSettings(
       mode: mode ?? this.mode,
@@ -154,6 +176,9 @@ class ReaderSettings {
       autoScroll: autoScroll ?? this.autoScroll,
       orientation: orientation ?? this.orientation,
       tvMode: tvMode ?? this.tvMode,
+      centeredColumn: centeredColumn ?? this.centeredColumn,
+      keepAwake: keepAwake ?? this.keepAwake,
+      autoPageSeconds: autoPageSeconds ?? this.autoPageSeconds,
     );
   }
 }

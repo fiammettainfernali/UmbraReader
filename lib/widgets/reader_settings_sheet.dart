@@ -188,6 +188,63 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
               onSelectionChanged: (selection) =>
                   _update(_settings.copyWith(orientation: selection.first)),
             ),
+            const SizedBox(height: 16),
+
+            _label(theme, 'Hands-free & glasses'),
+            const SizedBox(height: 4),
+            // One-tap preset tuned for XR glasses (e.g. Viture): landscape,
+            // a centred column for the lenses' sharp centre, a soft true-black
+            // theme, and keep-awake since the phone is the source display.
+            OutlinedButton.icon(
+              onPressed: () => _update(
+                _settings.copyWith(
+                  orientation: ReaderOrientation.landscape,
+                  centeredColumn: true,
+                  keepAwake: true,
+                  themeId: 'black',
+                ),
+              ),
+              icon: const Icon(Icons.visibility_outlined),
+              label: const Text('Glasses mode'),
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text('Centred column'),
+              subtitle: const Text(
+                'Keep text in a comfortable centred column with wide margins.',
+              ),
+              value: _settings.centeredColumn,
+              onChanged: (on) =>
+                  _update(_settings.copyWith(centeredColumn: on)),
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text('Keep screen awake'),
+              subtitle: const Text(
+                'Stop the screen sleeping while reading — useful with glasses '
+                'or auto page-turn.',
+              ),
+              value: _settings.keepAwake,
+              onChanged: (on) => _update(_settings.copyWith(keepAwake: on)),
+            ),
+            const SizedBox(height: 8),
+            _label(theme, 'Auto-turn pages (paged mode)'),
+            const SizedBox(height: 6),
+            SegmentedButton<int>(
+              segments: const [
+                ButtonSegment(value: 0, label: Text('Off')),
+                ButtonSegment(value: 20, label: Text('20s')),
+                ButtonSegment(value: 30, label: Text('30s')),
+                ButtonSegment(value: 45, label: Text('45s')),
+                ButtonSegment(value: 60, label: Text('60s')),
+              ],
+              selected: {_settings.autoPageSeconds},
+              showSelectedIcon: false,
+              onSelectionChanged: (s) =>
+                  _update(_settings.copyWith(autoPageSeconds: s.first)),
+            ),
             const SizedBox(height: 20),
 
             _label(theme, 'Theme'),

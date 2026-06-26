@@ -30,6 +30,9 @@ class ReaderPreferences {
   static const _kAutoScroll = 'reader_auto_scroll';
   static const _kOrientation = 'reader_orientation';
   static const _kTvMode = 'reader_tv_mode';
+  static const _kCenteredColumn = 'reader_centered_column';
+  static const _kKeepAwake = 'reader_keep_awake';
+  static const _kAutoPageSeconds = 'reader_auto_page_seconds';
 
   /// Marker key telling us a per-volume override has been opted into.
   static const _kOverrideMarker = 'reader_override_marker';
@@ -43,6 +46,7 @@ class ReaderPreferences {
     _kMode, _kThemeId, _kFontFamily, _kFontSize, _kLineHeight, _kMargin,
     _kSpeechRate, _kVoiceName, _kVoiceLocale, _kBoldText, _kItalicText,
     _kBrightness, _kTextAlign, _kAutoScroll, _kOrientation, _kTvMode,
+    _kCenteredColumn, _kKeepAwake, _kAutoPageSeconds,
   ];
 
   /// Per-volume keys are global keys prefixed with this + the volume's id
@@ -82,6 +86,10 @@ class ReaderPreferences {
         orElse: () => d.orientation,
       ),
       tvMode: prefs.getBool('$p$_kTvMode') ?? d.tvMode,
+      centeredColumn: prefs.getBool('$p$_kCenteredColumn') ?? d.centeredColumn,
+      keepAwake: prefs.getBool('$p$_kKeepAwake') ?? d.keepAwake,
+      autoPageSeconds:
+          prefs.getInt('$p$_kAutoPageSeconds') ?? d.autoPageSeconds,
     );
   }
 
@@ -106,6 +114,9 @@ class ReaderPreferences {
     await prefs.setBool('$p$_kAutoScroll', settings.autoScroll);
     await prefs.setString('$p$_kOrientation', settings.orientation.name);
     await prefs.setBool('$p$_kTvMode', settings.tvMode);
+    await prefs.setBool('$p$_kCenteredColumn', settings.centeredColumn);
+    await prefs.setBool('$p$_kKeepAwake', settings.keepAwake);
+    await prefs.setInt('$p$_kAutoPageSeconds', settings.autoPageSeconds);
     // Only global changes participate in iCloud sync; per-volume overrides
     // stay on the device that set them.
     if (p.isEmpty) {
