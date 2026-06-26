@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/opds_client.dart';
 import '../services/settings_service.dart';
+import '../widgets/section_header.dart';
 
 /// Lets the user enter and save the Novel Grabber OPDS server connection.
 class SettingsScreen extends StatefulWidget {
@@ -178,13 +179,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 : const Icon(Icons.wifi_tethering),
             label: Text(_testing ? 'Testing…' : 'Test connection'),
           ),
-          const SizedBox(height: 28),
-          const Divider(),
-          const SizedBox(height: 12),
-          Text(
-            'Downloads',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
+          const SizedBox(height: 20),
+          const SectionHeader('Downloads', padding: EdgeInsets.only(bottom: 4)),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Auto-download next volume'),

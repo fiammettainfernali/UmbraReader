@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../services/backup_service.dart';
+import '../widgets/section_header.dart';
 
 /// Backup & restore screen — lets the user export every locally-stored
 /// SharedPreferences value as a JSON file via the share sheet, and import
@@ -197,13 +198,10 @@ class _BackupScreenState extends State<BackupScreen> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          Text(
+          const SectionHeader(
             'Save a copy of your reading data',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+            padding: EdgeInsets.only(bottom: 8),
           ),
-          const SizedBox(height: 8),
           Text(
             'Umbra Reader stores reading progress, bookmarks, collections, '
             'recommendation feedback and settings on this device. Export a '
@@ -239,14 +237,11 @@ class _BackupScreenState extends State<BackupScreen> {
               color: theme.colorScheme.outline,
             ),
           ),
-          const SizedBox(height: 32),
-          Text(
+          const SizedBox(height: 28),
+          const SectionHeader(
             'Restore from a backup',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+            padding: EdgeInsets.only(bottom: 8),
           ),
-          const SizedBox(height: 8),
           Text(
             'Copy the contents of a backup file to your clipboard and tap '
             '"Restore from clipboard", or paste the JSON in manually.',

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../services/control_client.dart';
 import '../services/settings_service.dart';
+import '../widgets/section_header.dart';
 import 'novel_search_screen.dart';
 
 /// Remote control for Novel Grabber: server/job status, a live download
@@ -422,13 +423,10 @@ class _ManageScreenState extends State<ManageScreen> {
           ],
 
           // ── queue ──────────────────────────────────────────────────
-          Text(
+          SectionHeader(
             'Queue (${status.queue.length})',
-            style: theme.textTheme.titleSmall?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+            padding: const EdgeInsets.only(bottom: 4),
           ),
-          const SizedBox(height: 4),
           if (status.queue.isEmpty)
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 16),

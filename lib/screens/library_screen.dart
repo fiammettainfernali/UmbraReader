@@ -20,6 +20,7 @@ import '../services/settings_service.dart';
 import '../utils/volume_ordering.dart';
 import '../widgets/add_to_collection_sheet.dart';
 import '../widgets/cached_cover.dart';
+import '../widgets/section_header.dart';
 import 'backup_screen.dart';
 import 'collections_screen.dart';
 import 'glossary_screen.dart';
@@ -1325,34 +1326,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// which threw during the CustomScrollView's intrinsic-sizing pass and
   /// silently nuked everything below it in the sliver list — so be careful
   /// before reintroducing Spacer/Expanded inside this widget.
-  /// A consistent section heading — serif title, a candlelight sparkle, and a
-  /// trailing rule so each shelf (and the main grid) reads as its own clearly
-  /// delineated section instead of blending together.
-  Widget _sectionHeader(String title) {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-      child: Row(
-        children: [
-          Icon(Icons.auto_awesome, size: 15, color: theme.colorScheme.tertiary),
-          const SizedBox(width: 8),
-          Text(
-            title,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Divider(
-              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.4),
-              thickness: 1,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _sectionHeader(String title) => SectionHeader(title);
 
   Widget _buildContinueHero() {
     final theme = Theme.of(context);
@@ -1586,20 +1560,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(child: _sectionHeader('Recommended for you')),
-            if (canRotate)
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: IconButton(
+        SectionHeader(
+          'Recommended for you',
+          trailing: canRotate
+              ? IconButton(
                   icon: const Icon(Icons.refresh),
                   tooltip: 'Show me different',
                   visualDensity: VisualDensity.compact,
                   onPressed: _rotateRecommendations,
-                ),
-              ),
-          ],
+                )
+              : null,
         ),
         SizedBox(
           height: 226,

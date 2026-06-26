@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
 import '../services/settings_service.dart';
+import '../widgets/section_header.dart';
 
 /// Shows reading statistics derived from saved reading positions and
 /// reading-time activity: books started / in progress / finished / chapters
@@ -209,14 +210,11 @@ class _StatsScreenState extends State<StatsScreen> {
           todaySeconds: _activity.dailySeconds[_todayKey()] ?? 0,
           onEdit: _editGoal,
         ),
-        const SizedBox(height: 24),
-        Text(
+        const SizedBox(height: 16),
+        const SectionHeader(
           'Reading activity',
-          style: theme.textTheme.titleSmall?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
+          padding: EdgeInsets.only(bottom: 8),
         ),
-        const SizedBox(height: 8),
         _CalendarHeatmap(dailySeconds: _activity.dailySeconds),
         const SizedBox(height: 8),
         Text(
@@ -228,13 +226,8 @@ class _StatsScreenState extends State<StatsScreen> {
             color: theme.colorScheme.outline,
           ),
         ),
-        const SizedBox(height: 28),
-        Text(
-          'By book',
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
-        ),
+        const SizedBox(height: 20),
+        const SectionHeader('By book', padding: EdgeInsets.only(bottom: 8)),
         const SizedBox(height: 4),
         for (final entry in entries)
           _BookRow(

@@ -18,6 +18,7 @@ import '../services/settings_service.dart';
 import '../utils/volume_ordering.dart';
 import '../widgets/add_to_collection_sheet.dart';
 import '../widgets/cached_cover.dart';
+import '../widgets/section_header.dart';
 import 'filtered_series_screen.dart';
 import 'glossary_screen.dart';
 import 'reader_screen.dart';
@@ -500,14 +501,8 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
                   setState(() => _descriptionExpanded = !_descriptionExpanded),
             ),
           ],
-          const SizedBox(height: 20),
-          Text(
-            'My status',
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: Theme.of(context).colorScheme.outline,
-            ),
-          ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
+          const SectionHeader('My status', padding: EdgeInsets.only(bottom: 8)),
           Wrap(
             spacing: 8,
             children: [
@@ -541,18 +536,14 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   /// A horizontal shelf of "if you like this, try…" suggestions drawn from
   /// the library based on this series' content tags.
   Widget _buildSimilarSection() {
-    final theme = Theme.of(context);
     final headers = OpdsClient(widget.settings).authHeaders;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
+        const SectionHeader(
           'More like this',
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-          ),
+          padding: EdgeInsets.only(bottom: 8),
         ),
-        const SizedBox(height: 8),
         SizedBox(
           height: 226,
           child: ListView.separated(
@@ -658,40 +649,37 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
             .length ??
         0;
 
+    final Widget? trailing;
+    if (_downloadingAll) {
+      trailing = Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 8),
+          Text('Downloading…', style: theme.textTheme.labelMedium),
+        ],
+      );
+    } else if (pending > 0 && !_offline) {
+      trailing = TextButton.icon(
+        onPressed: _downloadAll,
+        icon: const Icon(Icons.download, size: 18),
+        label: Text('Download all ($pending)'),
+      );
+    } else {
+      trailing = null;
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                count == null ? 'Volumes' : 'Volumes ($count)',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            if (_downloadingAll)
-              Row(
-                children: [
-                  const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  const SizedBox(width: 8),
-                  Text('Downloading…', style: theme.textTheme.labelMedium),
-                ],
-              )
-            else if (pending > 0 && !_offline)
-              TextButton.icon(
-                onPressed: _downloadAll,
-                icon: const Icon(Icons.download, size: 18),
-                label: Text('Download all ($pending)'),
-              ),
-          ],
+        SectionHeader(
+          count == null ? 'Volumes' : 'Volumes ($count)',
+          padding: const EdgeInsets.only(bottom: 4),
+          trailing: trailing,
         ),
-        const SizedBox(height: 4),
         content,
       ],
     );
