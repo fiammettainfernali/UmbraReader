@@ -8,15 +8,24 @@ import 'package:path_provider/path_provider.dart';
 
 import 'tts_engine.dart';
 
+/// A synthesized clip: its local MP3 path plus optional word marks. Each mark
+/// is `[charStart, charEnd, startSeconds]` within the chunk's text, letting the
+/// reader highlight word-by-word as the clip plays.
+class _Clip {
+  const _Clip(this.path, this.marks);
+  final String path;
+  final List<List<num>> marks;
+}
+
 /// Read-aloud engine backed by a self-hosted Kokoro voice server.
 ///
 /// Each paragraph chunk is synthesized to an MP3 by the server (`POST /tts`),
 /// cached on disk, and played gaplessly via [AudioPlayer]. While one chunk
-/// plays, the next couple are fetched ahead so playback rarely stalls. Because
-/// the server's RTF is well under 1, prefetch comfortably stays ahead.
+/// plays, the next couple are fetched ahead so playback rarely stalls.
 ///
-/// Sentence-level highlighting only: [onWord] fires once per chunk (covering
-/// the whole chunk) since Kokoro does not emit per-word timings.
+/// The server returns per-word timing in an `X-Tts-Marks` header; as a clip
+/// plays we watch the playback position and fire [onWord] for the current
+/// word, so the reader highlight follows along word-by-word.
 class NetworkTtsService implements TtsEngine {
   NetworkTtsService({String baseUrl = '', String token = ''})
       : _baseUrl = _normalize(baseUrl),
@@ -40,8 +49,10 @@ class NetworkTtsService implements TtsEngine {
 
   Completer<void>? _clipDone;
   StreamSubscription<ProcessingState>? _stateSub;
+  StreamSubscription<Duration>? _posSub;
+  int _lastMarkFired = -1;
   Directory? _cacheDir;
-  final Map<String, Future<String?>> _inflight = {};
+  final Map<String, Future<_Clip?>> _inflight = {};
 
   @override
   void Function(TtsPlaybackState state)? onStateChanged;
@@ -133,10 +144,10 @@ class NetworkTtsService implements TtsEngine {
     _speed = _rateToSpeed(rate);
     const sample =
         'The candle flickered as she opened the old book and began to read.';
-    final path = await _resolveAudio(_cacheKey(_voice, _speed, sample), sample);
-    if (path == null) return;
+    final clip = await _resolveAudio(_cacheKey(_voice, _speed, sample), sample);
+    if (clip == null) return;
     try {
-      await _player.setFilePath(path);
+      await _player.setFilePath(clip.path);
       await _player.play();
     } on Exception {
       // Preview is best-effort.
@@ -185,18 +196,17 @@ class NetworkTtsService implements TtsEngine {
         _index++;
         continue;
       }
-      final path = await _ensureAudio(_index);
+      final clip = await _ensureAudio(_index);
       if (gen != _gen || _state != TtsPlaybackState.playing) return;
-      if (path == null) {
+      if (clip == null) {
         // Synthesis failed even after a retry — skip rather than stall.
         _index++;
         continue;
       }
-      onWord?.call(_index, 0, _chunks[_index].length);
       // Prefetch the next two chunks while this one plays.
       _prefetch(_index + 1);
       _prefetch(_index + 2);
-      await _playFile(path);
+      await _playClip(_index, clip);
       if (gen != _gen || _state != TtsPlaybackState.playing) return;
       _index++;
     }
@@ -204,16 +214,41 @@ class NetworkTtsService implements TtsEngine {
     onChapterFinished?.call();
   }
 
-  Future<void> _playFile(String path) async {
+  Future<void> _playClip(int chunkIndex, _Clip clip) async {
     final done = Completer<void>();
     _clipDone = done;
+    _lastMarkFired = -1;
+    await _posSub?.cancel();
+    _posSub = null;
+
+    final marks = clip.marks;
+    if (marks.isEmpty) {
+      // No word timing — highlight the whole chunk for the duration.
+      onWord?.call(chunkIndex, 0, _chunks[chunkIndex].length);
+    } else {
+      _posSub = _player.positionStream.listen((pos) {
+        final t = pos.inMilliseconds / 1000.0;
+        var idx = _lastMarkFired;
+        while (idx + 1 < marks.length && marks[idx + 1][2] <= t) {
+          idx++;
+        }
+        if (idx >= 0 && idx != _lastMarkFired) {
+          _lastMarkFired = idx;
+          final m = marks[idx];
+          onWord?.call(chunkIndex, m[0].toInt(), m[1].toInt());
+        }
+      });
+    }
+
     try {
-      await _player.setFilePath(path);
+      await _player.setFilePath(clip.path);
       await _player.play();
     } on Exception {
       if (!done.isCompleted) done.complete();
     }
     await done.future;
+    await _posSub?.cancel();
+    _posSub = null;
   }
 
   void _prefetch(int i) {
@@ -221,8 +256,8 @@ class NetworkTtsService implements TtsEngine {
     unawaited(_ensureAudio(i));
   }
 
-  /// Returns a local MP3 path for chunk [i], synthesizing + caching on miss.
-  Future<String?> _ensureAudio(int i) {
+  /// Returns the clip for chunk [i], synthesizing + caching on miss.
+  Future<_Clip?> _ensureAudio(int i) {
     final text = _chunks[i].trim();
     final key = _cacheKey(_voice, _speed, text);
     final existing = _inflight[key];
@@ -233,11 +268,12 @@ class NetworkTtsService implements TtsEngine {
     return fut;
   }
 
-  Future<String?> _resolveAudio(String key, String text) async {
+  Future<_Clip?> _resolveAudio(String key, String text) async {
     final dir = await _ensureCacheDir();
     final file = File('${dir.path}/$key.mp3');
+    final marksFile = File('${dir.path}/$key.marks');
     if (await file.exists() && await file.length() > 0) {
-      return file.path;
+      return _Clip(file.path, await _readMarks(marksFile));
     }
     for (var attempt = 0; attempt < 2; attempt++) {
       try {
@@ -255,7 +291,11 @@ class NetworkTtsService implements TtsEngine {
             .timeout(const Duration(seconds: 40));
         if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
           await file.writeAsBytes(resp.bodyBytes, flush: true);
-          return file.path;
+          final marks = _parseMarks(resp.headers['x-tts-marks']);
+          if (marks.isNotEmpty) {
+            await marksFile.writeAsString(jsonEncode(marks), flush: true);
+          }
+          return _Clip(file.path, marks);
         }
       } on Exception {
         // Retry once, then give up on this chunk.
@@ -264,6 +304,30 @@ class NetworkTtsService implements TtsEngine {
       }
     }
     return null;
+  }
+
+  List<List<num>> _parseMarks(String? header) {
+    if (header == null || header.isEmpty) return const [];
+    try {
+      final decoded = jsonDecode(header);
+      if (decoded is! List) return const [];
+      return [
+        for (final m in decoded)
+          if (m is List && m.length >= 3)
+            [m[0] as num, m[1] as num, m[2] as num],
+      ];
+    } on Object {
+      return const [];
+    }
+  }
+
+  Future<List<List<num>>> _readMarks(File f) async {
+    try {
+      if (!await f.exists()) return const [];
+      return _parseMarks(await f.readAsString());
+    } on Object {
+      return const [];
+    }
   }
 
   Future<Directory> _ensureCacheDir() async {
@@ -323,6 +387,8 @@ class NetworkTtsService implements TtsEngine {
     final c = _clipDone;
     if (c != null && !c.isCompleted) c.complete();
     _clipDone = null;
+    await _posSub?.cancel();
+    _posSub = null;
     try {
       await _player.stop();
     } on Exception {

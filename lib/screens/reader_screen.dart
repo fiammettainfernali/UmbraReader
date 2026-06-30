@@ -24,6 +24,7 @@ import '../services/reading_progress_store.dart';
 import '../services/tts_engine.dart';
 import '../services/tts_service.dart';
 import '../utils/volume_ordering.dart';
+import '../widgets/listen_view.dart';
 import '../widgets/reader_settings_sheet.dart';
 import 'glossary_screen.dart';
 import 'highlights_screen.dart';
@@ -357,6 +358,10 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   ReaderSettings _settings = ReaderSettings.defaults;
   bool _chromeVisible = true;
+
+  /// When true, the reader is replaced by the full-screen "Listen" player —
+  /// a cover-art transport for hands-off listening.
+  bool _listenMode = false;
 
   // Paged-mode pagination cache.
   List<List<_PageBlock>>? _pages;
@@ -1111,18 +1116,35 @@ class _ReaderScreenState extends State<ReaderScreen>
     );
   }
 
-  /// Highlights the sentence being read and keeps it on screen.
+  /// Highlights the word being read and keeps it on screen. Falls back to the
+  /// enclosing sentence when a precise word range isn't available.
   void _onTtsWord(int chunkIndex, int start, int end) {
     if (!mounted) return;
     if (chunkIndex < 0 || chunkIndex >= _ttsBlockForChunk.length) return;
     final blockIndex = _ttsBlockForChunk[chunkIndex];
     final blocks = _blocks ?? const <ContentBlock>[];
     if (blockIndex < 0 || blockIndex >= blocks.length) return;
-    final range = _sentenceRangeAt(_blockText(blocks[blockIndex]), start);
+    final text = _blockText(blocks[blockIndex]);
+    final int hlStart;
+    final int hlEnd;
+    if (end > start && start >= 0 && end <= text.length) {
+      hlStart = start;
+      hlEnd = end;
+    } else {
+      final range = _sentenceRangeAt(text, start);
+      hlStart = range.$1;
+      hlEnd = range.$2;
+    }
     setState(() {
       _speakingBlock = blockIndex;
-      _speakingStart = range.$1;
-      _speakingEnd = range.$2;
+      _speakingStart = hlStart;
+      _speakingEnd = hlEnd;
+      // In listen mode the page/scroll isn't built, so drive the chapter
+      // progress bar from how far read-aloud has moved instead.
+      if (_listenMode && _ttsBlockForChunk.length > 1) {
+        _chapterFraction =
+            (chunkIndex / (_ttsBlockForChunk.length - 1)).clamp(0.0, 1.0);
+      }
     });
     _followSpeaking(blockIndex);
   }
@@ -1197,6 +1219,62 @@ class _ReaderScreenState extends State<ReaderScreen>
     } else {
       _startTts();
     }
+  }
+
+  /// Swaps between the reader and the full-screen "Listen" player.
+  void _toggleListen() {
+    setState(() => _listenMode = !_listenMode);
+  }
+
+  /// Cycles the read-aloud speed through common multipliers (1×–2×) for the
+  /// listen player's quick speed button.
+  void _cycleSpeed() {
+    const rates = [0.5, 0.625, 0.75, 0.875, 1.0];
+    final current = _settings.speechRate;
+    var next = rates.first;
+    for (var i = 0; i < rates.length; i++) {
+      if ((rates[i] - current).abs() < 0.02) {
+        next = rates[(i + 1) % rates.length];
+        break;
+      }
+    }
+    _applySettings(_settings.copyWith(speechRate: next));
+  }
+
+  /// Read-aloud speed as a playback multiplier label, e.g. "1.5×".
+  String _speedLabel() {
+    final m = _settings.speechRate * 2;
+    var s = m.toStringAsFixed(2);
+    if (s.contains('.')) {
+      s = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+    }
+    return '$s×';
+  }
+
+  Widget _buildListen(EpubBook book, ReaderThemePreset preset) {
+    final minutesLeft = _chapterWordCount * (1 - _chapterFraction) / 220.0;
+    return Scaffold(
+      backgroundColor: preset.background,
+      body: ListenView(
+        seriesId: widget.volume.seriesOpdsId,
+        title: widget.volume.title,
+        chapterTitle: book.chapters[_chapterIndex].title,
+        chapterIndex: _chapterIndex,
+        chapterTotal: book.chapters.length,
+        progress: _chapterFraction.clamp(0.0, 1.0),
+        minutesLeft: minutesLeft,
+        isPlaying: _ttsService.state == TtsPlaybackState.playing,
+        speedLabel: _speedLabel(),
+        sleepActive: _sleepOption != SleepTimerOption.off,
+        preset: preset,
+        onClose: _toggleListen,
+        onPlayPause: _toggleTts,
+        onPrevChapter: () => _goToChapter(_chapterIndex - 1),
+        onNextChapter: () => _goToChapter(_chapterIndex + 1),
+        onCycleSpeed: _cycleSpeed,
+        onOpenSettings: _openSettings,
+      ),
+    );
   }
 
   /// When read-aloud reaches the end of a chapter, roll into the next one and
@@ -1819,6 +1897,7 @@ class _ReaderScreenState extends State<ReaderScreen>
 
     final book = _book!;
     final preset = _settings.theme;
+    if (_listenMode) return _buildListen(book, preset);
     final mq = MediaQuery.of(context);
     // Centred-column mode caps the reading area to a comfortable measure and
     // centres it (wide side gutters); otherwise it spans the screen.
@@ -1880,6 +1959,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                       ttsState: _ttsService.state,
                       onBack: () => Navigator.of(context).pop(),
                       onToggleTts: _toggleTts,
+                      onToggleListen: _toggleListen,
                       onOpenSettings: _openSettings,
                       onShowContents: _showTableOfContents,
                       onSearch: _openSearch,
@@ -2316,6 +2396,7 @@ class _TopBar extends StatelessWidget {
     required this.ttsState,
     required this.onBack,
     required this.onToggleTts,
+    required this.onToggleListen,
     required this.onOpenSettings,
     required this.onShowContents,
     required this.onSearch,
@@ -2329,6 +2410,7 @@ class _TopBar extends StatelessWidget {
   final TtsPlaybackState ttsState;
   final VoidCallback onBack;
   final VoidCallback onToggleTts;
+  final VoidCallback onToggleListen;
   final VoidCallback onOpenSettings;
   final VoidCallback onShowContents;
   final VoidCallback onSearch;
@@ -2374,6 +2456,12 @@ class _TopBar extends StatelessWidget {
                 color: preset.text,
                 tooltip: 'Read aloud',
                 onPressed: onToggleTts,
+              ),
+              IconButton(
+                icon: const Icon(Icons.headphones_outlined),
+                color: preset.text,
+                tooltip: 'Listen mode',
+                onPressed: onToggleListen,
               ),
               IconButton(
                 icon: const Icon(Icons.search),
