@@ -51,7 +51,7 @@ class NetworkTtsService implements TtsEngine {
   bool _sessionReady = false;
   Completer<void>? _clipDone;
   StreamSubscription<ProcessingState>? _stateSub;
-  StreamSubscription<Duration>? _posSub;
+  Timer? _hlTimer;
   int _lastMarkFired = -1;
   Directory? _cacheDir;
   final Map<String, Future<_Clip?>> _inflight = {};
@@ -236,16 +236,26 @@ class NetworkTtsService implements TtsEngine {
     final done = Completer<void>();
     _clipDone = done;
     _lastMarkFired = -1;
-    await _posSub?.cancel();
-    _posSub = null;
+    _hlTimer?.cancel();
+    _hlTimer = null;
+
+    try {
+      await _player.setFilePath(clip.path);
+      await _player.play();
+    } on Exception {
+      if (!done.isCompleted) done.complete();
+    }
 
     final marks = clip.marks;
     if (marks.isEmpty) {
       // No word timing — highlight the whole chunk for the duration.
       onWord?.call(chunkIndex, 0, _chunks[chunkIndex].length);
     } else {
-      _posSub = _player.positionStream.listen((pos) {
-        final t = pos.inMilliseconds / 1000.0;
+      // Drive the highlight from the playback position on a steady tick. This
+      // is more reliable than positionStream, which can emit sparsely or
+      // replay a stale position from the previous clip.
+      _hlTimer = Timer.periodic(const Duration(milliseconds: 90), (_) {
+        final t = _player.position.inMilliseconds / 1000.0;
         var idx = _lastMarkFired;
         while (idx + 1 < marks.length && marks[idx + 1][2] <= t) {
           idx++;
@@ -258,15 +268,9 @@ class NetworkTtsService implements TtsEngine {
       });
     }
 
-    try {
-      await _player.setFilePath(clip.path);
-      await _player.play();
-    } on Exception {
-      if (!done.isCompleted) done.complete();
-    }
     await done.future;
-    await _posSub?.cancel();
-    _posSub = null;
+    _hlTimer?.cancel();
+    _hlTimer = null;
   }
 
   void _prefetch(int i) {
@@ -290,7 +294,11 @@ class NetworkTtsService implements TtsEngine {
     final dir = await _ensureCacheDir();
     final file = File('${dir.path}/$key.mp3');
     final marksFile = File('${dir.path}/$key.marks');
-    if (await file.exists() && await file.length() > 0) {
+    // Require the marks sidecar too, so clips cached before word-timing was
+    // added are re-fetched (otherwise their highlight would freeze).
+    if (await file.exists() &&
+        await file.length() > 0 &&
+        await marksFile.exists()) {
       return _Clip(file.path, await _readMarks(marksFile));
     }
     for (var attempt = 0; attempt < 2; attempt++) {
@@ -310,9 +318,9 @@ class NetworkTtsService implements TtsEngine {
         if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
           await file.writeAsBytes(resp.bodyBytes, flush: true);
           final marks = _parseMarks(resp.headers['x-tts-marks']);
-          if (marks.isNotEmpty) {
-            await marksFile.writeAsString(jsonEncode(marks), flush: true);
-          }
+          // Always write the sidecar (even when empty) so the cache is
+          // considered complete and isn't re-fetched on every play.
+          await marksFile.writeAsString(jsonEncode(marks), flush: true);
           return _Clip(file.path, marks);
         }
       } on Exception {
@@ -405,12 +413,59 @@ class NetworkTtsService implements TtsEngine {
     final c = _clipDone;
     if (c != null && !c.isCompleted) c.complete();
     _clipDone = null;
-    await _posSub?.cancel();
-    _posSub = null;
+    _hlTimer?.cancel();
+    _hlTimer = null;
     try {
       await _player.stop();
     } on Exception {
       // ignore
+    }
+  }
+
+  /// Skips playback by [seconds] (negative = back). Seeks within the current
+  /// paragraph clip, stepping to the adjacent paragraph at the boundaries.
+  Future<void> nudge(int seconds) async {
+    if (_state == TtsPlaybackState.stopped) return;
+    final dur = _player.duration ?? Duration.zero;
+    final pos = _player.position;
+    final target = pos + Duration(seconds: seconds);
+    if (seconds < 0 && target < const Duration(seconds: 1)) {
+      // Near the start: jump to the previous paragraph, else restart this one.
+      if (pos < const Duration(seconds: 2) && _index > 0) {
+        await _jumpToChunk(_index - 1);
+      } else {
+        await _player.seek(Duration.zero);
+        _lastMarkFired = -1;
+      }
+      return;
+    }
+    if (seconds > 0 && dur > Duration.zero && target >= dur) {
+      await _jumpToChunk(_index + 1);
+      return;
+    }
+    await _player.seek(target < Duration.zero ? Duration.zero : target);
+    _lastMarkFired = -1;
+  }
+
+  /// Restarts the playback loop at [newIndex] (used for chunk-level seeking).
+  Future<void> _jumpToChunk(int newIndex) async {
+    final clamped = newIndex.clamp(0, _chunks.length - 1);
+    final wasPlaying = _state == TtsPlaybackState.playing;
+    _gen++;
+    final c = _clipDone;
+    if (c != null && !c.isCompleted) c.complete();
+    _clipDone = null;
+    _hlTimer?.cancel();
+    _hlTimer = null;
+    try {
+      await _player.stop();
+    } on Exception {
+      // ignore
+    }
+    _index = clamped;
+    if (wasPlaying) {
+      final gen = ++_gen;
+      unawaited(_run(gen));
     }
   }
 

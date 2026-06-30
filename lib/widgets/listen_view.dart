@@ -22,11 +22,14 @@ class ListenView extends StatelessWidget {
     required this.isPlaying,
     required this.speedLabel,
     required this.sleepActive,
+    required this.canSeek,
     required this.preset,
     required this.onClose,
     required this.onPlayPause,
     required this.onPrevChapter,
     required this.onNextChapter,
+    required this.onBack15,
+    required this.onForward15,
     required this.onCycleSpeed,
     required this.onOpenSettings,
   });
@@ -41,12 +44,17 @@ class ListenView extends StatelessWidget {
   final bool isPlaying;
   final String speedLabel;
   final bool sleepActive;
+
+  /// Whether the active engine supports 15-second seeking (Kokoro audio only).
+  final bool canSeek;
   final ReaderThemePreset preset;
 
   final VoidCallback onClose;
   final VoidCallback onPlayPause;
   final VoidCallback onPrevChapter;
   final VoidCallback onNextChapter;
+  final VoidCallback onBack15;
+  final VoidCallback onForward15;
   final VoidCallback onCycleSpeed;
   final VoidCallback onOpenSettings;
 
@@ -184,22 +192,30 @@ class ListenView extends StatelessWidget {
                 IconButton(
                   icon: const Icon(Icons.skip_previous),
                   color: _text,
-                  iconSize: 40,
+                  iconSize: 32,
                   tooltip: 'Previous chapter',
                   onPressed: chapterIndex > 0 ? onPrevChapter : null,
                 ),
-                const SizedBox(width: 24),
+                if (canSeek) ...[
+                  const SizedBox(width: 8),
+                  _SeekButton(seconds: -15, color: _text, onTap: onBack15),
+                ],
+                const SizedBox(width: 16),
                 _PlayButton(
                   isPlaying: isPlaying,
                   fill: _text,
                   icon: preset.background,
                   onPressed: onPlayPause,
                 ),
-                const SizedBox(width: 24),
+                const SizedBox(width: 16),
+                if (canSeek) ...[
+                  _SeekButton(seconds: 15, color: _text, onTap: onForward15),
+                  const SizedBox(width: 8),
+                ],
                 IconButton(
                   icon: const Icon(Icons.skip_next),
                   color: _text,
-                  iconSize: 40,
+                  iconSize: 32,
                   tooltip: 'Next chapter',
                   onPressed:
                       chapterIndex < chapterTotal - 1 ? onNextChapter : null,
@@ -251,6 +267,51 @@ class ListenView extends StatelessWidget {
     return m >= 60
         ? '${m ~/ 60}h ${m % 60}m left'
         : '$m min left';
+  }
+}
+
+/// A skip-back / skip-forward 15-second button (circular arrow + "15"), in the
+/// style of the iOS audiobook transport.
+class _SeekButton extends StatelessWidget {
+  const _SeekButton({
+    required this.seconds,
+    required this.color,
+    required this.onTap,
+  });
+
+  /// Negative for back, positive for forward.
+  final int seconds;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: seconds < 0 ? 'Back 15 seconds' : 'Forward 15 seconds',
+      onPressed: onTap,
+      icon: SizedBox(
+        width: 40,
+        height: 40,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            // Mirror the circular-arrow icon for the forward direction.
+            Transform.scale(
+              scaleX: seconds < 0 ? 1 : -1,
+              child: Icon(Icons.replay, size: 38, color: color),
+            ),
+            Text(
+              '${seconds.abs()}',
+              style: TextStyle(
+                color: color,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

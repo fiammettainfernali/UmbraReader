@@ -1233,6 +1233,13 @@ class _ReaderScreenState extends State<ReaderScreen>
     setState(() => _listenMode = !_listenMode);
   }
 
+  /// Skips read-aloud by [seconds] (negative = back). Only the Kokoro engine
+  /// plays seekable audio clips, so this is a no-op on the on-device engine.
+  void _nudge(int seconds) {
+    final engine = _ttsService;
+    if (engine is NetworkTtsService) engine.nudge(seconds);
+  }
+
   /// Cycles the read-aloud speed through common multipliers (1×–2×) for the
   /// listen player's quick speed button.
   void _cycleSpeed() {
@@ -1273,11 +1280,14 @@ class _ReaderScreenState extends State<ReaderScreen>
         isPlaying: _ttsService.state == TtsPlaybackState.playing,
         speedLabel: _speedLabel(),
         sleepActive: _sleepOption != SleepTimerOption.off,
+        canSeek: _ttsService is NetworkTtsService,
         preset: preset,
         onClose: _toggleListen,
         onPlayPause: _toggleTts,
         onPrevChapter: () => _goToChapter(_chapterIndex - 1),
         onNextChapter: () => _goToChapter(_chapterIndex + 1),
+        onBack15: () => _nudge(-15),
+        onForward15: () => _nudge(15),
         onCycleSpeed: _cycleSpeed,
         onOpenSettings: _openSettings,
       ),
