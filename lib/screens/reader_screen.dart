@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -28,6 +27,7 @@ import '../services/tts_skip.dart';
 import '../utils/volume_ordering.dart';
 import '../widgets/listen_view.dart';
 import '../widgets/reader_settings_sheet.dart';
+import '../widgets/seek_button.dart';
 import 'glossary_screen.dart';
 import 'highlights_screen.dart';
 
@@ -1126,27 +1126,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     );
   }
 
-  /// Long-press-to-skip: while read-aloud is active, holding a word in the
-  /// reader jumps playback to that word's paragraph. [originIndex] is the
-  /// pressed block; [charInBlock] (unused for now) is the character within it.
-  void _skipToBlock(int originIndex, int charInBlock) {
-    if (_ttsService.state == TtsPlaybackState.stopped) return;
-    if (_ttsBlockForChunk.isEmpty) return;
-    var chunk = _ttsBlockForChunk.indexOf(originIndex);
-    if (chunk < 0) {
-      // Tapped block isn't spoken (e.g. a skipped heading) — take the next
-      // spoken paragraph at or after it.
-      for (var c = 0; c < _ttsBlockForChunk.length; c++) {
-        if (_ttsBlockForChunk[c] >= originIndex) {
-          chunk = c;
-          break;
-        }
-      }
-      if (chunk < 0) chunk = _ttsBlockForChunk.length - 1;
-    }
-    _startTts(startAtChunk: chunk);
-  }
-
   /// Highlights the word being read and keeps it on screen. Falls back to the
   /// enclosing sentence when a precise word range isn't available.
   void _onTtsWord(int chunkIndex, int start, int end) {
@@ -1262,6 +1241,52 @@ class _ReaderScreenState extends State<ReaderScreen>
   void _nudge(int seconds) {
     final engine = _ttsService;
     if (engine is NetworkTtsService) engine.nudge(seconds);
+  }
+
+  /// A compact read-aloud transport (⟲15 · play/pause · 15⟳) shown in the
+  /// reader, above the chapter bar, while Kokoro playback is active.
+  Widget _buildTtsTransport(ReaderThemePreset preset) {
+    final playing = _ttsService.state == TtsPlaybackState.playing;
+    return Material(
+      color: preset.background,
+      surfaceTintColor: Colors.transparent,
+      elevation: 2,
+      child: SafeArea(
+        top: false,
+        bottom: false,
+        child: SizedBox(
+          height: 54,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SeekButton(
+                seconds: -15,
+                color: preset.text,
+                size: 36,
+                onTap: () => _nudge(-15),
+              ),
+              const SizedBox(width: 28),
+              IconButton(
+                iconSize: 42,
+                color: preset.text,
+                tooltip: playing ? 'Pause' : 'Play',
+                icon: Icon(
+                  playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
+                ),
+                onPressed: _toggleTts,
+              ),
+              const SizedBox(width: 28),
+              SeekButton(
+                seconds: 15,
+                color: preset.text,
+                size: 36,
+                onTap: () => _nudge(15),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   /// Cycles the read-aloud speed through common multipliers (1×–2×) for the
@@ -2089,6 +2114,17 @@ class _ReaderScreenState extends State<ReaderScreen>
                     ),
                   ),
                 ),
+                // Read-aloud transport (skip ±15s + play/pause), shown above
+                // the chapter bar while the Kokoro engine is playing seekable
+                // audio.
+                if (_ttsService.state != TtsPlaybackState.stopped &&
+                    _ttsService is NetworkTtsService)
+                  Positioned(
+                    bottom: bottomSpace,
+                    left: 0,
+                    right: 0,
+                    child: _fadeChrome(_buildTtsTransport(preset)),
+                  ),
                 if (_settings.brightness < 1.0)
                   Positioned.fill(
                     child: IgnorePointer(
@@ -2131,10 +2167,6 @@ class _ReaderScreenState extends State<ReaderScreen>
         highlightStart: index == _speakingBlock ? _speakingStart : null,
         highlightEnd: index == _speakingBlock ? _speakingEnd : null,
         highlightColor: _highlightedBlocks[index],
-        originIndex: index,
-        onWordTap: _ttsService.state != TtsPlaybackState.stopped
-            ? _skipToBlock
-            : null,
       ),
     );
   }
@@ -2252,11 +2284,6 @@ class _ReaderScreenState extends State<ReaderScreen>
                   ? _speakingEnd - pageBlocks[j].charOffset
                   : null,
               highlightColor: _highlightedBlocks[pageBlocks[j].originIndex],
-              originIndex: pageBlocks[j].originIndex,
-              sliceCharOffset: pageBlocks[j].charOffset,
-              onWordTap: _ttsService.state != TtsPlaybackState.stopped
-                  ? _skipToBlock
-                  : null,
             ),
         ],
       ),
@@ -2274,9 +2301,6 @@ class _BlockView extends StatelessWidget {
     this.highlightStart,
     this.highlightEnd,
     this.highlightColor,
-    this.originIndex = -1,
-    this.sliceCharOffset = 0,
-    this.onWordTap,
   });
 
   final ContentBlock block;
@@ -2286,18 +2310,6 @@ class _BlockView extends StatelessWidget {
   /// True for the last block on a page — its trailing gap is dropped so the
   /// content can sit flush against the page bottom.
   final bool isLast;
-
-  /// The originating block index (in `_blocks`) this view renders — used by
-  /// tap-to-skip to map a tapped word back to a read-aloud chunk.
-  final int originIndex;
-
-  /// For a paged slice, the character offset of this slice within its origin
-  /// block, so a tapped character maps back to the full block's coordinates.
-  final int sliceCharOffset;
-
-  /// When set, the body text is tappable and reports the tapped character
-  /// (origin-block coordinates) so read-aloud can jump there.
-  final void Function(int originIndex, int charInBlock)? onWordTap;
 
   /// Character range to highlight (the sentence being read aloud), or null.
   final int? highlightStart;
@@ -2314,20 +2326,18 @@ class _BlockView extends StatelessWidget {
         return Padding(
           padding: EdgeInsets.only(bottom: isLast ? 0 : _paragraphGap),
           child: _maybeTint(
-            child: _wrapTap(
-              Text.rich(
-                TextSpan(
-                  children: _spansFor(
-                    context,
-                    paragraph.runs,
-                    _paragraphStyle(settings, preset.text),
-                  ),
+            child: Text.rich(
+              TextSpan(
+                children: _spansFor(
+                  context,
+                  paragraph.runs,
+                  _paragraphStyle(settings, preset.text),
                 ),
-                textAlign: settings.textAlign == ReaderTextAlign.justify
-                    ? TextAlign.justify
-                    : TextAlign.left,
-                textScaler: TextScaler.noScaling,
               ),
+              textAlign: settings.textAlign == ReaderTextAlign.justify
+                  ? TextAlign.justify
+                  : TextAlign.left,
+              textScaler: TextScaler.noScaling,
             ),
           ),
         );
@@ -2338,17 +2348,15 @@ class _BlockView extends StatelessWidget {
             bottom: isLast ? 0 : _headingBottomGap,
           ),
           child: _maybeTint(
-            child: _wrapTap(
-              Text.rich(
-                TextSpan(
-                  children: _spansFor(
-                    context,
-                    heading.runs,
-                    _headingStyle(settings, heading.level, preset.text),
-                  ),
+            child: Text.rich(
+              TextSpan(
+                children: _spansFor(
+                  context,
+                  heading.runs,
+                  _headingStyle(settings, heading.level, preset.text),
                 ),
-                textScaler: TextScaler.noScaling,
               ),
+              textScaler: TextScaler.noScaling,
             ),
           ),
         );
@@ -2387,41 +2395,6 @@ class _BlockView extends StatelessWidget {
           ),
         );
     }
-  }
-
-  /// When read-aloud is active, makes [textChild] respond to a *long-press*:
-  /// holding a word reports the character under the finger (in origin-block
-  /// coordinates) via [onWordTap], so playback can jump there. Plain taps are
-  /// left to the reader (page-turn / chrome toggle) — only the long-press is
-  /// claimed, so the menu can still be tapped away while listening.
-  Widget _wrapTap(Widget textChild) {
-    final cb = onWordTap;
-    if (cb == null) return textChild;
-    return Builder(
-      builder: (context) => GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onLongPressStart: (details) {
-          final para = _findParagraph(context.findRenderObject());
-          if (para == null) return;
-          final local = para.globalToLocal(details.globalPosition);
-          final pos = para.getPositionForOffset(local).offset;
-          HapticFeedback.selectionClick();
-          cb(originIndex, sliceCharOffset + pos);
-        },
-        child: textChild,
-      ),
-    );
-  }
-
-  /// Finds the [RenderParagraph] in [root]'s subtree (the rendered text).
-  RenderParagraph? _findParagraph(RenderObject? root) {
-    if (root == null) return null;
-    if (root is RenderParagraph) return root;
-    RenderParagraph? found;
-    root.visitChildren((child) {
-      found ??= _findParagraph(child);
-    });
-    return found;
   }
 
   /// Wraps [child] in a soft tint matching the saved [highlightColor] when

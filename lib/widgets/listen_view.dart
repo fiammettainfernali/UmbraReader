@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/reader_theme.dart';
 import 'cached_cover.dart';
+import 'seek_button.dart';
 
 /// Full-screen "Listen" player — an Apple Music-style transport for hands-off
 /// read-aloud. Shows the cover, title, current chapter, a progress bar, and
@@ -198,7 +199,7 @@ class ListenView extends StatelessWidget {
                 ),
                 if (canSeek) ...[
                   const SizedBox(width: 8),
-                  _SeekButton(seconds: -15, color: _text, onTap: onBack15),
+                  SeekButton(seconds: -15, color: _text, onTap: onBack15),
                 ],
                 const SizedBox(width: 16),
                 _PlayButton(
@@ -209,7 +210,7 @@ class ListenView extends StatelessWidget {
                 ),
                 const SizedBox(width: 16),
                 if (canSeek) ...[
-                  _SeekButton(seconds: 15, color: _text, onTap: onForward15),
+                  SeekButton(seconds: 15, color: _text, onTap: onForward15),
                   const SizedBox(width: 8),
                 ],
                 IconButton(
@@ -267,51 +268,6 @@ class ListenView extends StatelessWidget {
     return m >= 60
         ? '${m ~/ 60}h ${m % 60}m left'
         : '$m min left';
-  }
-}
-
-/// A skip-back / skip-forward 15-second button (circular arrow + "15"), in the
-/// style of the iOS audiobook transport.
-class _SeekButton extends StatelessWidget {
-  const _SeekButton({
-    required this.seconds,
-    required this.color,
-    required this.onTap,
-  });
-
-  /// Negative for back, positive for forward.
-  final int seconds;
-  final Color color;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: seconds < 0 ? 'Back 15 seconds' : 'Forward 15 seconds',
-      onPressed: onTap,
-      icon: SizedBox(
-        width: 40,
-        height: 40,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            // Mirror the circular-arrow icon for the forward direction.
-            Transform.scale(
-              scaleX: seconds < 0 ? 1 : -1,
-              child: Icon(Icons.replay, size: 38, color: color),
-            ),
-            Text(
-              '${seconds.abs()}',
-              style: TextStyle(
-                color: color,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }
 
