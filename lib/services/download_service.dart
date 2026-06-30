@@ -142,6 +142,9 @@ class DownloadService {
           blockIndex: progress.blockIndex,
           chapterCount: book.chapters.length,
         ),
+        // A background count refresh must not un-hide a volume the user
+        // removed from the Continue shelf.
+        unhide: false,
       );
     } on Exception {
       // Best-effort — the download itself already succeeded.

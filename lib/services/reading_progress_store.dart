@@ -100,7 +100,15 @@ class ReadingProgressStore {
     );
   }
 
-  Future<void> save(Volume volume, ReadingProgress progress) async {
+  /// Saves the reading position. By default an actual read un-hides the volume
+  /// from the Continue shelf; pass [unhide] = false for background writes (e.g.
+  /// refreshing the chapter count after a re-download) so a volume the user
+  /// removed from the shelf stays hidden even when it gains chapters.
+  Future<void> save(
+    Volume volume,
+    ReadingProgress progress, {
+    bool unhide = true,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     final key = _key(volume);
     await prefs.setInt('$_chapterPrefix$key', progress.chapterIndex);
@@ -110,9 +118,11 @@ class ReadingProgressStore {
     await prefs.setString('$_volumePrefix$key', jsonEncode(volume.toJson()));
     await prefs.setBool('$_endPrefix$key', progress.endReached);
     // Reading a volume again un-hides it from the Continue shelf.
-    final hidden = prefs.getStringList(_hiddenKey);
-    if (hidden != null && hidden.remove(key)) {
-      await prefs.setStringList(_hiddenKey, hidden);
+    if (unhide) {
+      final hidden = prefs.getStringList(_hiddenKey);
+      if (hidden != null && hidden.remove(key)) {
+        await prefs.setStringList(_hiddenKey, hidden);
+      }
     }
     CloudSyncService().pushReadingProgressSoon();
   }

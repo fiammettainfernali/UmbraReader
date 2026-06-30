@@ -66,6 +66,41 @@ void main() {
     expect((await store.load(volume)).isFinished, isTrue);
   });
 
+  test('reading a volume un-hides it from the Continue shelf', () async {
+    final store = ReadingProgressStore();
+    final volume = _volume();
+    await store.save(
+      volume,
+      const ReadingProgress(chapterIndex: 2, blockIndex: 0, chapterCount: 20),
+    );
+    await store.hideFromContinue(volume);
+    expect(await store.hiddenFromContinue(), contains('1/book.epub'));
+    // An actual read un-hides it again.
+    await store.save(
+      volume,
+      const ReadingProgress(chapterIndex: 3, blockIndex: 0, chapterCount: 20),
+    );
+    expect(await store.hiddenFromContinue(), isEmpty);
+  });
+
+  test('a count refresh (unhide:false) keeps a hidden volume hidden', () async {
+    final store = ReadingProgressStore();
+    final volume = _volume();
+    await store.save(
+      volume,
+      const ReadingProgress(chapterIndex: 2, blockIndex: 0, chapterCount: 20),
+    );
+    await store.hideFromContinue(volume);
+    // New chapters arrive → the background count refresh must not bring it
+    // back to the Continue shelf.
+    await store.save(
+      volume,
+      const ReadingProgress(chapterIndex: 2, blockIndex: 0, chapterCount: 25),
+      unhide: false,
+    );
+    expect(await store.hiddenFromContinue(), contains('1/book.epub'));
+  });
+
   test('legacy entries on the last chapter still count as finished', () async {
     // Simulate pre-endReached data: raw keys with no reading_end: flag.
     SharedPreferences.setMockInitialValues(<String, Object>{
