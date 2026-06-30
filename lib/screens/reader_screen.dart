@@ -1126,9 +1126,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     );
   }
 
-  /// Tap-to-skip: while read-aloud is active, tapping a word in the reader
-  /// jumps playback to that word's paragraph. [originIndex] is the tapped
-  /// block; [charInBlock] (unused for now) is the character within it.
+  /// Long-press-to-skip: while read-aloud is active, holding a word in the
+  /// reader jumps playback to that word's paragraph. [originIndex] is the
+  /// pressed block; [charInBlock] (unused for now) is the character within it.
   void _skipToBlock(int originIndex, int charInBlock) {
     if (_ttsService.state == TtsPlaybackState.stopped) return;
     if (_ttsBlockForChunk.isEmpty) return;
@@ -2389,21 +2389,23 @@ class _BlockView extends StatelessWidget {
     }
   }
 
-  /// When read-aloud is active, makes [textChild] tappable: a tap reports the
-  /// character under the finger (in origin-block coordinates) via [onWordTap],
-  /// so playback can jump there. Otherwise returns the text unchanged, letting
-  /// the reader's page-turn / chrome taps work as usual.
+  /// When read-aloud is active, makes [textChild] respond to a *long-press*:
+  /// holding a word reports the character under the finger (in origin-block
+  /// coordinates) via [onWordTap], so playback can jump there. Plain taps are
+  /// left to the reader (page-turn / chrome toggle) — only the long-press is
+  /// claimed, so the menu can still be tapped away while listening.
   Widget _wrapTap(Widget textChild) {
     final cb = onWordTap;
     if (cb == null) return textChild;
     return Builder(
       builder: (context) => GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTapUp: (details) {
+        onLongPressStart: (details) {
           final para = _findParagraph(context.findRenderObject());
           if (para == null) return;
           final local = para.globalToLocal(details.globalPosition);
           final pos = para.getPositionForOffset(local).offset;
+          HapticFeedback.selectionClick();
           cb(originIndex, sliceCharOffset + pos);
         },
         child: textChild,
