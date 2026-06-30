@@ -366,9 +366,14 @@ class NetworkTtsService implements TtsEngine {
     return dir;
   }
 
+  // Bump to invalidate every cached clip — e.g. after a server-side change to
+  // pronunciation/normalization, so old audio (mispronounced money, etc.) is
+  // re-synthesized instead of replayed from cache.
+  static const _cacheVersion = 2;
+
   // Stable FNV-1a hash so cache filenames survive app restarts.
   String _cacheKey(String voice, double speed, String text) {
-    final input = '$voice|${speed.toStringAsFixed(2)}|$text';
+    final input = 'v$_cacheVersion|$voice|${speed.toStringAsFixed(2)}|$text';
     var hash = 0x811c9dc5;
     for (final unit in input.codeUnits) {
       hash ^= unit;
