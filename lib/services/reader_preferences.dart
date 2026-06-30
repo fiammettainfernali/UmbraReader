@@ -6,6 +6,7 @@ import '../models/reader_settings.dart';
 import '../models/volume.dart';
 import 'cloud_sync_service.dart';
 import 'tts_engine.dart';
+import 'tts_skip.dart';
 
 /// Loads and saves the reader's [ReaderSettings] via [SharedPreferences].
 ///
@@ -37,6 +38,7 @@ class ReaderPreferences {
   static const _kTtsEngine = 'reader_tts_engine';
   static const _kTtsServerUrl = 'reader_tts_server_url';
   static const _kTtsServerToken = 'reader_tts_server_token';
+  static const _kTtsSkips = 'reader_tts_skips';
 
   /// Marker key telling us a per-volume override has been opted into.
   static const _kOverrideMarker = 'reader_override_marker';
@@ -51,7 +53,7 @@ class ReaderPreferences {
     _kSpeechRate, _kVoiceName, _kVoiceLocale, _kBoldText, _kItalicText,
     _kBrightness, _kTextAlign, _kAutoScroll, _kOrientation, _kTvMode,
     _kCenteredColumn, _kKeepAwake, _kAutoPageSeconds,
-    _kTtsEngine, _kTtsServerUrl, _kTtsServerToken,
+    _kTtsEngine, _kTtsServerUrl, _kTtsServerToken, _kTtsSkips,
   ];
 
   /// Per-volume keys are global keys prefixed with this + the volume's id
@@ -102,6 +104,7 @@ class ReaderPreferences {
       ttsServerUrl: prefs.getString('$p$_kTtsServerUrl') ?? d.ttsServerUrl,
       ttsServerToken:
           prefs.getString('$p$_kTtsServerToken') ?? d.ttsServerToken,
+      ttsSkips: parseTtsSkips(prefs.getString('$p$_kTtsSkips')),
     );
   }
 
@@ -132,6 +135,7 @@ class ReaderPreferences {
     await prefs.setString('$p$_kTtsEngine', settings.ttsEngine.name);
     await prefs.setString('$p$_kTtsServerUrl', settings.ttsServerUrl);
     await prefs.setString('$p$_kTtsServerToken', settings.ttsServerToken);
+    await prefs.setString('$p$_kTtsSkips', encodeTtsSkips(settings.ttsSkips));
     // Only global changes participate in iCloud sync; per-volume overrides
     // stay on the device that set them.
     if (p.isEmpty) {

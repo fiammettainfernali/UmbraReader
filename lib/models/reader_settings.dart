@@ -1,4 +1,5 @@
 import '../services/tts_engine.dart';
+import '../services/tts_skip.dart';
 import 'reader_theme.dart';
 
 /// How chapter content is laid out in the reader.
@@ -52,6 +53,7 @@ class ReaderSettings {
     required this.ttsEngine,
     required this.ttsServerUrl,
     required this.ttsServerToken,
+    required this.ttsSkips,
   });
 
   final ReadingMode mode;
@@ -129,6 +131,10 @@ class ReaderSettings {
   /// Bearer token for the Kokoro voice server.
   final String ttsServerToken;
 
+  /// Content categories the read-aloud voice skips over (parentheses, URLs,
+  /// citations, headings, …).
+  final Set<TtsSkip> ttsSkips;
+
   static const defaults = ReaderSettings(
     mode: ReadingMode.scroll,
     themeId: 'dark',
@@ -152,6 +158,7 @@ class ReaderSettings {
     ttsEngine: TtsEngineKind.system,
     ttsServerUrl: '',
     ttsServerToken: '',
+    ttsSkips: <TtsSkip>{},
   );
 
   ReaderThemePreset get theme => readerThemeById(themeId);
@@ -179,6 +186,7 @@ class ReaderSettings {
     TtsEngineKind? ttsEngine,
     String? ttsServerUrl,
     String? ttsServerToken,
+    Set<TtsSkip>? ttsSkips,
   }) {
     return ReaderSettings(
       mode: mode ?? this.mode,
@@ -203,6 +211,7 @@ class ReaderSettings {
       ttsEngine: ttsEngine ?? this.ttsEngine,
       ttsServerUrl: ttsServerUrl ?? this.ttsServerUrl,
       ttsServerToken: ttsServerToken ?? this.ttsServerToken,
+      ttsSkips: ttsSkips ?? this.ttsSkips,
     );
   }
 }

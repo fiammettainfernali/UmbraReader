@@ -23,6 +23,7 @@ import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
 import '../services/tts_engine.dart';
 import '../services/tts_service.dart';
+import '../services/tts_skip.dart';
 import '../utils/volume_ordering.dart';
 import '../widgets/listen_view.dart';
 import '../widgets/reader_settings_sheet.dart';
@@ -1083,8 +1084,14 @@ class _ReaderScreenState extends State<ReaderScreen>
     final blocks = _blocks ?? const <ContentBlock>[];
     final texts = <String>[];
     final blockForChunk = <int>[];
+    final skips = _settings.ttsSkips;
+    final skipHeadings = skips.contains(TtsSkip.headings);
     for (var i = 0; i < blocks.length; i++) {
-      final text = _blockText(blocks[i]);
+      final block = blocks[i];
+      if (skipHeadings && block is HeadingBlock) continue;
+      // Redact (not delete) skipped spans so spoken offsets — and therefore
+      // the highlight — stay aligned with the displayed text.
+      final text = redactForSpeech(_blockText(block), skips);
       if (text.trim().isEmpty) continue;
       texts.add(text);
       blockForChunk.add(i);
@@ -1446,6 +1453,64 @@ class _ReaderScreenState extends State<ReaderScreen>
     final wasActive = _ttsService.state != TtsPlaybackState.stopped;
     _goToChapter(target, fromTts: wasActive);
     if (wasActive) _startTts(fromCurrentPosition: false);
+  }
+
+  /// Speechify-style "skip while reading" menu: pick content the voice skips
+  /// over (parentheses, URLs, citations, headings, …). Applies on the next
+  /// read-aloud start.
+  void _openSkipMenu() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setSheet) {
+          final theme = Theme.of(context);
+          return SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Skip while reading',
+                    style: theme.textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'The voice silently skips the selected content. Takes '
+                    'effect the next time read-aloud starts.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  for (final kind in TtsSkip.values)
+                    SwitchListTile.adaptive(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: Text(kind.label),
+                      subtitle: Text(kind.description),
+                      value: _settings.ttsSkips.contains(kind),
+                      onChanged: (on) {
+                        final next = Set<TtsSkip>.of(_settings.ttsSkips);
+                        if (on) {
+                          next.add(kind);
+                        } else {
+                          next.remove(kind);
+                        }
+                        _applySettings(_settings.copyWith(ttsSkips: next));
+                        setSheet(() {});
+                      },
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   void _openGlossary() {
@@ -1965,6 +2030,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                       onSearch: _openSearch,
                       onBookmarks: _openBookmarks,
                       onGlossary: _openGlossary,
+                      onOpenSkip: _openSkipMenu,
                     ),
                   ),
                 ),
@@ -2388,6 +2454,29 @@ class _BlockView extends StatelessWidget {
 }
 
 /// Overlay top bar: back, chapter title, reading settings, contents.
+/// Actions in the reader's top-bar overflow menu.
+enum _ReaderMenu { contents, search, bookmarks, glossary, skip, settings }
+
+/// An icon + label row for a [PopupMenuItem].
+class _MenuRow extends StatelessWidget {
+  const _MenuRow(this.icon, this.label);
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 20),
+        const SizedBox(width: 12),
+        Text(label),
+      ],
+    );
+  }
+}
+
 class _TopBar extends StatelessWidget {
   const _TopBar({
     required this.height,
@@ -2402,6 +2491,7 @@ class _TopBar extends StatelessWidget {
     required this.onSearch,
     required this.onBookmarks,
     required this.onGlossary,
+    required this.onOpenSkip,
   });
 
   final double height;
@@ -2416,6 +2506,7 @@ class _TopBar extends StatelessWidget {
   final VoidCallback onSearch;
   final VoidCallback onBookmarks;
   final VoidCallback onGlossary;
+  final VoidCallback onOpenSkip;
 
   @override
   Widget build(BuildContext context) {
@@ -2463,35 +2554,54 @@ class _TopBar extends StatelessWidget {
                 tooltip: 'Listen mode',
                 onPressed: onToggleListen,
               ),
-              IconButton(
-                icon: const Icon(Icons.search),
-                color: preset.text,
-                tooltip: 'Search in book',
-                onPressed: onSearch,
-              ),
-              IconButton(
-                icon: const Icon(Icons.bookmark_outline),
-                color: preset.text,
-                tooltip: 'Bookmarks',
-                onPressed: onBookmarks,
-              ),
-              IconButton(
-                icon: const Icon(Icons.people_outline),
-                color: preset.text,
-                tooltip: 'Glossary',
-                onPressed: onGlossary,
-              ),
-              IconButton(
-                icon: const Icon(Icons.text_fields),
-                color: preset.text,
-                tooltip: 'Reading settings',
-                onPressed: onOpenSettings,
-              ),
-              IconButton(
-                icon: const Icon(Icons.list),
-                color: preset.text,
-                tooltip: 'Contents',
-                onPressed: onShowContents,
+              PopupMenuButton<_ReaderMenu>(
+                icon: Icon(Icons.more_vert, color: preset.text),
+                tooltip: 'More',
+                onSelected: (action) {
+                  switch (action) {
+                    case _ReaderMenu.contents:
+                      onShowContents();
+                    case _ReaderMenu.search:
+                      onSearch();
+                    case _ReaderMenu.bookmarks:
+                      onBookmarks();
+                    case _ReaderMenu.glossary:
+                      onGlossary();
+                    case _ReaderMenu.skip:
+                      onOpenSkip();
+                    case _ReaderMenu.settings:
+                      onOpenSettings();
+                  }
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(
+                    value: _ReaderMenu.contents,
+                    child: _MenuRow(Icons.list, 'Contents'),
+                  ),
+                  PopupMenuItem(
+                    value: _ReaderMenu.search,
+                    child: _MenuRow(Icons.search, 'Search in book'),
+                  ),
+                  PopupMenuItem(
+                    value: _ReaderMenu.bookmarks,
+                    child: _MenuRow(Icons.bookmark_outline, 'Bookmarks'),
+                  ),
+                  PopupMenuItem(
+                    value: _ReaderMenu.glossary,
+                    child: _MenuRow(Icons.people_outline, 'Glossary'),
+                  ),
+                  PopupMenuItem(
+                    value: _ReaderMenu.skip,
+                    child: _MenuRow(
+                      Icons.filter_alt_outlined,
+                      'Skip while reading',
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: _ReaderMenu.settings,
+                    child: _MenuRow(Icons.text_fields, 'Reading settings'),
+                  ),
+                ],
               ),
             ],
           ),
