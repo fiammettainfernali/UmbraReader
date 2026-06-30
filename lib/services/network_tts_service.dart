@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:audio_session/audio_session.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
@@ -47,6 +48,7 @@ class NetworkTtsService implements TtsEngine {
   /// or in-flight request from a previous run can detect it should bail out.
   int _gen = 0;
 
+  bool _sessionReady = false;
   Completer<void>? _clipDone;
   StreamSubscription<ProcessingState>? _stateSub;
   StreamSubscription<Duration>? _posSub;
@@ -87,6 +89,20 @@ class NetworkTtsService implements TtsEngine {
   Map<String, String> get _authHeaders => {
         if (_token.isNotEmpty) 'Authorization': 'Bearer $_token',
       };
+
+  /// Configures the iOS audio session for spoken-audio playback (playback
+  /// category, A2DP for Bluetooth) so the voices don't route through the
+  /// earpiece or the low-quality HFP codec and sound robotic.
+  Future<void> _ensureSession() async {
+    if (_sessionReady) return;
+    try {
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration.speech());
+      _sessionReady = true;
+    } on Exception {
+      // Best-effort; playback still works with the default session.
+    }
+  }
 
   void _ensureStateSub() {
     _stateSub ??= _player.processingStateStream.listen((s) {
@@ -139,6 +155,7 @@ class NetworkTtsService implements TtsEngine {
   /// screen so a voice can be auditioned before it's chosen.
   Future<void> previewVoice(String voice, {double rate = 0.5}) async {
     if (!isConfigured || voice.isEmpty) return;
+    await _ensureSession();
     _ensureStateSub();
     _voice = voice;
     _speed = _rateToSpeed(rate);
@@ -176,6 +193,7 @@ class NetworkTtsService implements TtsEngine {
     String voiceLocale = '',
   }) async {
     await _abortCurrent();
+    await _ensureSession();
     _ensureStateSub();
     if (voiceName.isNotEmpty && voiceLocale == TtsVoice.kokoroLocale) {
       _voice = voiceName;
