@@ -37,6 +37,10 @@
 	<string>Umbra Reader does not access your photo library. This permission is required by the file-import component but is never used.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Umbra Reader does not use the camera. This permission is required by the file-import component but is never used.</string>
+	<!-- just_audio's AVAudioSession (used for the natural Kokoro voices)
+	     references the microphone API; Umbra Reader only plays audio. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Umbra Reader does not use the microphone. This permission is required by the audio playback component but is never used.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- Novel Grabber's OPDS server runs over plain HTTP on the LAN.
