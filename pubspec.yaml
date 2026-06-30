@@ -54,6 +54,10 @@ dependencies:
 
   # Text-to-speech (read-aloud) — wraps iOS AVSpeechSynthesizer.
   flutter_tts: ^4.2.0
+
+  # Gapless playback of the per-sentence MP3 clips streamed from the optional
+  # self-hosted Kokoro voice server (the "natural voices" read-aloud engine).
+  just_audio: ^0.9.42
   # Pinned to 12.x: share_plus 13 needs win32 ^6, which conflicts with
   # file_picker's win32 ^5. The SharePlus.instance.share(ShareParams) API we
   # use is identical across 12 and 13.

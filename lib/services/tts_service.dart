@@ -1,25 +1,15 @@
 import 'package:flutter_tts/flutter_tts.dart';
 
-/// Read-aloud playback state.
-enum TtsPlaybackState { stopped, playing, paused }
+import 'tts_engine.dart';
 
-/// An installed text-to-speech voice.
-class TtsVoice {
-  const TtsVoice({required this.name, required this.locale});
-
-  final String name;
-  final String locale;
-
-  /// Stable key for matching a saved voice against the installed list.
-  String get id => '$name|$locale';
-}
+export 'tts_engine.dart' show TtsPlaybackState, TtsVoice, TtsEngine;
 
 /// Wraps [FlutterTts] to read a chapter aloud, chunk by chunk.
 ///
 /// A chapter is supplied as a list of text chunks (one per paragraph). Chunks
 /// are spoken sequentially; pausing remembers the current chunk so resuming
 /// re-speaks it from its start.
-class TtsService {
+class TtsService implements TtsEngine {
   final FlutterTts _tts = FlutterTts();
   bool _initialized = false;
 
@@ -40,6 +30,7 @@ class TtsService {
   /// Called whenever playback state changes.
   void Function(TtsPlaybackState state)? onStateChanged;
 
+  @override
   TtsPlaybackState get state => _state;
   int get chunkIndex => _index;
 
@@ -65,6 +56,7 @@ class TtsService {
   }
 
   /// Lists the installed English text-to-speech voices, sorted by name.
+  @override
   Future<List<TtsVoice>> availableVoices() async {
     await _ensureInitialized();
     try {
@@ -91,6 +83,7 @@ class TtsService {
   }
 
   /// Sets the active voice (best-effort; falls back to the system default).
+  @override
   Future<void> setVoice(String name, String locale) async {
     await _ensureInitialized();
     await _applyVoice(name, locale);
@@ -107,6 +100,7 @@ class TtsService {
 
   /// Begins reading [chunks] aloud from [from], at the given [rate] (0–1) and
   /// (optionally) a chosen voice.
+  @override
   Future<void> start(
     List<String> chunks, {
     int from = 0,
@@ -140,12 +134,14 @@ class TtsService {
     onChapterFinished?.call();
   }
 
+  @override
   Future<void> pause() async {
     if (_state != TtsPlaybackState.playing) return;
     _setState(TtsPlaybackState.paused);
     await _tts.stop();
   }
 
+  @override
   Future<void> resume({required double rate}) async {
     if (_state != TtsPlaybackState.paused) return;
     await _tts.setSpeechRate(rate);
@@ -153,6 +149,7 @@ class TtsService {
     _run();
   }
 
+  @override
   Future<void> stop() async {
     _setState(TtsPlaybackState.stopped);
     _index = 0;
@@ -160,6 +157,7 @@ class TtsService {
   }
 
   /// Applies a new speech rate; takes effect from the next chunk.
+  @override
   Future<void> setRate(double rate) async {
     await _ensureInitialized();
     await _tts.setSpeechRate(rate);
@@ -170,6 +168,7 @@ class TtsService {
     onStateChanged?.call(next);
   }
 
+  @override
   Future<void> dispose() async {
     _state = TtsPlaybackState.stopped;
     await _tts.stop();

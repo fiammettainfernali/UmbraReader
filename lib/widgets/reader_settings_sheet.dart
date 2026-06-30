@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../models/reader_settings.dart';
 import '../models/reader_theme.dart';
 import '../services/custom_theme_store.dart';
+import '../services/network_tts_service.dart';
+import '../services/tts_engine.dart';
 import '../services/tts_service.dart';
 
 /// Font choices offered in the reader. An empty string is the system font.
@@ -72,12 +74,91 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
   late SleepTimerOption _sleepOption;
   late bool _hasOverride;
 
+  /// Voices for the currently-selected engine. Seeded with the engine that
+  /// was active when the sheet opened, then refreshed when the engine or
+  /// server config changes.
+  late List<TtsVoice> _voices;
+  bool _loadingVoices = false;
+  String? _voiceStatus;
+
+  late final TextEditingController _urlController;
+  late final TextEditingController _tokenController;
+
+  /// Reused service for auditioning Kokoro voices.
+  NetworkTtsService? _previewService;
+
   @override
   void initState() {
     super.initState();
     _settings = widget.initial;
     _sleepOption = widget.sleepOption;
     _hasOverride = widget.hasOverride;
+    _voices = widget.voices;
+    _urlController = TextEditingController(text: _settings.ttsServerUrl);
+    _tokenController = TextEditingController(text: _settings.ttsServerToken);
+  }
+
+  @override
+  void dispose() {
+    _urlController.dispose();
+    _tokenController.dispose();
+    _previewService?.dispose();
+    super.dispose();
+  }
+
+  /// Loads the voice list for the active engine: the on-device voices, or the
+  /// Kokoro server's voices (also reporting reachability).
+  Future<void> _loadVoices() async {
+    setState(() {
+      _loadingVoices = true;
+      _voiceStatus = null;
+    });
+    var voices = const <TtsVoice>[];
+    String? status;
+    if (_settings.ttsEngine == TtsEngineKind.kokoro) {
+      if (_settings.ttsServerUrl.trim().isEmpty) {
+        status = 'Enter your server address, then Connect.';
+      } else {
+        final svc = NetworkTtsService(
+          baseUrl: _settings.ttsServerUrl,
+          token: _settings.ttsServerToken,
+        );
+        final ok = await svc.ping();
+        voices = ok ? await svc.availableVoices() : const [];
+        await svc.dispose();
+        status = ok
+            ? 'Connected — ${voices.length} voices'
+            : 'Could not reach the server. Check the address and token.';
+      }
+    } else {
+      voices = await TtsService().availableVoices();
+    }
+    if (!mounted) return;
+    setState(() {
+      _voices = voices;
+      _voiceStatus = status;
+      _loadingVoices = false;
+    });
+  }
+
+  /// Saves the typed server address/token and (re)loads its voices.
+  void _connect() {
+    _update(
+      _settings.copyWith(
+        ttsServerUrl: _urlController.text.trim(),
+        ttsServerToken: _tokenController.text.trim(),
+      ),
+    );
+    _loadVoices();
+  }
+
+  Future<void> _previewVoice(String voice) async {
+    final svc = _previewService ??= NetworkTtsService();
+    svc.configure(
+      baseUrl: _settings.ttsServerUrl,
+      token: _settings.ttsServerToken,
+    );
+    await svc.previewVoice(voice, rate: _settings.speechRate);
   }
 
   void _update(ReaderSettings next) {
@@ -382,6 +463,89 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
             ),
             const SizedBox(height: 16),
 
+            _label(theme, 'Read-aloud engine'),
+            SegmentedButton<TtsEngineKind>(
+              segments: const [
+                ButtonSegment(
+                  value: TtsEngineKind.system,
+                  label: Text('On-device'),
+                  icon: Icon(Icons.phone_iphone),
+                ),
+                ButtonSegment(
+                  value: TtsEngineKind.kokoro,
+                  label: Text('Natural'),
+                  icon: Icon(Icons.auto_awesome),
+                ),
+              ],
+              selected: {_settings.ttsEngine},
+              showSelectedIcon: false,
+              onSelectionChanged: (selection) {
+                _update(_settings.copyWith(ttsEngine: selection.first));
+                _loadVoices();
+              },
+            ),
+            if (_settings.ttsEngine == TtsEngineKind.kokoro) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Streams natural neural voices from your own voice server '
+                '(unmoderated, flat cost).',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _urlController,
+                keyboardType: TextInputType.url,
+                autocorrect: false,
+                decoration: const InputDecoration(
+                  labelText: 'Server address',
+                  hintText: 'https://your-voice-server',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _tokenController,
+                obscureText: true,
+                autocorrect: false,
+                enableSuggestions: false,
+                decoration: const InputDecoration(
+                  labelText: 'Access token',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  FilledButton.tonalIcon(
+                    onPressed: _loadingVoices ? null : _connect,
+                    icon: _loadingVoices
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.link),
+                    label: const Text('Connect'),
+                  ),
+                  const SizedBox(width: 12),
+                  if (_voiceStatus != null)
+                    Expanded(
+                      child: Text(
+                        _voiceStatus!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+            const SizedBox(height: 16),
+
             _label(theme, 'Read aloud'),
             _buildVoicePicker(theme),
             _slider(
@@ -430,18 +594,25 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
     );
   }
 
-  /// Index of the saved voice within [widget.voices], or -1 for the default.
+  /// Index of the saved voice within [_voices], or -1 for the default.
   int _voiceIndex() {
-    for (var i = 0; i < widget.voices.length; i++) {
-      if (widget.voices[i].name == _settings.voiceName &&
-          widget.voices[i].locale == _settings.voiceLocale) {
+    for (var i = 0; i < _voices.length; i++) {
+      if (_voices[i].name == _settings.voiceName &&
+          _voices[i].locale == _settings.voiceLocale) {
         return i;
       }
     }
     return -1;
   }
 
+  String _voiceLabel(TtsVoice voice) =>
+      voice.isKokoro ? voice.name : '${voice.name}  ·  ${voice.locale}';
+
   Widget _buildVoicePicker(ThemeData theme) {
+    final selected = _voiceIndex();
+    final canPreview = _settings.ttsEngine == TtsEngineKind.kokoro &&
+        selected >= 0 &&
+        _voices[selected].isKokoro;
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: Row(
@@ -449,7 +620,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
           Text('Voice', style: theme.textTheme.titleSmall),
           const SizedBox(width: 16),
           Expanded(
-            child: widget.voices.isEmpty
+            child: _voices.isEmpty
                 ? Text(
                     'System default',
                     textAlign: TextAlign.end,
@@ -458,18 +629,17 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                 : DropdownButton<int>(
                     isExpanded: true,
                     alignment: Alignment.centerRight,
-                    value: _voiceIndex(),
+                    value: selected,
                     items: [
                       const DropdownMenuItem(
                         value: -1,
                         child: Text('System default'),
                       ),
-                      for (var i = 0; i < widget.voices.length; i++)
+                      for (var i = 0; i < _voices.length; i++)
                         DropdownMenuItem(
                           value: i,
                           child: Text(
-                            '${widget.voices[i].name}'
-                            '  ·  ${widget.voices[i].locale}',
+                            _voiceLabel(_voices[i]),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -481,7 +651,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                           _settings.copyWith(voiceName: '', voiceLocale: ''),
                         );
                       } else {
-                        final voice = widget.voices[index];
+                        final voice = _voices[index];
                         _update(
                           _settings.copyWith(
                             voiceName: voice.name,
@@ -492,6 +662,12 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                     },
                   ),
           ),
+          if (canPreview)
+            IconButton(
+              icon: const Icon(Icons.play_circle_outline),
+              tooltip: 'Preview voice',
+              onPressed: () => _previewVoice(_voices[selected].name),
+            ),
         ],
       ),
     );

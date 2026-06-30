@@ -1,3 +1,4 @@
+import '../services/tts_engine.dart';
 import 'reader_theme.dart';
 
 /// How chapter content is laid out in the reader.
@@ -48,6 +49,9 @@ class ReaderSettings {
     required this.centeredColumn,
     required this.keepAwake,
     required this.autoPageSeconds,
+    required this.ttsEngine,
+    required this.ttsServerUrl,
+    required this.ttsServerToken,
   });
 
   final ReadingMode mode;
@@ -114,6 +118,17 @@ class ReaderSettings {
   /// of auto-scroll). 0 disables it.
   final int autoPageSeconds;
 
+  /// Which read-aloud engine to use: the on-device iOS voices, or the
+  /// self-hosted Kokoro neural voice server.
+  final TtsEngineKind ttsEngine;
+
+  /// Base URL of the Kokoro voice server (e.g. `https://host`); empty until
+  /// configured. Used only when [ttsEngine] is [TtsEngineKind.kokoro].
+  final String ttsServerUrl;
+
+  /// Bearer token for the Kokoro voice server.
+  final String ttsServerToken;
+
   static const defaults = ReaderSettings(
     mode: ReadingMode.scroll,
     themeId: 'dark',
@@ -134,6 +149,9 @@ class ReaderSettings {
     centeredColumn: false,
     keepAwake: false,
     autoPageSeconds: 0,
+    ttsEngine: TtsEngineKind.system,
+    ttsServerUrl: '',
+    ttsServerToken: '',
   );
 
   ReaderThemePreset get theme => readerThemeById(themeId);
@@ -158,6 +176,9 @@ class ReaderSettings {
     bool? centeredColumn,
     bool? keepAwake,
     int? autoPageSeconds,
+    TtsEngineKind? ttsEngine,
+    String? ttsServerUrl,
+    String? ttsServerToken,
   }) {
     return ReaderSettings(
       mode: mode ?? this.mode,
@@ -179,6 +200,9 @@ class ReaderSettings {
       centeredColumn: centeredColumn ?? this.centeredColumn,
       keepAwake: keepAwake ?? this.keepAwake,
       autoPageSeconds: autoPageSeconds ?? this.autoPageSeconds,
+      ttsEngine: ttsEngine ?? this.ttsEngine,
+      ttsServerUrl: ttsServerUrl ?? this.ttsServerUrl,
+      ttsServerToken: ttsServerToken ?? this.ttsServerToken,
     );
   }
 }

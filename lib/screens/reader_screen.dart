@@ -16,10 +16,12 @@ import '../services/bookmark_store.dart';
 import '../services/epub_parser.dart';
 import '../services/library_cache.dart';
 import '../services/library_storage.dart';
+import '../services/network_tts_service.dart';
 import '../services/now_playing_service.dart';
 import '../services/reader_preferences.dart';
 import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
+import '../services/tts_engine.dart';
 import '../services/tts_service.dart';
 import '../utils/volume_ordering.dart';
 import '../widgets/reader_settings_sheet.dart';
@@ -342,7 +344,8 @@ class _ReaderScreenState extends State<ReaderScreen>
   final _progressStore = ReadingProgressStore();
   final _scrollController = ScrollController();
   final _pageController = PageController();
-  final _ttsService = TtsService();
+  TtsEngine _ttsService = TtsService();
+  TtsEngineKind _engineKind = TtsEngineKind.system;
   final _nowPlaying = NowPlayingService();
 
   EpubParser? _parser;
@@ -439,6 +442,22 @@ class _ReaderScreenState extends State<ReaderScreen>
   @override
   void initState() {
     super.initState();
+    _wireTts();
+    _nowPlaying.onPlay = _remotePlay;
+    _nowPlaying.onPause = _remotePause;
+    _nowPlaying.onToggle = _toggleTts;
+    _nowPlaying.onNext = () => _remoteSkipChapter(1);
+    _nowPlaying.onPrevious = () => _remoteSkipChapter(-1);
+    _scrollController.addListener(_onPositionTick);
+    _pageController.addListener(_onPositionTick);
+    WidgetsBinding.instance.addObserver(this);
+    _sessionStart = DateTime.now();
+    _open();
+  }
+
+  /// Attaches the reader's callbacks to the active TTS engine. Called on init
+  /// and again whenever the engine is swapped.
+  void _wireTts() {
     _ttsService.onStateChanged = (state) {
       _updateNowPlaying();
       if (!mounted) return;
@@ -452,16 +471,34 @@ class _ReaderScreenState extends State<ReaderScreen>
     };
     _ttsService.onWord = _onTtsWord;
     _ttsService.onChapterFinished = _onTtsChapterFinished;
-    _nowPlaying.onPlay = _remotePlay;
-    _nowPlaying.onPause = _remotePause;
-    _nowPlaying.onToggle = _toggleTts;
-    _nowPlaying.onNext = () => _remoteSkipChapter(1);
-    _nowPlaying.onPrevious = () => _remoteSkipChapter(-1);
-    _scrollController.addListener(_onPositionTick);
-    _pageController.addListener(_onPositionTick);
-    WidgetsBinding.instance.addObserver(this);
-    _sessionStart = DateTime.now();
-    _open();
+  }
+
+  /// Rebuilds (or reconfigures) the read-aloud engine to match [_settings].
+  /// Switching engines stops any active playback; reconfiguring the same
+  /// Kokoro engine just pushes the new URL/token.
+  void _syncEngineToSettings() {
+    final desired = _settings.ttsEngine;
+    if (desired == _engineKind) {
+      final engine = _ttsService;
+      if (desired == TtsEngineKind.kokoro && engine is NetworkTtsService) {
+        engine.configure(
+          baseUrl: _settings.ttsServerUrl,
+          token: _settings.ttsServerToken,
+        );
+      }
+      return;
+    }
+    final old = _ttsService;
+    old.stop();
+    old.dispose();
+    _ttsService = desired == TtsEngineKind.kokoro
+        ? NetworkTtsService(
+            baseUrl: _settings.ttsServerUrl,
+            token: _settings.ttsServerToken,
+          )
+        : TtsService();
+    _engineKind = desired;
+    _wireTts();
   }
 
   @override
@@ -548,6 +585,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       });
       _applyOrientation(settings.orientation);
       _applyKeepAwake(settings.keepAwake);
+      _syncEngineToSettings();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _restoreScrollPosition();
         if (_settings.autoScroll) _startAutoScroll();
@@ -948,6 +986,9 @@ class _ReaderScreenState extends State<ReaderScreen>
         next.autoScroll != _settings.autoScroll ||
         next.mode != _settings.mode;
     final orientationChanged = next.orientation != _settings.orientation;
+    final engineChanged = next.ttsEngine != _settings.ttsEngine ||
+        next.ttsServerUrl != _settings.ttsServerUrl ||
+        next.ttsServerToken != _settings.ttsServerToken;
     final tvModeChanged = next.tvMode != _settings.tvMode;
     final keepAwakeChanged = next.keepAwake != _settings.keepAwake;
     // Centred-column toggle changes the content width, so paged mode must
@@ -966,6 +1007,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       _pageJumpTarget = currentPage;
     });
     ReaderPreferences().save(next, volume: widget.volume);
+    if (engineChanged) _syncEngineToSettings();
     if (rateChanged) _ttsService.setRate(next.speechRate);
     if (voiceChanged) _ttsService.setVoice(next.voiceName, next.voiceLocale);
     if (fontChanged) {

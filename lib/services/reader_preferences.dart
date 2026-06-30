@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/reader_settings.dart';
 import '../models/volume.dart';
 import 'cloud_sync_service.dart';
+import 'tts_engine.dart';
 
 /// Loads and saves the reader's [ReaderSettings] via [SharedPreferences].
 ///
@@ -33,6 +34,9 @@ class ReaderPreferences {
   static const _kCenteredColumn = 'reader_centered_column';
   static const _kKeepAwake = 'reader_keep_awake';
   static const _kAutoPageSeconds = 'reader_auto_page_seconds';
+  static const _kTtsEngine = 'reader_tts_engine';
+  static const _kTtsServerUrl = 'reader_tts_server_url';
+  static const _kTtsServerToken = 'reader_tts_server_token';
 
   /// Marker key telling us a per-volume override has been opted into.
   static const _kOverrideMarker = 'reader_override_marker';
@@ -47,6 +51,7 @@ class ReaderPreferences {
     _kSpeechRate, _kVoiceName, _kVoiceLocale, _kBoldText, _kItalicText,
     _kBrightness, _kTextAlign, _kAutoScroll, _kOrientation, _kTvMode,
     _kCenteredColumn, _kKeepAwake, _kAutoPageSeconds,
+    _kTtsEngine, _kTtsServerUrl, _kTtsServerToken,
   ];
 
   /// Per-volume keys are global keys prefixed with this + the volume's id
@@ -90,6 +95,13 @@ class ReaderPreferences {
       keepAwake: prefs.getBool('$p$_kKeepAwake') ?? d.keepAwake,
       autoPageSeconds:
           prefs.getInt('$p$_kAutoPageSeconds') ?? d.autoPageSeconds,
+      ttsEngine: TtsEngineKind.values.firstWhere(
+        (e) => e.name == prefs.getString('$p$_kTtsEngine'),
+        orElse: () => d.ttsEngine,
+      ),
+      ttsServerUrl: prefs.getString('$p$_kTtsServerUrl') ?? d.ttsServerUrl,
+      ttsServerToken:
+          prefs.getString('$p$_kTtsServerToken') ?? d.ttsServerToken,
     );
   }
 
@@ -117,6 +129,9 @@ class ReaderPreferences {
     await prefs.setBool('$p$_kCenteredColumn', settings.centeredColumn);
     await prefs.setBool('$p$_kKeepAwake', settings.keepAwake);
     await prefs.setInt('$p$_kAutoPageSeconds', settings.autoPageSeconds);
+    await prefs.setString('$p$_kTtsEngine', settings.ttsEngine.name);
+    await prefs.setString('$p$_kTtsServerUrl', settings.ttsServerUrl);
+    await prefs.setString('$p$_kTtsServerToken', settings.ttsServerToken);
     // Only global changes participate in iCloud sync; per-volume overrides
     // stay on the device that set them.
     if (p.isEmpty) {
