@@ -553,9 +553,29 @@ class _ReaderScreenState extends State<ReaderScreen>
       ),
     );
     await _loadPronunciations();
+    // Re-read from the current word with the new pronunciations, rather than
+    // restarting the chapter.
     if (_ttsService.state == TtsPlaybackState.playing) {
-      _startTts(fromCurrentPosition: true);
+      _restartFromSpoken();
     }
+  }
+
+  /// Restarts read-aloud from the paragraph (and word) currently being spoken,
+  /// e.g. after changing pronunciations — without jumping to the chapter start.
+  void _restartFromSpoken() {
+    final block = _speakingBlock;
+    if (block == null) {
+      _startTts(fromCurrentPosition: true);
+      return;
+    }
+    final chunk = _ttsBlockForChunk.indexOf(block);
+    if (chunk < 0) {
+      _startTts(fromCurrentPosition: true);
+      return;
+    }
+    _resumeBlock = block;
+    _resumeChar = _speakingStart;
+    _startTts(startAtChunk: chunk);
   }
 
   @override
@@ -1210,17 +1230,15 @@ class _ReaderScreenState extends State<ReaderScreen>
     _ttsBlockForChunk = blockForChunk;
     _followedBlock = -1;
     _followedPage = -1;
-    // Word-exact resume: only on the first play after opening, and only when
-    // we're actually starting at the paragraph the resume point belongs to.
+    // Word-exact resume: applies whenever the starting chunk is the paragraph
+    // the resume point belongs to (initial open, or a restart-in-place).
     var startChar = 0;
-    if (startAtChunk == null &&
-        fromCurrentPosition &&
-        _resumeBlock >= 0 &&
+    if (_resumeBlock >= 0 &&
         fromChunk < blockForChunk.length &&
         blockForChunk[fromChunk] == _resumeBlock) {
       startChar = _resumeChar;
     }
-    _resumeBlock = -1; // consume — it only applies to the resume play
+    _resumeBlock = -1; // consume — it only applies to this play
     _ttsService.start(
       texts,
       from: fromChunk,
@@ -1478,9 +1496,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (blockIndex == _followedBlock) return;
     _followedBlock = blockIndex;
     if (!_scrollController.hasClients) return;
-    // Keep the spoken line in a comfortable reading band (~38% down) rather
+    // Keep the spoken line near the middle of the screen (~46% down) rather
     // than pinned near the top, so it reads more like a teleprompter.
-    final topInset = MediaQuery.of(context).size.height * 0.38;
+    final topInset = MediaQuery.of(context).size.height * 0.46;
     final target = (_blockOffset(blockIndex) - topInset).clamp(
       0.0,
       _scrollController.position.maxScrollExtent,
