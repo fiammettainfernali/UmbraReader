@@ -18,6 +18,7 @@ import '../services/library_cache.dart';
 import '../services/library_storage.dart';
 import '../services/network_tts_service.dart';
 import '../services/now_playing_service.dart';
+import '../services/pronunciation_store.dart';
 import '../services/reader_preferences.dart';
 import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
@@ -26,6 +27,7 @@ import '../services/tts_service.dart';
 import '../services/tts_skip.dart';
 import '../utils/volume_ordering.dart';
 import '../widgets/listen_view.dart';
+import 'pronunciation_screen.dart';
 import '../widgets/reader_settings_sheet.dart';
 import '../widgets/seek_button.dart';
 import 'glossary_screen.dart';
@@ -349,6 +351,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   final _pageController = PageController();
   TtsEngine _ttsService = TtsService();
   TtsEngineKind _engineKind = TtsEngineKind.system;
+  Map<String, String> _pronunciations = const {};
   final _nowPlaying = NowPlayingService();
 
   EpubParser? _parser;
@@ -506,6 +509,41 @@ class _ReaderScreenState extends State<ReaderScreen>
         : TtsService();
     _engineKind = desired;
     _wireTts();
+    _applyPronunciations();
+  }
+
+  /// Loads this series' pronunciation overrides (global + per-series) and
+  /// pushes them to the active engine.
+  Future<void> _loadPronunciations() async {
+    final map =
+        await PronunciationStore().merged(widget.volume.seriesOpdsId);
+    if (!mounted) return;
+    _pronunciations = map;
+    _applyPronunciations();
+  }
+
+  void _applyPronunciations() {
+    final engine = _ttsService;
+    if (engine is NetworkTtsService) {
+      engine.setPronunciations(_pronunciations);
+    }
+  }
+
+  /// Opens the pronunciation editor; on return, re-applies overrides and
+  /// re-synthesizes from the current spot if reading.
+  Future<void> _openPronunciations() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PronunciationScreen(
+          seriesId: widget.volume.seriesOpdsId,
+          seriesTitle: widget.volume.title,
+        ),
+      ),
+    );
+    await _loadPronunciations();
+    if (_ttsService.state == TtsPlaybackState.playing) {
+      _startTts(fromCurrentPosition: true);
+    }
   }
 
   @override
@@ -593,6 +631,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       _applyOrientation(settings.orientation);
       _applyKeepAwake(settings.keepAwake);
       _syncEngineToSettings();
+      _loadPronunciations();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _restoreScrollPosition();
         if (_settings.autoScroll) _startAutoScroll();
@@ -2090,6 +2129,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                       onBookmarks: _openBookmarks,
                       onGlossary: _openGlossary,
                       onOpenSkip: _openSkipMenu,
+                      onOpenPronunciations: _openPronunciations,
                     ),
                   ),
                 ),
@@ -2525,7 +2565,15 @@ class _BlockView extends StatelessWidget {
 
 /// Overlay top bar: back, chapter title, reading settings, contents.
 /// Actions in the reader's top-bar overflow menu.
-enum _ReaderMenu { contents, search, bookmarks, glossary, skip, settings }
+enum _ReaderMenu {
+  contents,
+  search,
+  bookmarks,
+  glossary,
+  skip,
+  pronunciations,
+  settings,
+}
 
 /// An icon + label row for a [PopupMenuItem].
 class _MenuRow extends StatelessWidget {
@@ -2562,6 +2610,7 @@ class _TopBar extends StatelessWidget {
     required this.onBookmarks,
     required this.onGlossary,
     required this.onOpenSkip,
+    required this.onOpenPronunciations,
   });
 
   final double height;
@@ -2577,6 +2626,7 @@ class _TopBar extends StatelessWidget {
   final VoidCallback onBookmarks;
   final VoidCallback onGlossary;
   final VoidCallback onOpenSkip;
+  final VoidCallback onOpenPronunciations;
 
   @override
   Widget build(BuildContext context) {
@@ -2639,6 +2689,8 @@ class _TopBar extends StatelessWidget {
                       onGlossary();
                     case _ReaderMenu.skip:
                       onOpenSkip();
+                    case _ReaderMenu.pronunciations:
+                      onOpenPronunciations();
                     case _ReaderMenu.settings:
                       onOpenSettings();
                   }
@@ -2666,6 +2718,11 @@ class _TopBar extends StatelessWidget {
                       Icons.filter_alt_outlined,
                       'Skip while reading',
                     ),
+                  ),
+                  PopupMenuItem(
+                    value: _ReaderMenu.pronunciations,
+                    child: _MenuRow(Icons.record_voice_over_outlined,
+                        'Pronunciations'),
                   ),
                   PopupMenuItem(
                     value: _ReaderMenu.settings,

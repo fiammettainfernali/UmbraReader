@@ -43,6 +43,8 @@ class NetworkTtsService implements TtsEngine {
 
   String _voice = 'af_heart';
   double _speed = 1.0;
+  Map<String, String> _pron = const {};
+  String _pronSig = '';
 
   /// Generation token: bumped on every [start]/[stop] so a stale playback loop
   /// or in-flight request from a previous run can detect it should bail out.
@@ -72,6 +74,14 @@ class NetworkTtsService implements TtsEngine {
   void configure({required String baseUrl, required String token}) {
     _baseUrl = _normalize(baseUrl);
     _token = token;
+  }
+
+  /// Sets the term → sounds-like pronunciation overrides sent with each
+  /// synthesis request. Part of the cache key, so changing them re-synthesizes.
+  void setPronunciations(Map<String, String> pron) {
+    _pron = pron;
+    final keys = pron.keys.toList()..sort();
+    _pronSig = keys.map((k) => '$k=${pron[k]}').join('|');
   }
 
   static String _normalize(String url) {
@@ -312,6 +322,7 @@ class NetworkTtsService implements TtsEngine {
                 'voice': _voice,
                 'speed': _speed,
                 'lang': 'en-us',
+                if (_pron.isNotEmpty) 'pron': _pron,
               }),
             )
             .timeout(const Duration(seconds: 40));
@@ -373,7 +384,8 @@ class NetworkTtsService implements TtsEngine {
 
   // Stable FNV-1a hash so cache filenames survive app restarts.
   String _cacheKey(String voice, double speed, String text) {
-    final input = 'v$_cacheVersion|$voice|${speed.toStringAsFixed(2)}|$text';
+    final input =
+        'v$_cacheVersion|$_pronSig|$voice|${speed.toStringAsFixed(2)}|$text';
     var hash = 0x811c9dc5;
     for (final unit in input.codeUnits) {
       hash ^= unit;
