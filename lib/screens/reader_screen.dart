@@ -1496,9 +1496,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (blockIndex == _followedBlock) return;
     _followedBlock = blockIndex;
     if (!_scrollController.hasClients) return;
-    // Keep the spoken line around the middle of the screen (~50% down) rather
-    // than pinned near the top, so it reads more like a teleprompter.
-    final topInset = MediaQuery.of(context).size.height * 0.5;
+    // Keep the spoken line a little above the middle of the screen (~42% down)
+    // rather than pinned near the top, so it reads more like a teleprompter.
+    final topInset = MediaQuery.of(context).size.height * 0.42;
     final target = (_blockOffset(blockIndex) - topInset).clamp(
       0.0,
       _scrollController.position.maxScrollExtent,
