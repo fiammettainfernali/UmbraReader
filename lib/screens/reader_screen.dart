@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -359,6 +360,10 @@ class _ReaderScreenState extends State<ReaderScreen>
   int _resumeChar = 0;
   // Local file path of the series cover, for the lock-screen artwork.
   String? _coverPath;
+  // Background audio pre-processing (cache warming) progress + cancel token.
+  int _prepDone = 0;
+  int _prepTotal = 0;
+  int _prepGen = 0;
   final _nowPlaying = NowPlayingService();
 
   EpubParser? _parser;
@@ -656,7 +661,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       _applyOrientation(settings.orientation);
       _applyKeepAwake(settings.keepAwake);
       _syncEngineToSettings();
-      _loadPronunciations();
+      _loadPronunciations().then((_) => _prepareAudio());
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _restoreScrollPosition();
         if (_settings.autoScroll) _startAutoScroll();
@@ -1103,6 +1108,8 @@ class _ReaderScreenState extends State<ReaderScreen>
         next.voiceLocale,
       );
     }
+    // The cache is keyed by voice/engine, so re-warm it when either changes.
+    if (voiceChanged || engineChanged) _prepareAudio();
     if (fontChanged) {
       await _preloadFont(next.fontFamily);
       if (mounted) setState(() => _fontToken++);
@@ -1221,6 +1228,192 @@ class _ReaderScreenState extends State<ReaderScreen>
       voiceName: _settings.voiceName,
       voiceLocale: _settings.voiceLocale,
       startCharOffset: startChar,
+    );
+  }
+
+  /// Builds the read-aloud chunk texts for [blocks] — the same redacted,
+  /// skip-filtered strings playback uses, so warmed cache entries match.
+  List<String> _chunkTextsForBlocks(List<ContentBlock> blocks) {
+    final skips = _settings.ttsSkips;
+    final skipHeadings = skips.contains(TtsSkip.headings);
+    final texts = <String>[];
+    for (final block in blocks) {
+      if (skipHeadings && block is HeadingBlock) continue;
+      final text = redactForSpeech(_blockText(block), skips);
+      if (text.trim().isNotEmpty) texts.add(text);
+    }
+    return texts;
+  }
+
+  Future<bool> _onWifi() async {
+    try {
+      final result = await Connectivity().checkConnectivity();
+      return result.contains(ConnectivityResult.wifi) ||
+          result.contains(ConnectivityResult.ethernet);
+    } on Exception {
+      return false;
+    }
+  }
+
+  /// Quietly pre-synthesizes the current chapter (and the next) into the cache
+  /// on Wi-Fi, so play is instant/gapless. Kokoro engine only.
+  Future<void> _prepareAudio() async {
+    final engine = _ttsService;
+    if (engine is! NetworkTtsService) return;
+    if (!await _onWifi()) return;
+    final book = _book;
+    final blocks = _blocks;
+    final parser = _parser;
+    if (book == null || blocks == null) return;
+    final texts = <String>[..._chunkTextsForBlocks(blocks)];
+    final next = _chapterIndex + 1;
+    if (parser != null && next < book.chapters.length) {
+      try {
+        texts.addAll(
+          _chunkTextsForBlocks(parser.parseChapter(book.chapters[next])),
+        );
+      } on Object {
+        // Next-chapter parse is best-effort.
+      }
+    }
+    if (texts.isEmpty) return;
+    final gen = ++_prepGen;
+    if (mounted) {
+      setState(() {
+        _prepDone = 0;
+        _prepTotal = texts.length;
+      });
+    }
+    await engine.precache(
+      texts,
+      voice: _settings.voiceName,
+      rate: _settings.speechRate,
+      onProgress: (done, total) {
+        if (!mounted || gen != _prepGen) return;
+        setState(() {
+          _prepDone = done;
+          _prepTotal = total;
+        });
+      },
+      shouldCancel: () => !mounted || gen != _prepGen,
+    );
+    if (mounted && gen == _prepGen) {
+      setState(() {
+        _prepDone = 0;
+        _prepTotal = 0;
+      });
+    }
+  }
+
+  /// Caches every chapter's audio so the whole volume plays offline, with a
+  /// progress dialog.
+  Future<void> _prepareVolumeForOffline() async {
+    final engine = _ttsService;
+    final book = _book;
+    final parser = _parser;
+    if (engine is! NetworkTtsService) {
+      _showSnack('Switch to the Natural voice to prepare offline audio.');
+      return;
+    }
+    if (book == null || parser == null) return;
+    final texts = <String>[];
+    for (final chapter in book.chapters) {
+      try {
+        texts.addAll(_chunkTextsForBlocks(parser.parseChapter(chapter)));
+      } on Object {
+        // Skip an unparseable chapter.
+      }
+    }
+    if (texts.isEmpty) return;
+    final total = texts.length;
+    final gen = ++_prepGen;
+    final progress = ValueNotifier<int>(0);
+    var stopped = false;
+    var dialogOpen = true;
+    unawaited(
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogCtx) => AlertDialog(
+          title: const Text('Preparing for offline'),
+          content: ValueListenableBuilder<int>(
+            valueListenable: progress,
+            builder: (_, done, _) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LinearProgressIndicator(value: total == 0 ? 0 : done / total),
+                const SizedBox(height: 12),
+                Text('$done of $total paragraphs'),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                stopped = true;
+                _prepGen++;
+                dialogOpen = false;
+                Navigator.of(dialogCtx).pop();
+              },
+              child: const Text('Stop'),
+            ),
+          ],
+        ),
+      ),
+    );
+    await engine.precache(
+      texts,
+      voice: _settings.voiceName,
+      rate: _settings.speechRate,
+      onProgress: (done, _) => progress.value = done,
+      shouldCancel: () => stopped || gen != _prepGen,
+    );
+    if (mounted && dialogOpen) {
+      dialogOpen = false;
+      Navigator.of(context).pop();
+    }
+    progress.dispose();
+    if (mounted && !stopped) {
+      _showSnack('This volume is ready to listen offline.');
+    }
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// A subtle "Preparing audio · N%" pill shown while the cache warms.
+  Widget _prepChip(ReaderThemePreset preset) {
+    final pct = _prepTotal == 0 ? 0 : (_prepDone * 100 / _prepTotal).round();
+    return Material(
+      color: preset.background.withValues(alpha: 0.92),
+      shape: StadiumBorder(
+        side: BorderSide(color: preset.text.withValues(alpha: 0.15)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 13,
+              height: 13,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation(preset.text),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              'Preparing audio · $pct%',
+              style: TextStyle(color: preset.text, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -2149,6 +2342,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                       onGlossary: _openGlossary,
                       onOpenSkip: _openSkipMenu,
                       onOpenPronunciations: _openPronunciations,
+                      onPrepareOffline: _prepareVolumeForOffline,
                     ),
                   ),
                 ),
@@ -2181,6 +2375,13 @@ class _ReaderScreenState extends State<ReaderScreen>
                     ),
                   ),
                 ),
+                if (_prepTotal > 0 && _prepDone < _prepTotal)
+                  Positioned(
+                    top: topSpace + 8,
+                    left: 0,
+                    right: 0,
+                    child: _fadeChrome(Center(child: _prepChip(preset))),
+                  ),
                 if (_settings.brightness < 1.0)
                   Positioned.fill(
                     child: IgnorePointer(
@@ -2588,6 +2789,7 @@ enum _ReaderMenu {
   glossary,
   skip,
   pronunciations,
+  prepareOffline,
   settings,
 }
 
@@ -2625,6 +2827,7 @@ class _TopBar extends StatelessWidget {
     required this.onGlossary,
     required this.onOpenSkip,
     required this.onOpenPronunciations,
+    required this.onPrepareOffline,
   });
 
   final double height;
@@ -2639,6 +2842,7 @@ class _TopBar extends StatelessWidget {
   final VoidCallback onGlossary;
   final VoidCallback onOpenSkip;
   final VoidCallback onOpenPronunciations;
+  final VoidCallback onPrepareOffline;
 
   @override
   Widget build(BuildContext context) {
@@ -2693,6 +2897,8 @@ class _TopBar extends StatelessWidget {
                       onOpenSkip();
                     case _ReaderMenu.pronunciations:
                       onOpenPronunciations();
+                    case _ReaderMenu.prepareOffline:
+                      onPrepareOffline();
                     case _ReaderMenu.settings:
                       onOpenSettings();
                   }
@@ -2725,6 +2931,13 @@ class _TopBar extends StatelessWidget {
                     value: _ReaderMenu.pronunciations,
                     child: _MenuRow(Icons.record_voice_over_outlined,
                         'Pronunciations'),
+                  ),
+                  PopupMenuItem(
+                    value: _ReaderMenu.prepareOffline,
+                    child: _MenuRow(
+                      Icons.download_for_offline_outlined,
+                      'Prepare for offline',
+                    ),
                   ),
                   PopupMenuItem(
                     value: _ReaderMenu.settings,

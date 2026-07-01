@@ -312,8 +312,9 @@ class NetworkTtsService implements TtsEngine {
   }
 
   /// Returns the clip for chunk [i], synthesizing + caching on miss.
-  Future<_Clip?> _ensureAudio(int i) {
-    final text = _chunks[i].trim();
+  Future<_Clip?> _ensureAudio(int i) => _ensureAudioForText(_chunks[i].trim());
+
+  Future<_Clip?> _ensureAudioForText(String text) {
     final key = _cacheKey(_voice, _speed, text);
     final existing = _inflight[key];
     if (existing != null) return existing;
@@ -321,6 +322,46 @@ class NetworkTtsService implements TtsEngine {
     _inflight[key] = fut;
     fut.whenComplete(() => _inflight.remove(key));
     return fut;
+  }
+
+  /// Warms the on-disk cache by synthesizing [texts] ahead of time (throttled),
+  /// without playing — so later playback is instant/gapless and works offline.
+  /// Reports progress via [onProgress]; stops early when [shouldCancel] is true.
+  Future<void> precache(
+    List<String> texts, {
+    required String voice,
+    required double rate,
+    void Function(int done, int total)? onProgress,
+    bool Function()? shouldCancel,
+  }) async {
+    if (!isConfigured || texts.isEmpty) return;
+    if (voice.isNotEmpty) _voice = voice;
+    _speed = _rateToSpeed(rate);
+    final total = texts.length;
+    var done = 0;
+    var next = 0;
+
+    Future<void> worker() async {
+      while (true) {
+        if (shouldCancel?.call() ?? false) return;
+        final i = next++;
+        if (i >= texts.length) return;
+        final text = texts[i].trim();
+        if (text.isNotEmpty) {
+          try {
+            await _ensureAudioForText(text);
+          } on Object {
+            // Skip a failed clip; it'll be synthesized on demand later.
+          }
+        }
+        done++;
+        onProgress?.call(done, total);
+      }
+    }
+
+    // A few in flight at once keeps the box busy without saturating it.
+    const concurrency = 3;
+    await Future.wait([for (var w = 0; w < concurrency; w++) worker()]);
   }
 
   Future<_Clip?> _resolveAudio(String key, String text) async {
