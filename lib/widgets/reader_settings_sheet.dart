@@ -652,73 +652,70 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
     return -1;
   }
 
-  String _voiceLabel(TtsVoice voice) =>
-      voice.isKokoro ? voice.name : '${voice.name}  ·  ${voice.locale}';
+  static const _voiceAccents = {
+    'a': 'American', 'b': 'British', 'e': 'Spanish', 'f': 'French',
+    'h': 'Hindi', 'i': 'Italian', 'j': 'Japanese', 'p': 'Portuguese',
+    'z': 'Mandarin',
+  };
+
+  /// A friendly label for a voice — the given name plus accent/gender for
+  /// Kokoro voices (e.g. `af_heart` → "Heart · American, Female").
+  String _friendlyVoiceLabel(TtsVoice voice) {
+    if (!voice.isKokoro) return '${voice.name} · ${voice.locale}';
+    final parts = voice.name.split('_');
+    if (parts.length == 2 && parts[0].length == 2 && parts[1].isNotEmpty) {
+      final accent = _voiceAccents[parts[0][0]] ?? '';
+      final gender = parts[0][1] == 'm'
+          ? 'Male'
+          : parts[0][1] == 'f'
+          ? 'Female'
+          : '';
+      final given = parts[1][0].toUpperCase() + parts[1].substring(1);
+      final tag = [accent, gender].where((s) => s.isNotEmpty).join(', ');
+      return tag.isEmpty ? given : '$given · $tag';
+    }
+    return voice.name;
+  }
 
   Widget _buildVoicePicker(ThemeData theme) {
     final selected = _voiceIndex();
-    final canPreview =
-        _settings.ttsEngine == TtsEngineKind.kokoro &&
-        selected >= 0 &&
-        _voices[selected].isKokoro;
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        children: [
-          Text('Voice', style: theme.textTheme.titleSmall),
-          const SizedBox(width: 16),
-          Expanded(
-            child: _voices.isEmpty
-                ? Text(
-                    'System default',
-                    textAlign: TextAlign.end,
-                    style: theme.textTheme.bodyMedium,
-                  )
-                : DropdownButton<int>(
-                    isExpanded: true,
-                    alignment: Alignment.centerRight,
-                    value: selected,
-                    items: [
-                      const DropdownMenuItem(
-                        value: -1,
-                        child: Text('System default'),
-                      ),
-                      for (var i = 0; i < _voices.length; i++)
-                        DropdownMenuItem(
-                          value: i,
-                          child: Text(
-                            _voiceLabel(_voices[i]),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                    ],
-                    onChanged: (index) {
-                      if (index == null) return;
-                      if (index < 0) {
-                        _update(
-                          _settings.copyWith(voiceName: '', voiceLocale: ''),
-                        );
-                      } else {
-                        final voice = _voices[index];
-                        _update(
-                          _settings.copyWith(
-                            voiceName: voice.name,
-                            voiceLocale: voice.locale,
-                          ),
-                        );
-                      }
-                    },
-                  ),
-          ),
-          if (canPreview)
-            IconButton(
-              icon: const Icon(Icons.play_circle_outline),
-              tooltip: 'Preview voice',
-              onPressed: () => _previewVoice(_voices[selected].name),
-            ),
-        ],
+    final label = selected >= 0
+        ? _friendlyVoiceLabel(_voices[selected])
+        : 'System default';
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: const Text('Voice'),
+      subtitle: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: _voices.isEmpty ? null : _openVoiceSheet,
+    );
+  }
+
+  /// Opens the searchable voice list; applies the chosen voice on return.
+  Future<void> _openVoiceSheet() async {
+    final result = await showModalBottomSheet<int>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.8,
+      ),
+      builder: (_) => _VoiceSheet(
+        voices: _voices,
+        selectedIndex: _voiceIndex(),
+        labelFor: _friendlyVoiceLabel,
+        onPreview: _previewVoice,
       ),
     );
+    if (result == null) return;
+    if (result < 0) {
+      _update(_settings.copyWith(voiceName: '', voiceLocale: ''));
+    } else {
+      final voice = _voices[result];
+      _update(
+        _settings.copyWith(voiceName: voice.name, voiceLocale: voice.locale),
+      );
+    }
   }
 
   /// Opens the colour-editor dialog and, on save, persists the new custom
@@ -801,6 +798,108 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
           onChanged: onChanged,
         ),
       ],
+    );
+  }
+}
+
+/// A searchable list of read-aloud voices, with per-voice preview. Pops the
+/// chosen voice index (or -1 for "System default"); null when dismissed.
+class _VoiceSheet extends StatefulWidget {
+  const _VoiceSheet({
+    required this.voices,
+    required this.selectedIndex,
+    required this.labelFor,
+    required this.onPreview,
+  });
+
+  final List<TtsVoice> voices;
+  final int selectedIndex;
+  final String Function(TtsVoice) labelFor;
+  final Future<void> Function(String voice) onPreview;
+
+  @override
+  State<_VoiceSheet> createState() => _VoiceSheetState();
+}
+
+class _VoiceSheetState extends State<_VoiceSheet> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final q = _query.trim().toLowerCase();
+    final matches = <int>[
+      for (var i = 0; i < widget.voices.length; i++)
+        if (q.isEmpty ||
+            widget.labelFor(widget.voices[i]).toLowerCase().contains(q) ||
+            widget.voices[i].name.toLowerCase().contains(q))
+          i,
+    ];
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Choose a voice',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              autofocus: false,
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search),
+                hintText: 'Search voices',
+                isDense: true,
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (v) => setState(() => _query = v),
+            ),
+            const SizedBox(height: 8),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                children: [
+                  if (q.isEmpty)
+                    ListTile(
+                      title: const Text('System default'),
+                      selected: widget.selectedIndex < 0,
+                      trailing: widget.selectedIndex < 0
+                          ? const Icon(Icons.check)
+                          : null,
+                      onTap: () => Navigator.of(context).pop(-1),
+                    ),
+                  for (final i in matches)
+                    ListTile(
+                      title: Text(widget.labelFor(widget.voices[i])),
+                      selected: i == widget.selectedIndex,
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (widget.voices[i].isKokoro)
+                            IconButton(
+                              icon: const Icon(Icons.play_circle_outline),
+                              tooltip: 'Preview',
+                              onPressed: () =>
+                                  widget.onPreview(widget.voices[i].name),
+                            ),
+                          if (i == widget.selectedIndex)
+                            const Icon(Icons.check),
+                        ],
+                      ),
+                      onTap: () => Navigator.of(context).pop(i),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
