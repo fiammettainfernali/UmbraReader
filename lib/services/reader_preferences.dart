@@ -204,6 +204,34 @@ class ReaderPreferences {
     return true;
   }
 
+  static const _kSeriesVoicePrefix = 'series_voice:';
+
+  /// The narrator chosen for a whole series (name, locale), or null if none.
+  Future<(String, String)?> seriesVoice(int seriesId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('$_kSeriesVoicePrefix$seriesId');
+    if (raw == null || raw.isEmpty) return null;
+    final sep = raw.indexOf('|');
+    if (sep < 0) return (raw, '');
+    return (raw.substring(0, sep), raw.substring(sep + 1));
+  }
+
+  /// Remembers [name]/[locale] as the narrator for [seriesId]. Clearing to an
+  /// empty voice removes the per-series override.
+  Future<void> saveSeriesVoice(
+    int seriesId,
+    String name,
+    String locale,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = '$_kSeriesVoicePrefix$seriesId';
+    if (name.isEmpty) {
+      await prefs.remove(key);
+    } else {
+      await prefs.setString(key, '$name|$locale');
+    }
+  }
+
   Future<bool> hasOverride(Volume volume) async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool('${_volumePrefix(volume)}$_kOverrideMarker') == true;

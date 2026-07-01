@@ -594,7 +594,16 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   Future<void> _open() async {
-    final settings = await ReaderPreferences().load(volume: widget.volume);
+    var settings = await ReaderPreferences().load(volume: widget.volume);
+    // Apply this series' remembered narrator, if one was chosen for it.
+    final seriesVoice =
+        await ReaderPreferences().seriesVoice(widget.volume.seriesOpdsId);
+    if (seriesVoice != null) {
+      settings = settings.copyWith(
+        voiceName: seriesVoice.$1,
+        voiceLocale: seriesVoice.$2,
+      );
+    }
     await _preloadFont(settings.fontFamily);
     try {
       final file = await LibraryStorage().epubFile(widget.volume);
@@ -1067,7 +1076,15 @@ class _ReaderScreenState extends State<ReaderScreen>
     ReaderPreferences().save(next, volume: widget.volume);
     if (engineChanged) _syncEngineToSettings();
     if (rateChanged) _ttsService.setRate(next.speechRate);
-    if (voiceChanged) _ttsService.setVoice(next.voiceName, next.voiceLocale);
+    if (voiceChanged) {
+      _ttsService.setVoice(next.voiceName, next.voiceLocale);
+      // Remember the chosen narrator for this whole series.
+      ReaderPreferences().saveSeriesVoice(
+        widget.volume.seriesOpdsId,
+        next.voiceName,
+        next.voiceLocale,
+      );
+    }
     if (fontChanged) {
       await _preloadFont(next.fontFamily);
       if (mounted) setState(() => _fontToken++);
