@@ -275,30 +275,30 @@ class NetworkTtsService implements TtsEngine {
         }
       }
       _pendingSeekChar = -1;
+      // Start highlighting BEFORE play(): on the first clip, play() can take a
+      // beat to spin up the audio session, and starting the timer after it left
+      // the opening paragraph with no highlight.
+      if (marks.isEmpty) {
+        // No word timing: highlight the whole chunk for the duration.
+        onWord?.call(chunkIndex, 0, _chunks[chunkIndex].length);
+      } else {
+        // Drive the highlight from the playback position on a steady tick.
+        _hlTimer = Timer.periodic(const Duration(milliseconds: 90), (_) {
+          final t = _player.position.inMilliseconds / 1000.0;
+          var idx = _lastMarkFired;
+          while (idx + 1 < marks.length && marks[idx + 1][2] <= t) {
+            idx++;
+          }
+          if (idx >= 0 && idx != _lastMarkFired) {
+            _lastMarkFired = idx;
+            final m = marks[idx];
+            onWord?.call(chunkIndex, m[0].toInt(), m[1].toInt());
+          }
+        });
+      }
       await _player.play();
     } on Exception {
       if (!done.isCompleted) done.complete();
-    }
-
-    if (marks.isEmpty) {
-      // No word timing — highlight the whole chunk for the duration.
-      onWord?.call(chunkIndex, 0, _chunks[chunkIndex].length);
-    } else {
-      // Drive the highlight from the playback position on a steady tick. This
-      // is more reliable than positionStream, which can emit sparsely or
-      // replay a stale position from the previous clip.
-      _hlTimer = Timer.periodic(const Duration(milliseconds: 90), (_) {
-        final t = _player.position.inMilliseconds / 1000.0;
-        var idx = _lastMarkFired;
-        while (idx + 1 < marks.length && marks[idx + 1][2] <= t) {
-          idx++;
-        }
-        if (idx >= 0 && idx != _lastMarkFired) {
-          _lastMarkFired = idx;
-          final m = marks[idx];
-          onWord?.call(chunkIndex, m[0].toInt(), m[1].toInt());
-        }
-      });
     }
 
     await done.future;
