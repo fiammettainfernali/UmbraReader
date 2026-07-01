@@ -36,7 +36,7 @@ import 'highlights_screen.dart';
 // Layout constants — shared by rendering and pagination so the two agree.
 const double _contentVPad = 8;
 const double _topBarHeight = 56;
-const double _bottomBarHeight = 56;
+const double _bottomBarHeight = 88;
 const double _paragraphGap = 16;
 const double _headingTopGap = 12;
 const double _headingBottomGap = 16;
@@ -1282,52 +1282,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (engine is NetworkTtsService) engine.nudge(seconds);
   }
 
-  /// A compact read-aloud transport (⟲15 · play/pause · 15⟳) shown in the
-  /// reader, above the chapter bar, while Kokoro playback is active.
-  Widget _buildTtsTransport(ReaderThemePreset preset) {
-    final playing = _ttsService.state == TtsPlaybackState.playing;
-    return Material(
-      color: preset.background,
-      surfaceTintColor: Colors.transparent,
-      elevation: 2,
-      child: SafeArea(
-        top: false,
-        bottom: false,
-        child: SizedBox(
-          height: 54,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              SeekButton(
-                seconds: -15,
-                color: preset.text,
-                size: 36,
-                onTap: () => _nudge(-15),
-              ),
-              const SizedBox(width: 28),
-              IconButton(
-                iconSize: 42,
-                color: preset.text,
-                tooltip: playing ? 'Pause' : 'Play',
-                icon: Icon(
-                  playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
-                ),
-                onPressed: _toggleTts,
-              ),
-              const SizedBox(width: 28),
-              SeekButton(
-                seconds: 15,
-                color: preset.text,
-                size: 36,
-                onTap: () => _nudge(15),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   /// Cycles the read-aloud speed through common multipliers (1×–2×) for the
   /// listen player's quick speed button.
   void _cycleSpeed() {
@@ -2119,9 +2073,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                       height: topSpace,
                       title: book.chapters[_chapterIndex].title,
                       preset: preset,
-                      ttsState: _ttsService.state,
                       onBack: () => Navigator.of(context).pop(),
-                      onToggleTts: _toggleTts,
                       onToggleListen: _toggleListen,
                       onOpenSettings: _openSettings,
                       onShowContents: _showTableOfContents,
@@ -2151,20 +2103,17 @@ class _ReaderScreenState extends State<ReaderScreen>
                       onNext: () => _goToChapter(_chapterIndex + 1),
                       onSeek: _seekChapter,
                       onJump: (delta) => _goToChapter(_chapterIndex + delta),
+                      isReading:
+                          _ttsService.state != TtsPlaybackState.stopped,
+                      isPlaying:
+                          _ttsService.state == TtsPlaybackState.playing,
+                      canSeek: _ttsService is NetworkTtsService,
+                      onPlayPause: _toggleTts,
+                      onBack15: () => _nudge(-15),
+                      onForward15: () => _nudge(15),
                     ),
                   ),
                 ),
-                // Read-aloud transport (skip ±15s + play/pause), shown above
-                // the chapter bar while the Kokoro engine is playing seekable
-                // audio.
-                if (_ttsService.state != TtsPlaybackState.stopped &&
-                    _ttsService is NetworkTtsService)
-                  Positioned(
-                    bottom: bottomSpace,
-                    left: 0,
-                    right: 0,
-                    child: _fadeChrome(_buildTtsTransport(preset)),
-                  ),
                 if (_settings.brightness < 1.0)
                   Positioned.fill(
                     child: IgnorePointer(
@@ -2600,9 +2549,7 @@ class _TopBar extends StatelessWidget {
     required this.height,
     required this.title,
     required this.preset,
-    required this.ttsState,
     required this.onBack,
-    required this.onToggleTts,
     required this.onToggleListen,
     required this.onOpenSettings,
     required this.onShowContents,
@@ -2616,9 +2563,7 @@ class _TopBar extends StatelessWidget {
   final double height;
   final String title;
   final ReaderThemePreset preset;
-  final TtsPlaybackState ttsState;
   final VoidCallback onBack;
-  final VoidCallback onToggleTts;
   final VoidCallback onToggleListen;
   final VoidCallback onOpenSettings;
   final VoidCallback onShowContents;
@@ -2657,16 +2602,6 @@ class _TopBar extends StatelessWidget {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-              ),
-              IconButton(
-                icon: Icon(
-                  ttsState == TtsPlaybackState.playing
-                      ? Icons.pause_circle_outline
-                      : Icons.play_circle_outline,
-                ),
-                color: preset.text,
-                tooltip: 'Read aloud',
-                onPressed: onToggleTts,
               ),
               IconButton(
                 icon: const Icon(Icons.headphones_outlined),
@@ -2826,12 +2761,28 @@ class _ChapterBar extends StatelessWidget {
     required this.onNext,
     required this.onSeek,
     required this.onJump,
+    required this.isReading,
+    required this.isPlaying,
+    required this.canSeek,
+    required this.onPlayPause,
+    required this.onBack15,
+    required this.onForward15,
   });
 
   final double height;
   final ReaderThemePreset preset;
   final int index;
   final int total;
+
+  /// True when read-aloud is playing or paused (shows pause + seek controls).
+  final bool isReading;
+  final bool isPlaying;
+
+  /// Whether the active engine supports 15-second seeking (Kokoro only).
+  final bool canSeek;
+  final VoidCallback onPlayPause;
+  final VoidCallback onBack15;
+  final VoidCallback onForward15;
 
   /// Fraction (0..1) of the current chapter that has been read.
   final double progress;
@@ -2922,49 +2873,63 @@ class _ChapterBar extends StatelessWidget {
             Expanded(
               child: SafeArea(
                 top: false,
-                child: Row(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    _ChapterStepButton(
-                      icon: Icons.chevron_left,
-                      preset: preset,
-                      tooltip: 'Previous chapter (long-press to skip back)',
-                      onTap: index > 0 ? onPrevious : null,
-                      onJump: onJump,
-                      forward: false,
-                      bound: index,
+                    Text(
+                      'Chapter ${index + 1} of $total  ·  $_timeLabel',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: preset.secondary, fontSize: 11),
                     ),
-                    Expanded(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            'Chapter ${index + 1} of $total',
-                            style: TextStyle(
-                              color: preset.text,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                            ),
+                    const SizedBox(height: 2),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _ChapterStepButton(
+                          icon: Icons.chevron_left,
+                          preset: preset,
+                          tooltip: 'Previous chapter (long-press to skip back)',
+                          onTap: index > 0 ? onPrevious : null,
+                          onJump: onJump,
+                          forward: false,
+                          bound: index,
+                        ),
+                        if (isReading && canSeek)
+                          SeekButton(
+                            seconds: -15,
+                            color: preset.text,
+                            size: 32,
+                            onTap: onBack15,
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _timeLabel,
-                            style: TextStyle(
-                              color: preset.secondary,
-                              fontSize: 11,
-                            ),
+                        IconButton(
+                          iconSize: 40,
+                          color: preset.text,
+                          tooltip: isPlaying ? 'Pause' : 'Play',
+                          icon: Icon(
+                            isPlaying
+                                ? Icons.pause_circle_filled
+                                : Icons.play_circle_fill,
                           ),
-                        ],
-                      ),
-                    ),
-                    _ChapterStepButton(
-                      icon: Icons.chevron_right,
-                      preset: preset,
-                      tooltip: 'Next chapter (long-press to skip ahead)',
-                      onTap: index < total - 1 ? onNext : null,
-                      onJump: onJump,
-                      forward: true,
-                      bound: total - index - 1,
+                          onPressed: onPlayPause,
+                        ),
+                        if (isReading && canSeek)
+                          SeekButton(
+                            seconds: 15,
+                            color: preset.text,
+                            size: 32,
+                            onTap: onForward15,
+                          ),
+                        _ChapterStepButton(
+                          icon: Icons.chevron_right,
+                          preset: preset,
+                          tooltip: 'Next chapter (long-press to skip ahead)',
+                          onTap: index < total - 1 ? onNext : null,
+                          onJump: onJump,
+                          forward: true,
+                          bound: total - index - 1,
+                        ),
+                      ],
                     ),
                   ],
                 ),
