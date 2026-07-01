@@ -2898,6 +2898,12 @@ class _ChapterBar extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // A crisp hairline so the player reads as a distinct surface,
+            // separated from the page content above it.
+            Container(
+              height: 0.5,
+              color: preset.text.withValues(alpha: 0.10),
+            ),
             // Tap / drag along the bar to scrub through the current chapter.
             // Expanded vertically to make the touch target comfortable while
             // the actual visible bar stays a thin 3px line.
