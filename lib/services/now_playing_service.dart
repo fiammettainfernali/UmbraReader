@@ -45,17 +45,20 @@ class NowPlayingService {
     return null;
   }
 
-  /// Publishes the current chapter/book and play state to the lock screen.
+  /// Publishes the current chapter/book, play state, and optional cover
+  /// artwork (a local image file path) to the lock screen.
   Future<void> update({
     required String title,
     required String book,
     required bool isPlaying,
+    String? artworkPath,
   }) async {
     try {
       await _channel.invokeMethod<void>('update', {
         'title': title,
         'book': book,
         'isPlaying': isPlaying,
+        'artwork': ?artworkPath,
       });
     } on PlatformException {
       // Native bridge unavailable — lock-screen controls just won't appear.

@@ -136,6 +136,14 @@ final class NowPlayingBridge {
     info[MPMediaItemPropertyTitle] = title
     info[MPMediaItemPropertyArtist] = book
     info[MPNowPlayingInfoPropertyPlaybackRate] = isPlaying ? 1.0 : 0.0
+
+    // Cover artwork from a local file path, when available.
+    if let path = args["artwork"] as? String,
+       let image = UIImage(contentsOfFile: path) {
+      info[MPMediaItemPropertyArtwork] = MPMediaItemArtwork(
+        boundsSize: image.size
+      ) { _ in image }
+    }
     MPNowPlayingInfoCenter.default().nowPlayingInfo = info
   }
 

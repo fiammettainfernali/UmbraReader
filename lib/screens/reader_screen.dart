@@ -15,6 +15,7 @@ import '../models/volume.dart';
 import '../services/bookmark_store.dart';
 import '../services/epub_parser.dart';
 import '../services/library_cache.dart';
+import '../services/cover_cache.dart';
 import '../services/library_storage.dart';
 import '../services/network_tts_service.dart';
 import '../services/now_playing_service.dart';
@@ -356,6 +357,8 @@ class _ReaderScreenState extends State<ReaderScreen>
   // once for the first read-aloud play, then cleared.
   int _resumeBlock = -1;
   int _resumeChar = 0;
+  // Local file path of the series cover, for the lock-screen artwork.
+  String? _coverPath;
   final _nowPlaying = NowPlayingService();
 
   EpubParser? _parser;
@@ -613,6 +616,10 @@ class _ReaderScreenState extends State<ReaderScreen>
       _resumeBlock = resume.$1;
       _resumeChar = resume.$2;
     }
+    final cover = await CoverCache(
+      LibraryStorage(),
+    ).cached(widget.volume.seriesOpdsId);
+    _coverPath = cover?.path;
     await _preloadFont(settings.fontFamily);
     try {
       final file = await LibraryStorage().epubFile(widget.volume);
@@ -1531,6 +1538,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       title: title,
       book: widget.volume.title,
       isPlaying: _ttsService.state == TtsPlaybackState.playing,
+      artworkPath: _coverPath,
     );
   }
 
