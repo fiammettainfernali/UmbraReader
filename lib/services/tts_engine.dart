@@ -54,13 +54,16 @@ abstract class TtsEngine {
   /// Selects a voice (best-effort).
   Future<void> setVoice(String name, String locale);
 
-  /// Begins reading [chunks] (one per paragraph) from [from].
+  /// Begins reading [chunks] (one per paragraph) from [from]. [startCharOffset]
+  /// is an optional character position within the first chunk to resume from
+  /// (word-exact resume; honoured only by engines that can seek, i.e. Kokoro).
   Future<void> start(
     List<String> chunks, {
     int from,
     required double rate,
     String voiceName,
     String voiceLocale,
+    int startCharOffset,
   });
 
   Future<void> pause();

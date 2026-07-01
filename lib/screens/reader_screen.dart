@@ -352,6 +352,10 @@ class _ReaderScreenState extends State<ReaderScreen>
   TtsEngine _ttsService = TtsService();
   TtsEngineKind _engineKind = TtsEngineKind.system;
   Map<String, String> _pronunciations = const {};
+  // Word-level resume point loaded on open (block index + char offset); used
+  // once for the first read-aloud play, then cleared.
+  int _resumeBlock = -1;
+  int _resumeChar = 0;
   final _nowPlaying = NowPlayingService();
 
   EpubParser? _parser;
@@ -603,6 +607,11 @@ class _ReaderScreenState extends State<ReaderScreen>
         voiceName: seriesVoice.$1,
         voiceLocale: seriesVoice.$2,
       );
+    }
+    final resume = await _progressStore.resumeOffset(widget.volume);
+    if (resume != null) {
+      _resumeBlock = resume.$1;
+      _resumeChar = resume.$2;
     }
     await _preloadFont(settings.fontFamily);
     try {
@@ -896,6 +905,8 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (ttsActive) {
       block = _speakingBlock!.clamp(0, blocks.isEmpty ? 0 : blocks.length - 1);
       atEnd = blocks.isNotEmpty && block >= blocks.length - 1;
+      // Record the word-level resume point (Kokoro can seek back to it).
+      _progressStore.saveResumeOffset(widget.volume, block, _speakingStart);
     } else if (_settings.mode == ReadingMode.paged) {
       // Skip if the position can't be read (e.g. controllers already detached
       // during dispose) — saving a fallback 0 would clobber the real position.
@@ -1185,12 +1196,24 @@ class _ReaderScreenState extends State<ReaderScreen>
     _ttsBlockForChunk = blockForChunk;
     _followedBlock = -1;
     _followedPage = -1;
+    // Word-exact resume: only on the first play after opening, and only when
+    // we're actually starting at the paragraph the resume point belongs to.
+    var startChar = 0;
+    if (startAtChunk == null &&
+        fromCurrentPosition &&
+        _resumeBlock >= 0 &&
+        fromChunk < blockForChunk.length &&
+        blockForChunk[fromChunk] == _resumeBlock) {
+      startChar = _resumeChar;
+    }
+    _resumeBlock = -1; // consume — it only applies to the resume play
     _ttsService.start(
       texts,
       from: fromChunk,
       rate: _settings.speechRate,
       voiceName: _settings.voiceName,
       voiceLocale: _settings.voiceLocale,
+      startCharOffset: startChar,
     );
   }
 

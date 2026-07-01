@@ -107,6 +107,7 @@ class TtsService implements TtsEngine {
     required double rate,
     String voiceName = '',
     String voiceLocale = '',
+    int startCharOffset = 0, // on-device engine can't seek within an utterance
   }) async {
     await _ensureInitialized();
     await _tts.stop();

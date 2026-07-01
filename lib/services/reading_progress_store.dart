@@ -70,6 +70,11 @@ class ReadingProgressStore {
   static const _volumePrefix = 'reading_volume:';
   static const _endPrefix = 'reading_end:';
 
+  /// Within-paragraph read-aloud resume point ("blockIndex:charOffset"), so
+  /// the Kokoro engine can pick up mid-paragraph. Not synced — it's ephemeral
+  /// device-local resume state.
+  static const _resumePrefix = 'tts_resume:';
+
   /// Reads the stored end-reached flag for [key], falling back for legacy
   /// entries (saved before the flag existed) to "on the last chapter" so
   /// books finished under the old scheme stay finished.
@@ -137,6 +142,7 @@ class ReadingProgressStore {
     await prefs.remove('$_timePrefix$key');
     await prefs.remove('$_volumePrefix$key');
     await prefs.remove('$_endPrefix$key');
+    await prefs.remove('$_resumePrefix$key');
     CloudSyncService().pushReadingProgress();
   }
 
@@ -153,6 +159,33 @@ class ReadingProgressStore {
     final set = (prefs.getStringList(_hiddenKey) ?? const []).toSet()
       ..add(_key(volume));
     await prefs.setStringList(_hiddenKey, set.toList());
+  }
+
+  /// Records the word-level resume point ([blockIndex], [charOffset]) reached
+  /// while reading [volume] aloud.
+  Future<void> saveResumeOffset(
+    Volume volume,
+    int blockIndex,
+    int charOffset,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      '$_resumePrefix${_key(volume)}',
+      '$blockIndex:$charOffset',
+    );
+  }
+
+  /// The saved (blockIndex, charOffset) resume point for [volume], or null.
+  Future<(int, int)?> resumeOffset(Volume volume) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('$_resumePrefix${_key(volume)}');
+    if (raw == null) return null;
+    final parts = raw.split(':');
+    if (parts.length != 2) return null;
+    final block = int.tryParse(parts[0]);
+    final offset = int.tryParse(parts[1]);
+    if (block == null || offset == null) return null;
+    return (block, offset);
   }
 
   /// Every volume with a saved position, newest first. Legacy entries saved

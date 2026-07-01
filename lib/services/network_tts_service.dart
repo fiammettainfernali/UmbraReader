@@ -55,6 +55,7 @@ class NetworkTtsService implements TtsEngine {
   StreamSubscription<ProcessingState>? _stateSub;
   Timer? _hlTimer;
   int _lastMarkFired = -1;
+  int _pendingSeekChar = -1;
   Directory? _cacheDir;
   final Map<String, Future<_Clip?>> _inflight = {};
 
@@ -201,6 +202,7 @@ class NetworkTtsService implements TtsEngine {
     required double rate,
     String voiceName = '',
     String voiceLocale = '',
+    int startCharOffset = 0,
   }) async {
     await _abortCurrent();
     await _ensureSession();
@@ -211,6 +213,7 @@ class NetworkTtsService implements TtsEngine {
     _speed = _rateToSpeed(rate);
     _chunks = chunks;
     _index = chunks.isEmpty ? 0 : from.clamp(0, chunks.length - 1);
+    _pendingSeekChar = startCharOffset > 0 ? startCharOffset : -1;
     final gen = ++_gen;
     _setState(TtsPlaybackState.playing);
     unawaited(_run(gen));
@@ -249,14 +252,34 @@ class NetworkTtsService implements TtsEngine {
     _hlTimer?.cancel();
     _hlTimer = null;
 
+    final marks = clip.marks;
     try {
       await _player.setFilePath(clip.path);
+      // Word-exact resume: on the first clip after a resume, jump to the word
+      // at/just before the saved character offset.
+      if (_pendingSeekChar >= 0 && marks.isNotEmpty) {
+        var idx = 0;
+        for (var k = 0; k < marks.length; k++) {
+          if (marks[k][0] <= _pendingSeekChar) {
+            idx = k;
+          } else {
+            break;
+          }
+        }
+        _lastMarkFired = idx - 1;
+        final ms = (marks[idx][2].toDouble() * 1000).round();
+        try {
+          await _player.seek(Duration(milliseconds: ms));
+        } on Exception {
+          // ignore seek failure
+        }
+      }
+      _pendingSeekChar = -1;
       await _player.play();
     } on Exception {
       if (!done.isCompleted) done.complete();
     }
 
-    final marks = clip.marks;
     if (marks.isEmpty) {
       // No word timing — highlight the whole chunk for the duration.
       onWord?.call(chunkIndex, 0, _chunks[chunkIndex].length);
