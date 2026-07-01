@@ -567,12 +567,12 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                 _buildVoicePicker(theme),
                 _slider(
                   theme,
-                  label: 'Speech rate',
-                  value: _settings.speechRate,
+                  label: 'Speed',
+                  value: _settings.speechRate.clamp(0.25, 1.5),
                   min: 0.25,
-                  max: 1.0,
-                  divisions: 15,
-                  display: _settings.speechRate.toStringAsFixed(2),
+                  max: 1.5,
+                  divisions: 10,
+                  display: _speedMultiplier(_settings.speechRate),
                   onChanged: (v) => _update(_settings.copyWith(speechRate: v)),
                 ),
                 const SizedBox(height: 16),
@@ -763,6 +763,16 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
     if (_settings.themeId == preset.id) {
       _update(_settings.copyWith(themeId: 'dark'));
     }
+  }
+
+  /// Read-aloud speed as a playback multiplier, e.g. "1.5×".
+  String _speedMultiplier(double rate) {
+    final m = rate * 2;
+    var s = m.toStringAsFixed(2);
+    if (s.contains('.')) {
+      s = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
+    }
+    return '$s×';
   }
 
   Widget _slider(

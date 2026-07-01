@@ -1282,10 +1282,10 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (engine is NetworkTtsService) engine.nudge(seconds);
   }
 
-  /// Cycles the read-aloud speed through common multipliers (1×–2×) for the
+  /// Cycles the read-aloud speed through common multipliers (1×–3×) for the
   /// listen player's quick speed button.
   void _cycleSpeed() {
-    const rates = [0.5, 0.625, 0.75, 0.875, 1.0];
+    const rates = [0.5, 0.625, 0.75, 0.875, 1.0, 1.25, 1.5];
     final current = _settings.speechRate;
     var next = rates.first;
     for (var i = 0; i < rates.length; i++) {

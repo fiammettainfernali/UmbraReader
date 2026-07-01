@@ -191,8 +191,8 @@ class NetworkTtsService implements TtsEngine {
     _speed = _rateToSpeed(rate);
   }
 
-  // flutter_tts rate (0–1, ~0.5 normal) -> Kokoro speed (~1.0 normal).
-  double _rateToSpeed(double rate) => (rate * 2.0).clamp(0.5, 2.0);
+  // flutter_tts rate (0.5 ≈ normal) -> Kokoro speed (1.0 ≈ normal), up to 3×.
+  double _rateToSpeed(double rate) => (rate * 2.0).clamp(0.5, 3.0);
 
   @override
   Future<void> start(
