@@ -213,367 +213,386 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                 widget.onOverrideToggled(value);
               },
             ),
-            const SizedBox(height: 8),
-            _label(theme, 'Layout'),
-            SegmentedButton<ReadingMode>(
-              segments: const [
-                ButtonSegment(
-                  value: ReadingMode.scroll,
-                  label: Text('Scroll'),
-                  icon: Icon(Icons.swap_vert),
-                ),
-                ButtonSegment(
-                  value: ReadingMode.paged,
-                  label: Text('Paged'),
-                  icon: Icon(Icons.auto_stories),
-                ),
-              ],
-              selected: {_settings.mode},
-              onSelectionChanged: (selection) =>
-                  _update(_settings.copyWith(mode: selection.first)),
-            ),
             const SizedBox(height: 4),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: const Text('TV mode'),
-              subtitle: const Text(
-                'Two-column landscape, full-screen — pair with iOS screen '
-                'mirroring (Control Center → Screen Mirroring) to read on '
-                'a TV with the phone as the remote.',
-              ),
-              value: _settings.tvMode,
-              onChanged: (on) => _update(_settings.copyWith(tvMode: on)),
-            ),
-            const SizedBox(height: 8),
-            _label(theme, 'Orientation'),
-            SegmentedButton<ReaderOrientation>(
-              segments: const [
-                ButtonSegment(
-                  value: ReaderOrientation.auto,
-                  label: Text('Auto'),
-                  icon: Icon(Icons.screen_rotation),
-                ),
-                ButtonSegment(
-                  value: ReaderOrientation.portrait,
-                  label: Text('Portrait'),
-                  icon: Icon(Icons.stay_current_portrait),
-                ),
-                ButtonSegment(
-                  value: ReaderOrientation.landscape,
-                  label: Text('Landscape'),
-                  icon: Icon(Icons.stay_current_landscape),
-                ),
-              ],
-              selected: {_settings.orientation},
-              onSelectionChanged: (selection) =>
-                  _update(_settings.copyWith(orientation: selection.first)),
-            ),
-            const SizedBox(height: 16),
-
-            _label(theme, 'Hands-free & glasses'),
-            const SizedBox(height: 4),
-            // One-tap preset tuned for XR glasses (e.g. Viture): landscape,
-            // a centred column for the lenses' sharp centre, a soft true-black
-            // theme, and keep-awake since the phone is the source display.
-            OutlinedButton.icon(
-              onPressed: () => _update(
-                _settings.copyWith(
-                  orientation: ReaderOrientation.landscape,
-                  centeredColumn: true,
-                  keepAwake: true,
-                  themeId: 'black',
-                ),
-              ),
-              icon: const Icon(Icons.visibility_outlined),
-              label: const Text('Glasses mode'),
-            ),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: const Text('Centred column'),
-              subtitle: const Text(
-                'Keep text in a comfortable centred column with wide margins.',
-              ),
-              value: _settings.centeredColumn,
-              onChanged: (on) =>
-                  _update(_settings.copyWith(centeredColumn: on)),
-            ),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: const Text('Keep screen awake'),
-              subtitle: const Text(
-                'Stop the screen sleeping while reading — useful with glasses '
-                'or auto page-turn.',
-              ),
-              value: _settings.keepAwake,
-              onChanged: (on) => _update(_settings.copyWith(keepAwake: on)),
-            ),
-            const SizedBox(height: 8),
-            _label(theme, 'Auto-turn pages (paged mode)'),
-            const SizedBox(height: 6),
-            SegmentedButton<int>(
-              segments: const [
-                ButtonSegment(value: 0, label: Text('Off')),
-                ButtonSegment(value: 20, label: Text('20s')),
-                ButtonSegment(value: 30, label: Text('30s')),
-                ButtonSegment(value: 45, label: Text('45s')),
-                ButtonSegment(value: 60, label: Text('60s')),
-              ],
-              selected: {_settings.autoPageSeconds},
-              showSelectedIcon: false,
-              onSelectionChanged: (s) =>
-                  _update(_settings.copyWith(autoPageSeconds: s.first)),
-            ),
-            const SizedBox(height: 20),
-
-            _label(theme, 'Theme'),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (final preset in CustomThemeStore.all)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 12),
-                      child: _ThemeSwatch(
-                        preset: preset,
-                        selected: preset.id == _settings.themeId,
-                        onTap: () =>
-                            _update(_settings.copyWith(themeId: preset.id)),
-                        onLongPress: preset.id.startsWith('custom-')
-                            ? () => _confirmDeleteTheme(preset)
-                            : null,
-                      ),
-                    ),
-                  Padding(
-                    padding: const EdgeInsets.only(right: 12),
-                    child: _NewThemeTile(onTap: _createCustomTheme),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            _label(theme, 'Font'),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            _section(
+              theme,
+              icon: Icons.view_agenda_outlined,
+              title: 'Layout & motion',
               children: [
-                for (final font in kReaderFonts)
-                  ChoiceChip(
-                    label: Text(_fontLabel(font)),
-                    selected: font == _settings.fontFamily,
-                    onSelected: (_) =>
-                        _update(_settings.copyWith(fontFamily: font)),
+                _label(theme, 'Reading mode'),
+                SegmentedButton<ReadingMode>(
+                  segments: const [
+                    ButtonSegment(
+                      value: ReadingMode.scroll,
+                      label: Text('Scroll'),
+                      icon: Icon(Icons.swap_vert),
+                    ),
+                    ButtonSegment(
+                      value: ReadingMode.paged,
+                      label: Text('Paged'),
+                      icon: Icon(Icons.auto_stories),
+                    ),
+                  ],
+                  selected: {_settings.mode},
+                  onSelectionChanged: (selection) =>
+                      _update(_settings.copyWith(mode: selection.first)),
+                ),
+                const SizedBox(height: 4),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('TV mode'),
+                  subtitle: const Text(
+                    'Two-column landscape, full-screen — pair with iOS screen '
+                    'mirroring (Control Center → Screen Mirroring) to read on '
+                    'a TV with the phone as the remote.',
                   ),
-              ],
-            ),
-            const SizedBox(height: 12),
+                  value: _settings.tvMode,
+                  onChanged: (on) => _update(_settings.copyWith(tvMode: on)),
+                ),
+                const SizedBox(height: 8),
+                _label(theme, 'Orientation'),
+                SegmentedButton<ReaderOrientation>(
+                  segments: const [
+                    ButtonSegment(
+                      value: ReaderOrientation.auto,
+                      label: Text('Auto'),
+                      icon: Icon(Icons.screen_rotation),
+                    ),
+                    ButtonSegment(
+                      value: ReaderOrientation.portrait,
+                      label: Text('Portrait'),
+                      icon: Icon(Icons.stay_current_portrait),
+                    ),
+                    ButtonSegment(
+                      value: ReaderOrientation.landscape,
+                      label: Text('Landscape'),
+                      icon: Icon(Icons.stay_current_landscape),
+                    ),
+                  ],
+                  selected: {_settings.orientation},
+                  onSelectionChanged: (selection) =>
+                      _update(_settings.copyWith(orientation: selection.first)),
+                ),
+                const SizedBox(height: 16),
 
-            _slider(
-              theme,
-              label: 'Text size',
-              value: _settings.fontSize,
-              min: 14,
-              max: 28,
-              divisions: 14,
-              display: _settings.fontSize.round().toString(),
-              onChanged: (v) => _update(_settings.copyWith(fontSize: v)),
-            ),
-            _slider(
-              theme,
-              label: 'Line spacing',
-              value: _settings.lineHeight,
-              min: 1.2,
-              max: 2.2,
-              divisions: 20,
-              display: _settings.lineHeight.toStringAsFixed(2),
-              onChanged: (v) => _update(_settings.copyWith(lineHeight: v)),
-            ),
-            _slider(
-              theme,
-              label: 'Margins',
-              value: _settings.margin,
-              min: 8,
-              max: 56,
-              divisions: 12,
-              display: _settings.margin.round().toString(),
-              onChanged: (v) => _update(_settings.copyWith(margin: v)),
-            ),
-            _slider(
-              theme,
-              label: 'Brightness',
-              value: _settings.brightness,
-              min: 0.15,
-              max: 1.0,
-              divisions: 17,
-              display: '${(_settings.brightness * 100).round()}%',
-              onChanged: (v) => _update(_settings.copyWith(brightness: v)),
-            ),
-            const SizedBox(height: 16),
-
-            _label(theme, 'Text style'),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: const Text('Bold text'),
-              subtitle: const Text('Render all text in a heavier weight'),
-              value: _settings.boldText,
-              onChanged: (on) =>
-                  _update(_settings.copyWith(boldText: on)),
-            ),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: const Text('Italic text'),
-              subtitle: const Text('Render all text in italics'),
-              value: _settings.italicText,
-              onChanged: (on) =>
-                  _update(_settings.copyWith(italicText: on)),
-            ),
-            const SizedBox(height: 12),
-            SegmentedButton<ReaderTextAlign>(
-              segments: const [
-                ButtonSegment(
-                  value: ReaderTextAlign.left,
-                  label: Text('Left'),
-                  icon: Icon(Icons.format_align_left),
-                ),
-                ButtonSegment(
-                  value: ReaderTextAlign.justify,
-                  label: Text('Justified'),
-                  icon: Icon(Icons.format_align_justify),
-                ),
-              ],
-              selected: {_settings.textAlign},
-              onSelectionChanged: (selection) =>
-                  _update(_settings.copyWith(textAlign: selection.first)),
-            ),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              dense: true,
-              title: const Text('Auto-scroll'),
-              subtitle: const Text(
-                'Slowly scrolls scroll-mode for hands-free reading',
-              ),
-              value: _settings.autoScroll,
-              onChanged: (on) =>
-                  _update(_settings.copyWith(autoScroll: on)),
-            ),
-            const SizedBox(height: 16),
-
-            _label(theme, 'Read-aloud engine'),
-            SegmentedButton<TtsEngineKind>(
-              segments: const [
-                ButtonSegment(
-                  value: TtsEngineKind.system,
-                  label: Text('On-device'),
-                  icon: Icon(Icons.phone_iphone),
-                ),
-                ButtonSegment(
-                  value: TtsEngineKind.kokoro,
-                  label: Text('Natural'),
-                  icon: Icon(Icons.auto_awesome),
-                ),
-              ],
-              selected: {_settings.ttsEngine},
-              showSelectedIcon: false,
-              onSelectionChanged: (selection) {
-                _update(_settings.copyWith(ttsEngine: selection.first));
-                _loadVoices();
-              },
-            ),
-            if (_settings.ttsEngine == TtsEngineKind.kokoro) ...[
-              const SizedBox(height: 6),
-              Text(
-                'Streams natural neural voices from your own voice server '
-                '(unmoderated, flat cost).',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _urlController,
-                keyboardType: TextInputType.url,
-                autocorrect: false,
-                decoration: const InputDecoration(
-                  labelText: 'Server address',
-                  hintText: 'https://your-voice-server',
-                  isDense: true,
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _tokenController,
-                obscureText: true,
-                autocorrect: false,
-                enableSuggestions: false,
-                decoration: const InputDecoration(
-                  labelText: 'Access token',
-                  isDense: true,
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  FilledButton.tonalIcon(
-                    onPressed: _loadingVoices ? null : _connect,
-                    icon: _loadingVoices
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.link),
-                    label: const Text('Connect'),
+                _label(theme, 'Hands-free & glasses'),
+                const SizedBox(height: 4),
+                // One-tap preset tuned for XR glasses (e.g. Viture): landscape,
+                // a centred column for the lenses' sharp centre, a soft true-black
+                // theme, and keep-awake since the phone is the source display.
+                OutlinedButton.icon(
+                  onPressed: () => _update(
+                    _settings.copyWith(
+                      orientation: ReaderOrientation.landscape,
+                      centeredColumn: true,
+                      keepAwake: true,
+                      themeId: 'black',
+                    ),
                   ),
-                  const SizedBox(width: 12),
-                  if (_voiceStatus != null)
-                    Expanded(
-                      child: Text(
-                        _voiceStatus!,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.outline,
+                  icon: const Icon(Icons.visibility_outlined),
+                  label: const Text('Glasses mode'),
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Centred column'),
+                  subtitle: const Text(
+                    'Keep text in a comfortable centred column with wide margins.',
+                  ),
+                  value: _settings.centeredColumn,
+                  onChanged: (on) =>
+                      _update(_settings.copyWith(centeredColumn: on)),
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Keep screen awake'),
+                  subtitle: const Text(
+                    'Stop the screen sleeping while reading — useful with glasses '
+                    'or auto page-turn.',
+                  ),
+                  value: _settings.keepAwake,
+                  onChanged: (on) => _update(_settings.copyWith(keepAwake: on)),
+                ),
+                const SizedBox(height: 8),
+                _label(theme, 'Auto-turn pages (paged mode)'),
+                const SizedBox(height: 6),
+                SegmentedButton<int>(
+                  segments: const [
+                    ButtonSegment(value: 0, label: Text('Off')),
+                    ButtonSegment(value: 20, label: Text('20s')),
+                    ButtonSegment(value: 30, label: Text('30s')),
+                    ButtonSegment(value: 45, label: Text('45s')),
+                    ButtonSegment(value: 60, label: Text('60s')),
+                  ],
+                  selected: {_settings.autoPageSeconds},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (s) =>
+                      _update(_settings.copyWith(autoPageSeconds: s.first)),
+                ),
+              ],
+            ),
+            _section(
+              theme,
+              icon: Icons.palette_outlined,
+              title: 'Appearance',
+              children: [
+                _label(theme, 'Theme'),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final preset in CustomThemeStore.all)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 12),
+                          child: _ThemeSwatch(
+                            preset: preset,
+                            selected: preset.id == _settings.themeId,
+                            onTap: () =>
+                                _update(_settings.copyWith(themeId: preset.id)),
+                            onLongPress: preset.id.startsWith('custom-')
+                                ? () => _confirmDeleteTheme(preset)
+                                : null,
+                          ),
                         ),
+                      Padding(
+                        padding: const EdgeInsets.only(right: 12),
+                        child: _NewThemeTile(onTap: _createCustomTheme),
                       ),
-                    ),
-                ],
-              ),
-            ],
-            const SizedBox(height: 16),
-
-            _label(theme, 'Read aloud'),
-            _buildVoicePicker(theme),
-            _slider(
-              theme,
-              label: 'Speech rate',
-              value: _settings.speechRate,
-              min: 0.25,
-              max: 1.0,
-              divisions: 15,
-              display: _settings.speechRate.toStringAsFixed(2),
-              onChanged: (v) => _update(_settings.copyWith(speechRate: v)),
-            ),
-            const SizedBox(height: 16),
-
-            _label(theme, 'Sleep timer'),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final option in SleepTimerOption.values)
-                  ChoiceChip(
-                    label: Text(option.label),
-                    selected: option == _sleepOption,
-                    onSelected: (_) {
-                      setState(() => _sleepOption = option);
-                      widget.onSleepTimerChanged(option);
-                    },
+                    ],
                   ),
+                ),
+                const SizedBox(height: 20),
+
+                _label(theme, 'Font'),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final font in kReaderFonts)
+                      ChoiceChip(
+                        label: Text(_fontLabel(font)),
+                        selected: font == _settings.fontFamily,
+                        onSelected: (_) =>
+                            _update(_settings.copyWith(fontFamily: font)),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                _slider(
+                  theme,
+                  label: 'Text size',
+                  value: _settings.fontSize,
+                  min: 14,
+                  max: 28,
+                  divisions: 14,
+                  display: _settings.fontSize.round().toString(),
+                  onChanged: (v) => _update(_settings.copyWith(fontSize: v)),
+                ),
+                _slider(
+                  theme,
+                  label: 'Line spacing',
+                  value: _settings.lineHeight,
+                  min: 1.2,
+                  max: 2.2,
+                  divisions: 20,
+                  display: _settings.lineHeight.toStringAsFixed(2),
+                  onChanged: (v) => _update(_settings.copyWith(lineHeight: v)),
+                ),
+                _slider(
+                  theme,
+                  label: 'Margins',
+                  value: _settings.margin,
+                  min: 8,
+                  max: 56,
+                  divisions: 12,
+                  display: _settings.margin.round().toString(),
+                  onChanged: (v) => _update(_settings.copyWith(margin: v)),
+                ),
+                _slider(
+                  theme,
+                  label: 'Brightness',
+                  value: _settings.brightness,
+                  min: 0.15,
+                  max: 1.0,
+                  divisions: 17,
+                  display: '${(_settings.brightness * 100).round()}%',
+                  onChanged: (v) => _update(_settings.copyWith(brightness: v)),
+                ),
+                const SizedBox(height: 16),
+
+                _label(theme, 'Text style'),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Bold text'),
+                  subtitle: const Text('Render all text in a heavier weight'),
+                  value: _settings.boldText,
+                  onChanged: (on) => _update(_settings.copyWith(boldText: on)),
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Italic text'),
+                  subtitle: const Text('Render all text in italics'),
+                  value: _settings.italicText,
+                  onChanged: (on) =>
+                      _update(_settings.copyWith(italicText: on)),
+                ),
+                const SizedBox(height: 12),
+                SegmentedButton<ReaderTextAlign>(
+                  segments: const [
+                    ButtonSegment(
+                      value: ReaderTextAlign.left,
+                      label: Text('Left'),
+                      icon: Icon(Icons.format_align_left),
+                    ),
+                    ButtonSegment(
+                      value: ReaderTextAlign.justify,
+                      label: Text('Justified'),
+                      icon: Icon(Icons.format_align_justify),
+                    ),
+                  ],
+                  selected: {_settings.textAlign},
+                  onSelectionChanged: (selection) =>
+                      _update(_settings.copyWith(textAlign: selection.first)),
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Auto-scroll'),
+                  subtitle: const Text(
+                    'Slowly scrolls scroll-mode for hands-free reading',
+                  ),
+                  value: _settings.autoScroll,
+                  onChanged: (on) =>
+                      _update(_settings.copyWith(autoScroll: on)),
+                ),
+              ],
+            ),
+            _section(
+              theme,
+              icon: Icons.graphic_eq,
+              title: 'Read aloud',
+              expanded: true,
+              children: [
+                _label(theme, 'Engine'),
+                SegmentedButton<TtsEngineKind>(
+                  segments: const [
+                    ButtonSegment(
+                      value: TtsEngineKind.system,
+                      label: Text('On-device'),
+                      icon: Icon(Icons.phone_iphone),
+                    ),
+                    ButtonSegment(
+                      value: TtsEngineKind.kokoro,
+                      label: Text('Natural'),
+                      icon: Icon(Icons.auto_awesome),
+                    ),
+                  ],
+                  selected: {_settings.ttsEngine},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (selection) {
+                    _update(_settings.copyWith(ttsEngine: selection.first));
+                    _loadVoices();
+                  },
+                ),
+                if (_settings.ttsEngine == TtsEngineKind.kokoro) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    'Streams natural neural voices from your own voice server '
+                    '(unmoderated, flat cost).',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _urlController,
+                    keyboardType: TextInputType.url,
+                    autocorrect: false,
+                    decoration: const InputDecoration(
+                      labelText: 'Server address',
+                      hintText: 'https://your-voice-server',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _tokenController,
+                    obscureText: true,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: const InputDecoration(
+                      labelText: 'Access token',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      FilledButton.tonalIcon(
+                        onPressed: _loadingVoices ? null : _connect,
+                        icon: _loadingVoices
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.link),
+                        label: const Text('Connect'),
+                      ),
+                      const SizedBox(width: 12),
+                      if (_voiceStatus != null)
+                        Expanded(
+                          child: Text(
+                            _voiceStatus!,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.outline,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 12),
+
+                _label(theme, 'Voice & speed'),
+                _buildVoicePicker(theme),
+                _slider(
+                  theme,
+                  label: 'Speech rate',
+                  value: _settings.speechRate,
+                  min: 0.25,
+                  max: 1.0,
+                  divisions: 15,
+                  display: _settings.speechRate.toStringAsFixed(2),
+                  onChanged: (v) => _update(_settings.copyWith(speechRate: v)),
+                ),
+                const SizedBox(height: 16),
+
+                _label(theme, 'Sleep timer'),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final option in SleepTimerOption.values)
+                      ChoiceChip(
+                        label: Text(option.label),
+                        selected: option == _sleepOption,
+                        onSelected: (_) {
+                          setState(() => _sleepOption = option);
+                          widget.onSleepTimerChanged(option);
+                        },
+                      ),
+                  ],
+                ),
               ],
             ),
           ],
@@ -594,6 +613,34 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
     );
   }
 
+  /// A collapsible settings group, so the sheet reads as a few scannable
+  /// sections rather than one long wall of controls.
+  Widget _section(
+    ThemeData theme, {
+    required IconData icon,
+    required String title,
+    bool expanded = false,
+    required List<Widget> children,
+  }) {
+    return Theme(
+      data: theme.copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        initiallyExpanded: expanded,
+        tilePadding: EdgeInsets.zero,
+        childrenPadding: const EdgeInsets.only(bottom: 12),
+        expandedCrossAxisAlignment: CrossAxisAlignment.start,
+        leading: Icon(icon, color: theme.colorScheme.primary),
+        title: Text(
+          title,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        children: children,
+      ),
+    );
+  }
+
   /// Index of the saved voice within [_voices], or -1 for the default.
   int _voiceIndex() {
     for (var i = 0; i < _voices.length; i++) {
@@ -610,7 +657,8 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
 
   Widget _buildVoicePicker(ThemeData theme) {
     final selected = _voiceIndex();
-    final canPreview = _settings.ttsEngine == TtsEngineKind.kokoro &&
+    final canPreview =
+        _settings.ttsEngine == TtsEngineKind.kokoro &&
         selected >= 0 &&
         _voices[selected].isKokoro;
     return Padding(
@@ -695,8 +743,10 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
       context: context,
       builder: (dialogCtx) => AlertDialog(
         title: Text('Delete "${preset.name}"?'),
-        content: const Text('This removes the custom theme. The built-in '
-            'themes are not affected.'),
+        content: const Text(
+          'This removes the custom theme. The built-in '
+          'themes are not affected.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogCtx).pop(false),
@@ -734,9 +784,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
         const SizedBox(height: 8),
         Row(
           children: [
-            Expanded(
-              child: Text(label, style: theme.textTheme.titleSmall),
-            ),
+            Expanded(child: Text(label, style: theme.textTheme.titleSmall)),
             Text(
               display,
               style: theme.textTheme.labelMedium?.copyWith(
@@ -824,11 +872,7 @@ class _NewThemeTile extends StatelessWidget {
         children: [
           DottedSquare(
             color: theme.colorScheme.outline,
-            child: Icon(
-              Icons.add,
-              color: theme.colorScheme.outline,
-              size: 24,
-            ),
+            child: Icon(Icons.add, color: theme.colorScheme.outline, size: 24),
           ),
           const SizedBox(height: 4),
           Text('New', style: theme.textTheme.labelSmall),
@@ -884,12 +928,16 @@ class _CustomThemeEditorState extends State<_CustomThemeEditor> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: 'My theme');
-    _bgController = TextEditingController(text: _formatHex(widget.base.background));
+    _bgController = TextEditingController(
+      text: _formatHex(widget.base.background),
+    );
     _textController = TextEditingController(text: _formatHex(widget.base.text));
-    _secondaryController =
-        TextEditingController(text: _formatHex(widget.base.secondary));
-    _highlightController =
-        TextEditingController(text: _formatHex(widget.base.highlight));
+    _secondaryController = TextEditingController(
+      text: _formatHex(widget.base.secondary),
+    );
+    _highlightController = TextEditingController(
+      text: _formatHex(widget.base.highlight),
+    );
   }
 
   @override
