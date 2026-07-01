@@ -876,15 +876,27 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   void _saveProgress() {
-    // Skip if the position can't be read (e.g. controllers already detached
-    // during dispose) — saving a fallback 0 would clobber the real position.
+    final blocks = _blocks ?? const <ContentBlock>[];
+    // While reading aloud, the authoritative position is the paragraph being
+    // spoken — not the scroll top (which trails it because the follow-scroll
+    // keeps the spoken line partway down the screen).
+    final ttsActive =
+        _ttsService.state != TtsPlaybackState.stopped && _speakingBlock != null;
     final int block;
-    if (_settings.mode == ReadingMode.paged) {
+    final bool atEnd;
+    if (ttsActive) {
+      block = _speakingBlock!.clamp(0, blocks.isEmpty ? 0 : blocks.length - 1);
+      atEnd = blocks.isNotEmpty && block >= blocks.length - 1;
+    } else if (_settings.mode == ReadingMode.paged) {
+      // Skip if the position can't be read (e.g. controllers already detached
+      // during dispose) — saving a fallback 0 would clobber the real position.
       if (!_pageController.hasClients) return;
       block = _pagedTopBlockIndex();
+      atEnd = _isAtChapterEnd();
     } else {
       if (!_scrollController.hasClients) return;
       block = _scrollTopBlockIndex();
+      atEnd = _isAtChapterEnd();
     }
     final chapterCount = _book?.chapters.length ?? 0;
     // "Finished" means the end of the *last* chapter was actually reached —
@@ -897,7 +909,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         chapterIndex: _chapterIndex,
         blockIndex: block,
         chapterCount: chapterCount,
-        endReached: onLastChapter && _isAtChapterEnd(),
+        endReached: onLastChapter && atEnd,
       ),
     );
   }
@@ -1184,6 +1196,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       hlStart = range.$1;
       hlEnd = range.$2;
     }
+    final blockChanged = blockIndex != _speakingBlock;
     setState(() {
       _speakingBlock = blockIndex;
       _speakingStart = hlStart;
@@ -1196,6 +1209,9 @@ class _ReaderScreenState extends State<ReaderScreen>
       }
     });
     _followSpeaking(blockIndex);
+    // Persist the spot each time read-aloud crosses into a new paragraph, so
+    // leaving mid-listen (or a background kill) resumes where the voice is.
+    if (blockChanged) _saveProgress();
   }
 
   /// Scrolls/pages so the block being read stays visible — only when the
