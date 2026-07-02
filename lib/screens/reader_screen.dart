@@ -1,18 +1,17 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
-import '../feature_flags.dart';
 import '../reader/block_view.dart';
 import '../reader/book_search_screen.dart';
 import '../reader/bookmarks_sheet.dart';
 import '../reader/reader_chrome.dart';
 import '../reader/reader_layout.dart';
+import '../reader/reader_tts_session.dart';
 import '../models/bookmark.dart';
 import '../models/content_block.dart';
 import '../models/epub_book.dart';
@@ -25,8 +24,6 @@ import '../services/library_cache.dart';
 import '../services/cover_cache.dart';
 import '../services/library_storage.dart';
 import '../services/network_tts_service.dart';
-import '../services/now_playing_service.dart';
-import '../services/pronunciation_store.dart';
 import '../services/reader_preferences.dart';
 import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
@@ -34,8 +31,6 @@ import '../services/tts_engine.dart';
 import '../services/tts_service.dart';
 import '../services/tts_skip.dart';
 import '../utils/volume_ordering.dart';
-import '../widgets/listen_view.dart';
-import 'pronunciation_screen.dart';
 import '../widgets/reader_settings_sheet.dart';
 import 'glossary_screen.dart';
 
@@ -52,24 +47,10 @@ class ReaderScreen extends StatefulWidget {
 }
 
 class _ReaderScreenState extends State<ReaderScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, ReaderTtsSession {
   final _progressStore = ReadingProgressStore();
   final _scrollController = ScrollController();
   final _pageController = PageController();
-  TtsEngine _ttsService = TtsService();
-  TtsEngineKind _engineKind = TtsEngineKind.system;
-  Map<String, String> _pronunciations = const {};
-  // Word-level resume point loaded on open (block index + char offset); used
-  // once for the first read-aloud play, then cleared.
-  int _resumeBlock = -1;
-  int _resumeChar = 0;
-  // Local file path of the series cover, for the lock-screen artwork.
-  String? _coverPath;
-  // Background audio pre-processing (cache warming) progress + cancel token.
-  int _prepDone = 0;
-  int _prepTotal = 0;
-  int _prepGen = 0;
-  final _nowPlaying = NowPlayingService();
 
   EpubParser? _parser;
   EpubBook? _book;
@@ -81,9 +62,6 @@ class _ReaderScreenState extends State<ReaderScreen>
   ReaderSettings _settings = ReaderSettings.defaults;
   bool _chromeVisible = true;
 
-  /// When true, the reader is replaced by the full-screen "Listen" player —
-  /// a cover-art transport for hands-off listening.
-  bool _listenMode = false;
 
   // Paged-mode pagination cache.
   List<List<PageBlock>>? _pages;
@@ -110,14 +88,6 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// be measured without a MediaQuery lookup (e.g. during dispose).
   double _lastContentWidth = 0;
 
-  /// The block currently being read aloud, and the character range of the
-  /// active sentence within it. Null when read-aloud is stopped.
-  int? _speakingBlock;
-  int _speakingStart = 0;
-  int _speakingEnd = 0;
-
-  /// Maps a TTS chunk index back to its block index in `_blocks`.
-  List<int> _ttsBlockForChunk = const [];
 
   /// Last block that auto-follow moved to — so it only moves on a change.
   int _followedBlock = -1;
@@ -125,9 +95,6 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Last page that read-aloud auto-follow turned to (paged mode).
   int _followedPage = -1;
 
-  /// Active sleep-timer choice and its countdown.
-  SleepTimerOption _sleepOption = SleepTimerOption.off;
-  Timer? _sleepTimer;
 
   /// Periodic timer driving the hands-free auto-scroll, when enabled.
   Timer? _autoScrollTimer;
@@ -169,12 +136,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   @override
   void initState() {
     super.initState();
-    _wireTts();
-    _nowPlaying.onPlay = _remotePlay;
-    _nowPlaying.onPause = _remotePause;
-    _nowPlaying.onToggle = _toggleTts;
-    _nowPlaying.onNext = () => _remoteSkipChapter(1);
-    _nowPlaying.onPrevious = () => _remoteSkipChapter(-1);
+    initTtsSession();
     _scrollController.addListener(_onPositionTick);
     _pageController.addListener(_onPositionTick);
     WidgetsBinding.instance.addObserver(this);
@@ -182,106 +144,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     _open();
   }
 
-  /// Attaches the reader's callbacks to the active TTS engine. Called on init
-  /// and again whenever the engine is swapped.
-  void _wireTts() {
-    _ttsService.onStateChanged = (state) {
-      _updateNowPlaying();
-      if (!mounted) return;
-      setState(() {
-        if (state == TtsPlaybackState.stopped) {
-          _speakingBlock = null;
-          _followedBlock = -1;
-          _followedPage = -1;
-        }
-      });
-    };
-    _ttsService.onWord = _onTtsWord;
-    _ttsService.onChapterFinished = _onTtsChapterFinished;
-  }
-
-  /// Rebuilds (or reconfigures) the read-aloud engine to match [_settings].
-  /// Switching engines stops any active playback; reconfiguring the same
-  /// Kokoro engine just pushes the new URL/token.
-  void _syncEngineToSettings() {
-    final desired = _settings.ttsEngine;
-    if (desired == _engineKind) {
-      final engine = _ttsService;
-      if (desired == TtsEngineKind.kokoro && engine is NetworkTtsService) {
-        engine.configure(
-          baseUrl: _settings.ttsServerUrl,
-          token: _settings.ttsServerToken,
-        );
-      }
-      return;
-    }
-    final old = _ttsService;
-    old.stop();
-    old.dispose();
-    _ttsService = desired == TtsEngineKind.kokoro
-        ? NetworkTtsService(
-            baseUrl: _settings.ttsServerUrl,
-            token: _settings.ttsServerToken,
-          )
-        : TtsService();
-    _engineKind = desired;
-    _wireTts();
-    _applyPronunciations();
-  }
-
-  /// Loads this series' pronunciation overrides (global + per-series) and
-  /// pushes them to the active engine.
-  Future<void> _loadPronunciations() async {
-    final map =
-        await PronunciationStore().merged(widget.volume.seriesOpdsId);
-    if (!mounted) return;
-    _pronunciations = map;
-    _applyPronunciations();
-  }
-
-  void _applyPronunciations() {
-    final engine = _ttsService;
-    if (engine is NetworkTtsService) {
-      engine.setPronunciations(_pronunciations);
-    }
-  }
-
-  /// Opens the pronunciation editor; on return, re-applies overrides and
-  /// re-synthesizes from the current spot if reading.
-  Future<void> _openPronunciations() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => PronunciationScreen(
-          seriesId: widget.volume.seriesOpdsId,
-          seriesTitle: widget.volume.title,
-        ),
-      ),
-    );
-    await _loadPronunciations();
-    // Re-read from the current word with the new pronunciations, rather than
-    // restarting the chapter.
-    if (_ttsService.state == TtsPlaybackState.playing) {
-      _restartFromSpoken();
-    }
-  }
-
-  /// Restarts read-aloud from the paragraph (and word) currently being spoken,
-  /// e.g. after changing pronunciations — without jumping to the chapter start.
-  void _restartFromSpoken() {
-    final block = _speakingBlock;
-    if (block == null) {
-      _startTts(fromCurrentPosition: true);
-      return;
-    }
-    final chunk = _ttsBlockForChunk.indexOf(block);
-    if (chunk < 0) {
-      _startTts(fromCurrentPosition: true);
-      return;
-    }
-    _resumeBlock = block;
-    _resumeChar = _speakingStart;
-    _startTts(startAtChunk: chunk);
-  }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -319,16 +181,74 @@ class _ReaderScreenState extends State<ReaderScreen>
     // Don't leave the screen pinned awake after leaving the reader.
     _applyKeepAwake(false);
     WidgetsBinding.instance.removeObserver(this);
-    _sleepTimer?.cancel();
     _autoScrollTimer?.cancel();
     _autoPageTimer?.cancel();
-    _nowPlaying.clear();
-    _nowPlaying.dispose();
-    _ttsService.dispose();
+    disposeTtsSession();
     _scrollController.dispose();
     _pageController.dispose();
     super.dispose();
   }
+
+
+  // ── ReaderTtsSession plumbing ────────────────────────────────────────────
+  // Thin proxies exposing the State's private fields to the read-aloud mixin.
+
+  @override
+  Volume get readerVolume => widget.volume;
+
+  @override
+  ReaderSettings get readerSettings => _settings;
+
+  @override
+  List<ContentBlock>? get currentBlocks => _blocks;
+
+  @override
+  EpubBook? get currentBook => _book;
+
+  @override
+  EpubParser? get currentParser => _parser;
+
+  @override
+  int get currentChapterIndex => _chapterIndex;
+
+  @override
+  int get currentChapterWordCount => _chapterWordCount;
+
+  @override
+  double get chapterFraction => _chapterFraction;
+
+  @override
+  set chapterFraction(double value) => _chapterFraction = value;
+
+  @override
+  int currentTopBlockIndex() => _settings.mode == ReadingMode.paged
+      ? _pagedTopBlockIndex()
+      : _scrollTopBlockIndex();
+
+  @override
+  void goToChapter(
+    int index, {
+    bool landOnLastPage = false,
+    bool fromTts = false,
+  }) => _goToChapter(index, landOnLastPage: landOnLastPage, fromTts: fromTts);
+
+  @override
+  void saveReadingProgress() => _saveProgress();
+
+  @override
+  void followSpeaking(int blockIndex) => _followSpeaking(blockIndex);
+
+  @override
+  void resetFollow() {
+    _followedBlock = -1;
+    _followedPage = -1;
+  }
+
+  @override
+  Future<void> applyReaderSettings(ReaderSettings next) => _applySettings(next);
+
+  @override
+  Future<void> openReaderSettings() => _openSettings();
 
   Future<void> _open() async {
     var settings = await ReaderPreferences().load(volume: widget.volume);
@@ -343,13 +263,13 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
     final resume = await _progressStore.resumeOffset(widget.volume);
     if (resume != null) {
-      _resumeBlock = resume.$1;
-      _resumeChar = resume.$2;
+      ttsResumeBlock = resume.$1;
+      ttsResumeChar = resume.$2;
     }
     final cover = await CoverCache(
       LibraryStorage(),
     ).cached(widget.volume.seriesOpdsId);
-    _coverPath = cover?.path;
+    ttsCoverPath = cover?.path;
     await _preloadFont(settings.fontFamily);
     try {
       final file = await LibraryStorage().epubFile(widget.volume);
@@ -385,8 +305,8 @@ class _ReaderScreenState extends State<ReaderScreen>
       });
       _applyOrientation(settings.orientation);
       _applyKeepAwake(settings.keepAwake);
-      _syncEngineToSettings();
-      _loadPronunciations().then((_) => _prepareAudio());
+      syncEngineToSettings();
+      loadPronunciations().then((_) => prepareAudio());
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _restoreScrollPosition();
         if (_settings.autoScroll) _startAutoScroll();
@@ -438,7 +358,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     final clamped = index.clamp(0, book.chapters.length - 1);
     if (clamped == _chapterIndex && _blocks != null) return;
     // A manual chapter change stops read-aloud; a TTS-driven advance keeps it.
-    if (!fromTts) _ttsService.stop();
+    if (!fromTts) ttsEngine.stop();
     _lastChapterChange = DateTime.now();
     _edgeOverscroll = 0;
     final blocks = parser.parseChapter(book.chapters[clamped]);
@@ -636,14 +556,14 @@ class _ReaderScreenState extends State<ReaderScreen>
     // spoken — not the scroll top (which trails it because the follow-scroll
     // keeps the spoken line partway down the screen).
     final ttsActive =
-        _ttsService.state != TtsPlaybackState.stopped && _speakingBlock != null;
+        ttsEngine.state != TtsPlaybackState.stopped && speakingBlock != null;
     final int block;
     final bool atEnd;
     if (ttsActive) {
-      block = _speakingBlock!.clamp(0, blocks.isEmpty ? 0 : blocks.length - 1);
+      block = speakingBlock!.clamp(0, blocks.isEmpty ? 0 : blocks.length - 1);
       atEnd = blocks.isNotEmpty && block >= blocks.length - 1;
       // Record the word-level resume point (Kokoro can seek back to it).
-      _progressStore.saveResumeOffset(widget.volume, block, _speakingStart);
+      _progressStore.saveResumeOffset(widget.volume, block, speakingStart);
     } else if (_settings.mode == ReadingMode.paged) {
       // Skip if the position can't be read (e.g. controllers already detached
       // during dispose) — saving a fallback 0 would clobber the real position.
@@ -732,7 +652,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   int _countWords(List<ContentBlock> blocks) {
     var words = 0;
     for (final block in blocks) {
-      for (final word in _blockText(block).split(RegExp(r'\s+'))) {
+      for (final word in plainBlockText(block).split(RegExp(r'\s+'))) {
         if (word.isNotEmpty) words++;
       }
     }
@@ -822,10 +742,10 @@ class _ReaderScreenState extends State<ReaderScreen>
       _pageJumpTarget = currentPage;
     });
     ReaderPreferences().save(next, volume: widget.volume);
-    if (engineChanged) _syncEngineToSettings();
-    if (rateChanged) _ttsService.setRate(next.speechRate);
+    if (engineChanged) syncEngineToSettings();
+    if (rateChanged) ttsEngine.setRate(next.speechRate);
     if (voiceChanged) {
-      _ttsService.setVoice(next.voiceName, next.voiceLocale);
+      ttsEngine.setVoice(next.voiceName, next.voiceLocale);
       // Remember the chosen narrator for this whole series.
       ReaderPreferences().saveSeriesVoice(
         widget.volume.seriesOpdsId,
@@ -834,7 +754,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       );
     }
     // The cache is keyed by voice/engine, so re-warm it when either changes.
-    if (voiceChanged || engineChanged) _prepareAudio();
+    if (voiceChanged || engineChanged) prepareAudio();
     if (fontChanged) {
       await _preloadFont(next.fontFamily);
       if (mounted) setState(() => _fontToken++);
@@ -892,291 +812,14 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   /// Plain text of a block — exactly the runs as rendered, so TTS word
   /// offsets line up with the on-screen text for highlighting.
-  String _blockText(ContentBlock block) => switch (block) {
+  @override
+  String plainBlockText(ContentBlock block) => switch (block) {
     ParagraphBlock p => p.runs.map((r) => r.text).join(),
     HeadingBlock h => h.runs.map((r) => r.text).join(),
     DividerBlock _ => '',
     ImageBlock _ => '',
   };
 
-  void _startTts({bool fromCurrentPosition = true, int? startAtChunk}) {
-    final blocks = _blocks ?? const <ContentBlock>[];
-    final texts = <String>[];
-    final blockForChunk = <int>[];
-    final skips = _settings.ttsSkips;
-    final skipHeadings = skips.contains(TtsSkip.headings);
-    for (var i = 0; i < blocks.length; i++) {
-      final block = blocks[i];
-      if (skipHeadings && block is HeadingBlock) continue;
-      // Redact (not delete) skipped spans so spoken offsets — and therefore
-      // the highlight — stay aligned with the displayed text.
-      final text = redactForSpeech(_blockText(block), skips);
-      if (text.trim().isEmpty) continue;
-      texts.add(text);
-      blockForChunk.add(i);
-    }
-    if (texts.isEmpty) return;
-    // Begin from the paragraph currently in view, not the chapter top.
-    var fromChunk = 0;
-    if (startAtChunk != null) {
-      fromChunk = startAtChunk.clamp(0, blockForChunk.length - 1);
-    } else if (fromCurrentPosition) {
-      final topBlock = _settings.mode == ReadingMode.paged
-          ? _pagedTopBlockIndex()
-          : _scrollTopBlockIndex();
-      fromChunk = blockForChunk.length - 1;
-      for (var c = 0; c < blockForChunk.length; c++) {
-        if (blockForChunk[c] >= topBlock) {
-          fromChunk = c;
-          break;
-        }
-      }
-    }
-    _ttsBlockForChunk = blockForChunk;
-    _followedBlock = -1;
-    _followedPage = -1;
-    // Word-exact resume: applies whenever the starting chunk is the paragraph
-    // the resume point belongs to (initial open, or a restart-in-place).
-    var startChar = 0;
-    if (_resumeBlock >= 0 &&
-        fromChunk < blockForChunk.length &&
-        blockForChunk[fromChunk] == _resumeBlock) {
-      startChar = _resumeChar;
-    }
-    _resumeBlock = -1; // consume — it only applies to this play
-    _ttsService.start(
-      texts,
-      from: fromChunk,
-      rate: _settings.speechRate,
-      voiceName: _settings.voiceName,
-      voiceLocale: _settings.voiceLocale,
-      startCharOffset: startChar,
-    );
-  }
-
-  /// Builds the read-aloud chunk texts for [blocks] — the same redacted,
-  /// skip-filtered strings playback uses, so warmed cache entries match.
-  List<String> _chunkTextsForBlocks(List<ContentBlock> blocks) {
-    final skips = _settings.ttsSkips;
-    final skipHeadings = skips.contains(TtsSkip.headings);
-    final texts = <String>[];
-    for (final block in blocks) {
-      if (skipHeadings && block is HeadingBlock) continue;
-      final text = redactForSpeech(_blockText(block), skips);
-      if (text.trim().isNotEmpty) texts.add(text);
-    }
-    return texts;
-  }
-
-  Future<bool> _onWifi() async {
-    try {
-      final result = await Connectivity().checkConnectivity();
-      return result.contains(ConnectivityResult.wifi) ||
-          result.contains(ConnectivityResult.ethernet);
-    } on Exception {
-      return false;
-    }
-  }
-
-  /// Quietly pre-synthesizes the current chapter (and the next) into the cache
-  /// on Wi-Fi, so play is instant/gapless. Kokoro engine only.
-  Future<void> _prepareAudio() async {
-    if (!kReadAloudEnabled) return;
-    final engine = _ttsService;
-    if (engine is! NetworkTtsService) return;
-    if (!await _onWifi()) return;
-    final book = _book;
-    final blocks = _blocks;
-    final parser = _parser;
-    if (book == null || blocks == null) return;
-    final texts = <String>[..._chunkTextsForBlocks(blocks)];
-    final next = _chapterIndex + 1;
-    if (parser != null && next < book.chapters.length) {
-      try {
-        texts.addAll(
-          _chunkTextsForBlocks(parser.parseChapter(book.chapters[next])),
-        );
-      } on Object {
-        // Next-chapter parse is best-effort.
-      }
-    }
-    if (texts.isEmpty) return;
-    final gen = ++_prepGen;
-    if (mounted) {
-      setState(() {
-        _prepDone = 0;
-        _prepTotal = texts.length;
-      });
-    }
-    await engine.precache(
-      texts,
-      voice: _settings.voiceName,
-      rate: _settings.speechRate,
-      onProgress: (done, total) {
-        if (!mounted || gen != _prepGen) return;
-        setState(() {
-          _prepDone = done;
-          _prepTotal = total;
-        });
-      },
-      shouldCancel: () => !mounted || gen != _prepGen,
-    );
-    if (mounted && gen == _prepGen) {
-      setState(() {
-        _prepDone = 0;
-        _prepTotal = 0;
-      });
-    }
-  }
-
-  /// Caches every chapter's audio so the whole volume plays offline, with a
-  /// progress dialog.
-  Future<void> _prepareVolumeForOffline() async {
-    final engine = _ttsService;
-    final book = _book;
-    final parser = _parser;
-    if (engine is! NetworkTtsService) {
-      _showSnack('Switch to the Natural voice to prepare offline audio.');
-      return;
-    }
-    if (book == null || parser == null) return;
-    final texts = <String>[];
-    for (final chapter in book.chapters) {
-      try {
-        texts.addAll(_chunkTextsForBlocks(parser.parseChapter(chapter)));
-      } on Object {
-        // Skip an unparseable chapter.
-      }
-    }
-    if (texts.isEmpty) return;
-    final total = texts.length;
-    final gen = ++_prepGen;
-    final progress = ValueNotifier<int>(0);
-    var stopped = false;
-    var dialogOpen = true;
-    unawaited(
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogCtx) => AlertDialog(
-          title: const Text('Preparing for offline'),
-          content: ValueListenableBuilder<int>(
-            valueListenable: progress,
-            builder: (_, done, _) => Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                LinearProgressIndicator(value: total == 0 ? 0 : done / total),
-                const SizedBox(height: 12),
-                Text('$done of $total paragraphs'),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                stopped = true;
-                _prepGen++;
-                dialogOpen = false;
-                Navigator.of(dialogCtx).pop();
-              },
-              child: const Text('Stop'),
-            ),
-          ],
-        ),
-      ),
-    );
-    await engine.precache(
-      texts,
-      voice: _settings.voiceName,
-      rate: _settings.speechRate,
-      onProgress: (done, _) => progress.value = done,
-      shouldCancel: () => stopped || gen != _prepGen,
-    );
-    if (mounted && dialogOpen) {
-      dialogOpen = false;
-      Navigator.of(context).pop();
-    }
-    progress.dispose();
-    if (mounted && !stopped) {
-      _showSnack('This volume is ready to listen offline.');
-    }
-  }
-
-  void _showSnack(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  /// A subtle "Preparing audio · N%" pill shown while the cache warms.
-  Widget _prepChip(ReaderThemePreset preset) {
-    final pct = _prepTotal == 0 ? 0 : (_prepDone * 100 / _prepTotal).round();
-    return Material(
-      color: preset.background.withValues(alpha: 0.92),
-      shape: StadiumBorder(
-        side: BorderSide(color: preset.text.withValues(alpha: 0.15)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            SizedBox(
-              width: 13,
-              height: 13,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                valueColor: AlwaysStoppedAnimation(preset.text),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              'Preparing audio · $pct%',
-              style: TextStyle(color: preset.text, fontSize: 12),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Highlights the word being read and keeps it on screen. Falls back to the
-  /// enclosing sentence when a precise word range isn't available.
-  void _onTtsWord(int chunkIndex, int start, int end) {
-    if (!mounted) return;
-    if (chunkIndex < 0 || chunkIndex >= _ttsBlockForChunk.length) return;
-    final blockIndex = _ttsBlockForChunk[chunkIndex];
-    final blocks = _blocks ?? const <ContentBlock>[];
-    if (blockIndex < 0 || blockIndex >= blocks.length) return;
-    final text = _blockText(blocks[blockIndex]);
-    final int hlStart;
-    final int hlEnd;
-    if (end > start && start >= 0 && end <= text.length) {
-      hlStart = start;
-      hlEnd = end;
-    } else {
-      final range = _sentenceRangeAt(text, start);
-      hlStart = range.$1;
-      hlEnd = range.$2;
-    }
-    final blockChanged = blockIndex != _speakingBlock;
-    setState(() {
-      _speakingBlock = blockIndex;
-      _speakingStart = hlStart;
-      _speakingEnd = hlEnd;
-      // In listen mode the page/scroll isn't built, so drive the chapter
-      // progress bar from how far read-aloud has moved instead.
-      if (_listenMode && _ttsBlockForChunk.length > 1) {
-        _chapterFraction =
-            (chunkIndex / (_ttsBlockForChunk.length - 1)).clamp(0.0, 1.0);
-      }
-    });
-    _followSpeaking(blockIndex);
-    // Persist the spot each time read-aloud crosses into a new paragraph, so
-    // leaving mid-listen (or a background kill) resumes where the voice is.
-    if (blockChanged) _saveProgress();
-  }
 
   /// Scrolls/pages so the block being read stays visible — only when the
   /// block changes, so it doesn't fight the reader within a paragraph.
@@ -1185,7 +828,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (!_pageController.hasClients) return;
       // Follow by page (not block) so a paragraph split across pages is
       // tracked as read-aloud moves through it.
-      final page = _pageForBlockAt(blockIndex, _speakingStart);
+      final page = _pageForBlockAt(blockIndex, speakingStart);
       final currentPage = _pageController.page?.round() ?? 0;
       if (page != currentPage && page != _followedPage) {
         _followedPage = page;
@@ -1216,138 +859,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     );
   }
 
-  /// The character range of the sentence containing [offset] in [text].
-  (int, int) _sentenceRangeAt(String text, int offset) {
-    if (text.isEmpty) return (0, 0);
-    final o = offset.clamp(0, text.length - 1);
-    var start = 0;
-    for (var i = o - 1; i >= 0; i--) {
-      final c = text[i];
-      if (c == '.' || c == '!' || c == '?' || c == '\n') {
-        start = i + 1;
-        break;
-      }
-    }
-    while (start < text.length && text[start] == ' ') {
-      start++;
-    }
-    var end = text.length;
-    for (var i = o; i < text.length; i++) {
-      final c = text[i];
-      if (c == '.' || c == '!' || c == '?' || c == '\n') {
-        end = i + 1;
-        break;
-      }
-    }
-    return (start, end);
-  }
-
-  void _toggleTts() {
-    final state = _ttsService.state;
-    if (state == TtsPlaybackState.playing) {
-      _ttsService.pause();
-    } else if (state == TtsPlaybackState.paused) {
-      _ttsService.resume(rate: _settings.speechRate);
-    } else {
-      _startTts();
-    }
-  }
-
-  /// Swaps between the reader and the full-screen "Listen" player.
-  void _toggleListen() {
-    setState(() => _listenMode = !_listenMode);
-  }
-
-  /// Skips read-aloud by [seconds] (negative = back). Only the Kokoro engine
-  /// plays seekable audio clips, so this is a no-op on the on-device engine.
-  void _nudge(int seconds) {
-    final engine = _ttsService;
-    if (engine is NetworkTtsService) engine.nudge(seconds);
-  }
-
-  /// Cycles the read-aloud speed through common multipliers (1×–3×) for the
-  /// listen player's quick speed button.
-  void _cycleSpeed() {
-    const rates = [0.5, 0.625, 0.75, 0.875, 1.0, 1.25, 1.5];
-    final current = _settings.speechRate;
-    var next = rates.first;
-    for (var i = 0; i < rates.length; i++) {
-      if ((rates[i] - current).abs() < 0.02) {
-        next = rates[(i + 1) % rates.length];
-        break;
-      }
-    }
-    _applySettings(_settings.copyWith(speechRate: next));
-  }
-
-  /// Read-aloud speed as a playback multiplier label, e.g. "1.5×".
-  String _speedLabel() {
-    final m = _settings.speechRate * 2;
-    var s = m.toStringAsFixed(2);
-    if (s.contains('.')) {
-      s = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
-    }
-    return '$s×';
-  }
-
-  Widget _buildListen(EpubBook book, ReaderThemePreset preset) {
-    final minutesLeft = _chapterWordCount * (1 - _chapterFraction) / 220.0;
-    return Scaffold(
-      backgroundColor: preset.background,
-      body: ListenView(
-        seriesId: widget.volume.seriesOpdsId,
-        title: widget.volume.title,
-        chapterTitle: book.chapters[_chapterIndex].title,
-        chapterIndex: _chapterIndex,
-        chapterTotal: book.chapters.length,
-        progress: _chapterFraction.clamp(0.0, 1.0),
-        minutesLeft: minutesLeft,
-        isPlaying: _ttsService.state == TtsPlaybackState.playing,
-        speedLabel: _speedLabel(),
-        sleepActive: _sleepOption != SleepTimerOption.off,
-        canSeek: _ttsService is NetworkTtsService,
-        preset: preset,
-        onClose: _toggleListen,
-        onPlayPause: _toggleTts,
-        onPrevChapter: () => _goToChapter(_chapterIndex - 1),
-        onNextChapter: () => _goToChapter(_chapterIndex + 1),
-        onBack15: () => _nudge(-15),
-        onForward15: () => _nudge(15),
-        onCycleSpeed: _cycleSpeed,
-        onOpenSettings: _openSettings,
-      ),
-    );
-  }
-
-  /// When read-aloud reaches the end of a chapter, roll into the next one and
-  /// keep reading — unless the sleep timer is set to stop at the chapter end.
-  void _onTtsChapterFinished() {
-    if (_sleepOption == SleepTimerOption.endOfChapter) {
-      if (mounted) setState(() => _sleepOption = SleepTimerOption.off);
-      return;
-    }
-    final book = _book;
-    if (book == null) return;
-    if (_chapterIndex < book.chapters.length - 1) {
-      _goToChapter(_chapterIndex + 1, fromTts: true);
-      // A TTS-driven advance reads the new chapter from its start.
-      _startTts(fromCurrentPosition: false);
-    }
-  }
-
-  /// Arms (or clears) the read-aloud sleep timer.
-  void _setSleepTimer(SleepTimerOption option) {
-    _sleepTimer?.cancel();
-    _sleepTimer = null;
-    setState(() => _sleepOption = option);
-    final duration = option.duration;
-    if (duration != null) {
-      _sleepTimer = Timer(duration, () {
-        _ttsService.pause();
-        if (mounted) setState(() => _sleepOption = SleepTimerOption.off);
-      });
-    }
-  }
 
   // ── auto-scroll ──────────────────────────────────────────────────────────
 
@@ -1438,58 +949,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     );
   }
 
-  // ── lock-screen / Control Center controls ───────────────────────────────
-
-  /// Publishes the current chapter and play state to the iOS lock screen, or
-  /// clears it when read-aloud is stopped.
-  void _updateNowPlaying() {
-    final book = _book;
-    if (book == null || _ttsService.state == TtsPlaybackState.stopped) {
-      _nowPlaying.clear();
-      return;
-    }
-    final title = (_chapterIndex >= 0 && _chapterIndex < book.chapters.length)
-        ? book.chapters[_chapterIndex].title
-        : widget.volume.title;
-    _nowPlaying.update(
-      title: title,
-      book: widget.volume.title,
-      isPlaying: _ttsService.state == TtsPlaybackState.playing,
-      artworkPath: _coverPath,
-    );
-  }
-
-  /// Lock-screen "play": resume if paused, otherwise start from the top of
-  /// what's on screen.
-  void _remotePlay() {
-    switch (_ttsService.state) {
-      case TtsPlaybackState.paused:
-        _ttsService.resume(rate: _settings.speechRate);
-      case TtsPlaybackState.stopped:
-        _startTts();
-      case TtsPlaybackState.playing:
-        break;
-    }
-  }
-
-  /// Lock-screen "pause".
-  void _remotePause() {
-    if (_ttsService.state == TtsPlaybackState.playing) {
-      _ttsService.pause();
-    }
-  }
-
-  /// Lock-screen next/previous-track: jump a chapter and, if read-aloud was
-  /// active, keep reading from the new chapter's start.
-  void _remoteSkipChapter(int delta) {
-    final book = _book;
-    if (book == null) return;
-    final target = _chapterIndex + delta;
-    if (target < 0 || target >= book.chapters.length) return;
-    final wasActive = _ttsService.state != TtsPlaybackState.stopped;
-    _goToChapter(target, fromTts: wasActive);
-    if (wasActive) _startTts(fromCurrentPosition: false);
-  }
 
   /// Speechify-style "skip while reading" menu: pick content the voice skips
   /// over (parentheses, URLs, citations, headings, …). Applies on the next
@@ -1561,7 +1020,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   Future<void> _openSettings() async {
-    final voices = await _ttsService.availableVoices();
+    final voices = await ttsEngine.availableVoices();
     final prefs = ReaderPreferences();
     final hasOverride = await prefs.hasOverride(widget.volume);
     if (!mounted) return;
@@ -1577,9 +1036,9 @@ class _ReaderScreenState extends State<ReaderScreen>
       builder: (_) => ReaderSettingsSheet(
         initial: _settings,
         voices: voices,
-        sleepOption: _sleepOption,
+        sleepOption: sleepOption,
         onChanged: _applySettings,
-        onSleepTimerChanged: _setSleepTimer,
+        onSleepTimerChanged: setSleepTimer,
         hasOverride: hasOverride,
         onOverrideToggled: (enabled) async {
           if (enabled) {
@@ -1609,7 +1068,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     final chapterTitle = book.chapters[_chapterIndex].title;
     final snippet = blocks.isEmpty
         ? ''
-        : _shortSnippet(_blockText(blocks[clampedTop]));
+        : _shortSnippet(plainBlockText(blocks[clampedTop]));
     final picked = await showModalBottomSheet<Bookmark>(
       context: context,
       isScrollControlled: true,
@@ -1666,7 +1125,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         builder: (_) => BookSearchScreen(
           parser: parser,
           book: book,
-          plainText: _blockText,
+          plainText: plainBlockText,
         ),
       ),
     );
@@ -1680,7 +1139,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     final parser = _parser;
     if (book == null || parser == null) return;
     final clamped = chapterIndex.clamp(0, book.chapters.length - 1);
-    _ttsService.stop();
+    ttsEngine.stop();
     _lastChapterChange = DateTime.now();
     _edgeOverscroll = 0;
     final blocks = (clamped == _chapterIndex && _blocks != null)
@@ -1998,7 +1457,7 @@ class _ReaderScreenState extends State<ReaderScreen>
 
     final book = _book!;
     final preset = _settings.theme;
-    if (_listenMode) return _buildListen(book, preset);
+    if (listenMode) return buildListenView(book, preset);
     final mq = MediaQuery.of(context);
     // Centred-column mode caps the reading area to a comfortable measure and
     // centres it (wide side gutters); otherwise it spans the screen.
@@ -2058,15 +1517,15 @@ class _ReaderScreenState extends State<ReaderScreen>
                       title: book.chapters[_chapterIndex].title,
                       preset: preset,
                       onBack: () => Navigator.of(context).pop(),
-                      onToggleListen: _toggleListen,
+                      onToggleListen: toggleListen,
                       onOpenSettings: _openSettings,
                       onShowContents: _showTableOfContents,
                       onSearch: _openSearch,
                       onBookmarks: _openBookmarks,
                       onGlossary: _openGlossary,
                       onOpenSkip: _openSkipMenu,
-                      onOpenPronunciations: _openPronunciations,
-                      onPrepareOffline: _prepareVolumeForOffline,
+                      onOpenPronunciations: openPronunciations,
+                      onPrepareOffline: prepareVolumeForOffline,
                     ),
                   ),
                 ),
@@ -2089,22 +1548,22 @@ class _ReaderScreenState extends State<ReaderScreen>
                       onSeek: _seekChapter,
                       onJump: (delta) => _goToChapter(_chapterIndex + delta),
                       isReading:
-                          _ttsService.state != TtsPlaybackState.stopped,
+                          ttsEngine.state != TtsPlaybackState.stopped,
                       isPlaying:
-                          _ttsService.state == TtsPlaybackState.playing,
-                      canSeek: _ttsService is NetworkTtsService,
-                      onPlayPause: _toggleTts,
-                      onBack15: () => _nudge(-15),
-                      onForward15: () => _nudge(15),
+                          ttsEngine.state == TtsPlaybackState.playing,
+                      canSeek: ttsEngine is NetworkTtsService,
+                      onPlayPause: toggleTts,
+                      onBack15: () => nudgeTts(-15),
+                      onForward15: () => nudgeTts(15),
                     ),
                   ),
                 ),
-                if (_prepTotal > 0 && _prepDone < _prepTotal)
+                if (ttsPrepTotal > 0 && ttsPrepDone < ttsPrepTotal)
                   Positioned(
                     top: topSpace + 8,
                     left: 0,
                     right: 0,
-                    child: _fadeChrome(Center(child: _prepChip(preset))),
+                    child: _fadeChrome(Center(child: ttsPrepChip(preset))),
                   ),
                 if (_settings.brightness < 1.0)
                   Positioned.fill(
@@ -2145,8 +1604,8 @@ class _ReaderScreenState extends State<ReaderScreen>
         block: blocks[index],
         settings: _settings,
         preset: preset,
-        highlightStart: index == _speakingBlock ? _speakingStart : null,
-        highlightEnd: index == _speakingBlock ? _speakingEnd : null,
+        highlightStart: index == speakingBlock ? speakingStart : null,
+        highlightEnd: index == speakingBlock ? speakingEnd : null,
         highlightColor: _highlightedBlocks[index],
       ),
     );
@@ -2258,11 +1717,11 @@ class _ReaderScreenState extends State<ReaderScreen>
               isLast: j == pageBlocks.length - 1,
               // The highlight range is in parent-block coordinates;
               // shift it into this slice's own coordinates.
-              highlightStart: pageBlocks[j].originIndex == _speakingBlock
-                  ? _speakingStart - pageBlocks[j].charOffset
+              highlightStart: pageBlocks[j].originIndex == speakingBlock
+                  ? speakingStart - pageBlocks[j].charOffset
                   : null,
-              highlightEnd: pageBlocks[j].originIndex == _speakingBlock
-                  ? _speakingEnd - pageBlocks[j].charOffset
+              highlightEnd: pageBlocks[j].originIndex == speakingBlock
+                  ? speakingEnd - pageBlocks[j].charOffset
                   : null,
               highlightColor: _highlightedBlocks[pageBlocks[j].originIndex],
             ),

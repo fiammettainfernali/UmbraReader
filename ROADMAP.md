@@ -39,8 +39,11 @@ non-starter, so the personal pipeline never ships as part of the product.
       Biggest velocity tax in the codebase.
       *In progress — done: mechanical split into `lib/reader/` modules
       (layout/pagination engine, block renderer, chrome bars, book search,
-      bookmarks sheet); reader_screen.dart 3,910 → 2,276 lines. Next: pull
-      a ReaderController out of the State (TTS/session/progress logic).*
+      bookmarks sheet), plus the whole read-aloud session extracted into
+      the `ReaderTtsSession` mixin behind an explicit interface;
+      reader_screen.dart 3,910 → 1,732 lines. Remaining: the State still
+      owns navigation/progress/build — extract further only if it keeps
+      hurting; the file is now reviewable.*
 - [ ] **4. Sync durability.** iCloud sync uses `NSUbiquitousKeyValueStore`
       (1 MB total / 1 KB-per-key limits — silently drops data for heavy
       users). Migrate to CloudKit records or iCloud Drive documents with
