@@ -83,6 +83,8 @@ dependencies:
   # iOS Keychain storage for the OPDS password (plain SharedPreferences is
   # readable from device backups; Keychain is not).
   flutter_secure_storage: ^10.3.1
+  drift: ^2.34.0
+  drift_flutter: ^0.3.0
 
 dev_dependencies:
   flutter_test:
@@ -97,6 +99,8 @@ dev_dependencies:
 
   # Lets widget tests stub path_provider (no real platform in `flutter test`).
   path_provider_platform_interface: ^2.1.0
+  drift_dev: ^2.34.0
+  build_runner: ^2.15.0
 
 # Pin path_provider's iOS implementation below the version that adopted the
 # `objective_c` package. objective_c ships an arm64e-only framework that App

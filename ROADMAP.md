@@ -23,6 +23,10 @@ non-starter, so the personal pipeline never ships as part of the product.
       (progress, bookmarks, collections, activity — ~10 stores of string-blob
       JSON). Migrate to SQLite (`drift`) with a one-time import. Unlocks real
       queries for stats and full-library search.
+      *In progress — done: `AppDatabase` (drift) + `ReadingProgressStore`
+      (positions, Continue-shelf hidden flag, read-aloud resume, iCloud
+      merge) with non-destructive prefs import. Next: bookmarks →
+      collections → activity/stats.*
 - [x] **2. Credentials to Keychain.** OPDS password moved from plain
       SharedPreferences to `flutter_secure_storage` (Keychain), with one-time
       migration and a prefs fallback where Keychain is unavailable (tests).

@@ -1,7 +1,9 @@
 import 'dart:convert';
 
+import 'package:drift/drift.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../db/app_database.dart';
 import '../models/volume.dart';
 import 'cloud_sync_service.dart';
 
@@ -55,54 +57,56 @@ class ReadingEntry {
   final ReadingProgress progress;
 }
 
-/// Remembers the reading position per volume.
+/// Remembers the reading position per volume, in SQLite ([AppDatabase]).
 ///
 /// Position is stored as a chapter index plus a block (paragraph) index —
 /// not a pixel offset or page number — so it stays correct across font,
 /// margin, screen-size and reading-mode changes. Alongside the position,
-/// each entry records the book's chapter count, the last-read time, and a
-/// snapshot of the [Volume] so the home screen can list books in progress.
+/// each row records the book's chapter count, the last-read time, a snapshot
+/// of the [Volume] for the home shelves, the Continue-shelf hidden flag and
+/// the read-aloud resume point.
+///
+/// Data saved before the SQLite move (loose SharedPreferences keys) is
+/// imported once on first use; the import is non-destructive — the old prefs
+/// keys are left in place as a safety net.
 class ReadingProgressStore {
+  // ── legacy SharedPreferences keys (one-time import only) ────────────────
   static const _chapterPrefix = 'reading_chapter:';
   static const _blockPrefix = 'reading_block:';
   static const _countPrefix = 'reading_count:';
   static const _timePrefix = 'reading_time:';
   static const _volumePrefix = 'reading_volume:';
   static const _endPrefix = 'reading_end:';
-
-  /// Within-paragraph read-aloud resume point ("blockIndex:charOffset"), so
-  /// the Kokoro engine can pick up mid-paragraph. Not synced — it's ephemeral
-  /// device-local resume state.
   static const _resumePrefix = 'tts_resume:';
-
-  /// Reads the stored end-reached flag for [key], falling back for legacy
-  /// entries (saved before the flag existed) to "on the last chapter" so
-  /// books finished under the old scheme stay finished.
-  bool _readEndReached(SharedPreferences prefs, String key) {
-    final stored = prefs.getBool('$_endPrefix$key');
-    if (stored != null) return stored;
-    final chapter = prefs.getInt('$_chapterPrefix$key') ?? 0;
-    final count = prefs.getInt('$_countPrefix$key') ?? 0;
-    return count > 0 && chapter >= count - 1;
-  }
-
-  /// Volume keys the user has hidden from the Continue Reading shelf. The
-  /// saved position is kept; the book just stops surfacing on the home shelf
-  /// until it's read again.
   static const _hiddenKey = 'continue_hidden';
+
+  /// Set once the legacy prefs data has been imported into SQLite.
+  static const _kMigrated = 'reading_progress_in_sqlite_v1';
+
+  /// In-flight import, so concurrent first calls import exactly once.
+  static Future<void>? _migration;
+
+  AppDatabase get _db => AppDatabase.instance;
+  $ReadingProgressRowsTable get _table => _db.readingProgressRows;
 
   String _key(Volume volume) => '${volume.seriesOpdsId}/${volume.fileName}';
 
+  ReadingProgress _fromRow(ReadingProgressRow row) => ReadingProgress(
+    chapterIndex: row.chapterIndex,
+    blockIndex: row.blockIndex,
+    chapterCount: row.chapterCount,
+    updatedAt: DateTime.tryParse(row.updatedAt ?? ''),
+    endReached: row.endReached,
+  );
+
+  Future<ReadingProgressRow?> _row(String key) => (_db.select(
+    _table,
+  )..where((t) => t.volumeKey.equals(key))).getSingleOrNull();
+
   Future<ReadingProgress> load(Volume volume) async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = _key(volume);
-    return ReadingProgress(
-      chapterIndex: prefs.getInt('$_chapterPrefix$key') ?? 0,
-      blockIndex: prefs.getInt('$_blockPrefix$key') ?? 0,
-      chapterCount: prefs.getInt('$_countPrefix$key') ?? 0,
-      updatedAt: DateTime.tryParse(prefs.getString('$_timePrefix$key') ?? ''),
-      endReached: _readEndReached(prefs, key),
-    );
+    await _ensureMigrated();
+    final row = await _row(_key(volume));
+    return row == null ? ReadingProgress.start : _fromRow(row);
   }
 
   /// Saves the reading position. By default an actual read un-hides the volume
@@ -114,51 +118,59 @@ class ReadingProgressStore {
     ReadingProgress progress, {
     bool unhide = true,
   }) async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = _key(volume);
-    await prefs.setInt('$_chapterPrefix$key', progress.chapterIndex);
-    await prefs.setInt('$_blockPrefix$key', progress.blockIndex);
-    await prefs.setInt('$_countPrefix$key', progress.chapterCount);
-    await prefs.setString('$_timePrefix$key', DateTime.now().toIso8601String());
-    await prefs.setString('$_volumePrefix$key', jsonEncode(volume.toJson()));
-    await prefs.setBool('$_endPrefix$key', progress.endReached);
-    // Reading a volume again un-hides it from the Continue shelf.
-    if (unhide) {
-      final hidden = prefs.getStringList(_hiddenKey);
-      if (hidden != null && hidden.remove(key)) {
-        await prefs.setStringList(_hiddenKey, hidden);
-      }
-    }
+    await _ensureMigrated();
+    // hidden is absent on background writes (and on the update arm) so the
+    // shelf state survives; ttsResume is always absent so a position save
+    // never wipes the read-aloud resume point.
+    final companion = ReadingProgressRowsCompanion(
+      volumeKey: Value(_key(volume)),
+      chapterIndex: Value(progress.chapterIndex),
+      blockIndex: Value(progress.blockIndex),
+      chapterCount: Value(progress.chapterCount),
+      updatedAt: Value(DateTime.now().toIso8601String()),
+      endReached: Value(progress.endReached),
+      volumeJson: Value(jsonEncode(volume.toJson())),
+      hidden: unhide ? const Value(false) : const Value.absent(),
+    );
+    await _db
+        .into(_table)
+        .insert(companion, onConflict: DoUpdate((_) => companion));
     CloudSyncService().pushReadingProgressSoon();
   }
 
   /// Forgets the saved position for [volume] so it reopens from the start.
   Future<void> clear(Volume volume) async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = _key(volume);
-    await prefs.remove('$_chapterPrefix$key');
-    await prefs.remove('$_blockPrefix$key');
-    await prefs.remove('$_countPrefix$key');
-    await prefs.remove('$_timePrefix$key');
-    await prefs.remove('$_volumePrefix$key');
-    await prefs.remove('$_endPrefix$key');
-    await prefs.remove('$_resumePrefix$key');
+    await _ensureMigrated();
+    await (_db.delete(
+      _table,
+    )..where((t) => t.volumeKey.equals(_key(volume)))).go();
     CloudSyncService().pushReadingProgress();
   }
 
   /// Volume keys currently hidden from the Continue Reading shelf.
   Future<Set<String>> hiddenFromContinue() async {
-    final prefs = await SharedPreferences.getInstance();
-    return (prefs.getStringList(_hiddenKey) ?? const []).toSet();
+    await _ensureMigrated();
+    final rows = await (_db.select(
+      _table,
+    )..where((t) => t.hidden.equals(true))).get();
+    return rows.map((r) => r.volumeKey).toSet();
   }
 
   /// Hides [volume] from the Continue Reading shelf without forgetting its
   /// saved place. Reopening (and reading) it un-hides it again.
   Future<void> hideFromContinue(Volume volume) async {
-    final prefs = await SharedPreferences.getInstance();
-    final set = (prefs.getStringList(_hiddenKey) ?? const []).toSet()
-      ..add(_key(volume));
-    await prefs.setStringList(_hiddenKey, set.toList());
+    await _ensureMigrated();
+    await _db
+        .into(_table)
+        .insert(
+          ReadingProgressRowsCompanion(
+            volumeKey: Value(_key(volume)),
+            hidden: const Value(true),
+          ),
+          onConflict: DoUpdate(
+            (_) => const ReadingProgressRowsCompanion(hidden: Value(true)),
+          ),
+        );
   }
 
   /// Records the word-level resume point ([blockIndex], [charOffset]) reached
@@ -168,17 +180,25 @@ class ReadingProgressStore {
     int blockIndex,
     int charOffset,
   ) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      '$_resumePrefix${_key(volume)}',
-      '$blockIndex:$charOffset',
-    );
+    await _ensureMigrated();
+    final resume = Value<String?>('$blockIndex:$charOffset');
+    await _db
+        .into(_table)
+        .insert(
+          ReadingProgressRowsCompanion(
+            volumeKey: Value(_key(volume)),
+            ttsResume: resume,
+          ),
+          onConflict: DoUpdate(
+            (_) => ReadingProgressRowsCompanion(ttsResume: resume),
+          ),
+        );
   }
 
   /// The saved (blockIndex, charOffset) resume point for [volume], or null.
   Future<(int, int)?> resumeOffset(Volume volume) async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString('$_resumePrefix${_key(volume)}');
+    await _ensureMigrated();
+    final raw = (await _row(_key(volume)))?.ttsResume;
     if (raw == null) return null;
     final parts = raw.split(':');
     if (parts.length != 2) return null;
@@ -188,39 +208,24 @@ class ReadingProgressStore {
     return (block, offset);
   }
 
-  /// Every volume with a saved position, newest first. Legacy entries saved
-  /// before volume snapshots were recorded are skipped — they can't be
-  /// reopened without the volume metadata.
+  /// Every volume with a saved position, newest first. Rows without a volume
+  /// snapshot are skipped — they can't be reopened without the metadata.
   Future<List<ReadingEntry>> allEntries() async {
-    final prefs = await SharedPreferences.getInstance();
+    await _ensureMigrated();
+    final rows = await (_db.select(
+      _table,
+    )..where((t) => t.volumeJson.isNotNull())).get();
     final entries = <ReadingEntry>[];
-    for (final fullKey in prefs.getKeys()) {
-      if (!fullKey.startsWith(_chapterPrefix)) continue;
-      final key = fullKey.substring(_chapterPrefix.length);
-      final volumeJson = prefs.getString('$_volumePrefix$key');
-      if (volumeJson == null) continue;
+    for (final row in rows) {
       final Volume volume;
       try {
-        final decoded = jsonDecode(volumeJson);
+        final decoded = jsonDecode(row.volumeJson!);
         if (decoded is! Map<String, dynamic>) continue;
         volume = Volume.fromJson(decoded);
       } on FormatException {
         continue;
       }
-      entries.add(
-        ReadingEntry(
-          volume: volume,
-          progress: ReadingProgress(
-            chapterIndex: prefs.getInt('$_chapterPrefix$key') ?? 0,
-            blockIndex: prefs.getInt('$_blockPrefix$key') ?? 0,
-            chapterCount: prefs.getInt('$_countPrefix$key') ?? 0,
-            updatedAt: DateTime.tryParse(
-              prefs.getString('$_timePrefix$key') ?? '',
-            ),
-            endReached: _readEndReached(prefs, key),
-          ),
-        ),
-      );
+      entries.add(ReadingEntry(volume: volume, progress: _fromRow(row)));
     }
     entries.sort((a, b) {
       final at = a.progress.updatedAt;
@@ -231,6 +236,59 @@ class ReadingProgressStore {
       return bt.compareTo(at);
     });
     return entries;
+  }
+
+  // ── one-time import from SharedPreferences ──────────────────────────────
+
+  Future<void> _ensureMigrated() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (prefs.getBool(_kMigrated) ?? false) return;
+    _migration ??= _importFromPrefs(prefs).whenComplete(() => _migration = null);
+    await _migration;
+  }
+
+  /// Reads the stored end-reached flag from the legacy keys, falling back
+  /// for entries saved before the flag existed to "on the last chapter" so
+  /// books finished under the old scheme stay finished.
+  bool _legacyEndReached(SharedPreferences prefs, String key) {
+    final stored = prefs.getBool('$_endPrefix$key');
+    if (stored != null) return stored;
+    final chapter = prefs.getInt('$_chapterPrefix$key') ?? 0;
+    final count = prefs.getInt('$_countPrefix$key') ?? 0;
+    return count > 0 && chapter >= count - 1;
+  }
+
+  /// Copies every legacy prefs entry into SQLite. insertOrIgnore keeps any
+  /// row SQLite already has (it can only be newer), and the prefs keys are
+  /// deliberately left behind untouched as a rollback safety net.
+  Future<void> _importFromPrefs(SharedPreferences prefs) async {
+    final hidden = (prefs.getStringList(_hiddenKey) ?? const []).toSet();
+    final keys = <String>{...hidden};
+    for (final full in prefs.getKeys()) {
+      if (full.startsWith(_chapterPrefix)) {
+        keys.add(full.substring(_chapterPrefix.length));
+      } else if (full.startsWith(_resumePrefix)) {
+        keys.add(full.substring(_resumePrefix.length));
+      }
+    }
+    final rows = [
+      for (final key in keys)
+        ReadingProgressRowsCompanion.insert(
+          volumeKey: key,
+          chapterIndex: Value(prefs.getInt('$_chapterPrefix$key') ?? 0),
+          blockIndex: Value(prefs.getInt('$_blockPrefix$key') ?? 0),
+          chapterCount: Value(prefs.getInt('$_countPrefix$key') ?? 0),
+          updatedAt: Value(prefs.getString('$_timePrefix$key')),
+          endReached: Value(_legacyEndReached(prefs, key)),
+          volumeJson: Value(prefs.getString('$_volumePrefix$key')),
+          hidden: Value(hidden.contains(key)),
+          ttsResume: Value(prefs.getString('$_resumePrefix$key')),
+        ),
+    ];
+    await _db.batch(
+      (b) => b.insertAll(_table, rows, mode: InsertMode.insertOrIgnore),
+    );
+    await prefs.setBool(_kMigrated, true);
   }
 
   // ── iCloud sync (see CloudSyncService) ─────────────────────────────────
@@ -256,8 +314,8 @@ class ReadingProgressStore {
 
   /// Merges a cloud blob into local storage, last-write-wins per volume by
   /// `updatedAt`. Returns true if any local entry was created or updated.
-  /// Writes raw keys directly (not via [save]) so the merged entry keeps the
-  /// cloud timestamp instead of stamping "now".
+  /// Only the progress columns are written, so the local hidden flag and
+  /// read-aloud resume point survive a merge.
   Future<bool> mergeSyncBlob(String blob) async {
     if (blob.isEmpty) return false;
     final Object? decoded;
@@ -267,35 +325,35 @@ class ReadingProgressStore {
       return false;
     }
     if (decoded is! Map) return false;
-    final prefs = await SharedPreferences.getInstance();
+    await _ensureMigrated();
     var changed = false;
     for (final entry in decoded.entries) {
       final key = entry.key;
       final value = entry.value;
       if (key is! String || value is! Map) continue;
-      final cloudUpdated = DateTime.tryParse(value['updatedAt'] as String? ?? '');
-      if (cloudUpdated == null) continue;
-      final localUpdated = DateTime.tryParse(
-        prefs.getString('$_timePrefix$key') ?? '',
+      final cloudUpdated = DateTime.tryParse(
+        value['updatedAt'] as String? ?? '',
       );
-      if (localUpdated != null && !cloudUpdated.isAfter(localUpdated)) continue;
+      if (cloudUpdated == null) continue;
       final volume = value['volume'];
       if (volume is! Map) continue;
-      await prefs.setInt(
-        '$_chapterPrefix$key',
-        (value['chapterIndex'] as num?)?.toInt() ?? 0,
+      final local = await _row(key);
+      final localUpdated = DateTime.tryParse(local?.updatedAt ?? '');
+      if (localUpdated != null && !cloudUpdated.isAfter(localUpdated)) {
+        continue;
+      }
+      final companion = ReadingProgressRowsCompanion(
+        volumeKey: Value(key),
+        chapterIndex: Value((value['chapterIndex'] as num?)?.toInt() ?? 0),
+        blockIndex: Value((value['blockIndex'] as num?)?.toInt() ?? 0),
+        chapterCount: Value((value['chapterCount'] as num?)?.toInt() ?? 0),
+        updatedAt: Value(cloudUpdated.toIso8601String()),
+        endReached: Value(value['endReached'] == true),
+        volumeJson: Value(jsonEncode(volume)),
       );
-      await prefs.setInt(
-        '$_blockPrefix$key',
-        (value['blockIndex'] as num?)?.toInt() ?? 0,
-      );
-      await prefs.setInt(
-        '$_countPrefix$key',
-        (value['chapterCount'] as num?)?.toInt() ?? 0,
-      );
-      await prefs.setString('$_timePrefix$key', cloudUpdated.toIso8601String());
-      await prefs.setBool('$_endPrefix$key', value['endReached'] == true);
-      await prefs.setString('$_volumePrefix$key', jsonEncode(volume));
+      await _db
+          .into(_table)
+          .insert(companion, onConflict: DoUpdate((_) => companion));
       changed = true;
     }
     return changed;

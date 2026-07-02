@@ -1,10 +1,15 @@
-// Tests for ReadingProgressStore — the SharedPreferences-backed store behind
-// reading positions, the "Continue reading" shelf and reading stats.
+// Tests for ReadingProgressStore — the SQLite-backed store behind reading
+// positions, the "Continue reading" shelf and reading stats. Tests that seed
+// raw `reading_*:` SharedPreferences keys double as coverage for the
+// one-time prefs → SQLite import.
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:umbra_reader/db/app_database.dart';
 import 'package:umbra_reader/models/volume.dart';
 import 'package:umbra_reader/services/reading_progress_store.dart';
+
+import 'helpers/test_db.dart';
 
 Volume _volume({int seriesId = 1, String fileName = 'book.epub'}) => Volume(
   seriesOpdsId: seriesId,
@@ -16,7 +21,12 @@ Volume _volume({int seriesId = 1, String fileName = 'book.epub'}) => Volume(
 );
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+  setUp(() async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await useInMemoryDatabase();
+  });
+
+  tearDown(AppDatabase.reset);
 
   test('save then load round-trips the reading position', () async {
     final store = ReadingProgressStore();
@@ -165,5 +175,58 @@ void main() {
       _volume(seriesId: 99, fileName: 'legacy.epub'),
     );
     expect(loaded.chapterIndex, 7);
+  });
+
+  test('prefs import carries over the hidden list and resume point', () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'reading_chapter:1/book.epub': 4,
+      'continue_hidden': <String>['1/book.epub'],
+      'tts_resume:1/book.epub': '12:87',
+    });
+    final store = ReadingProgressStore();
+    expect(await store.hiddenFromContinue(), contains('1/book.epub'));
+    expect(await store.resumeOffset(_volume()), (12, 87));
+    // Import is non-destructive: the legacy keys stay behind.
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getInt('reading_chapter:1/book.epub'), 4);
+  });
+
+  test('resume offset round-trips and survives a position save', () async {
+    final store = ReadingProgressStore();
+    final volume = _volume();
+    await store.saveResumeOffset(volume, 5, 120);
+    expect(await store.resumeOffset(volume), (5, 120));
+    await store.save(
+      volume,
+      const ReadingProgress(chapterIndex: 2, blockIndex: 5, chapterCount: 9),
+    );
+    expect(await store.resumeOffset(volume), (5, 120));
+  });
+
+  test('cloud merge is last-write-wins and keeps local shelf state', () async {
+    final store = ReadingProgressStore();
+    final volume = _volume();
+    await store.save(
+      volume,
+      const ReadingProgress(chapterIndex: 2, blockIndex: 0, chapterCount: 20),
+    );
+    await store.hideFromContinue(volume);
+
+    // A newer cloud position must apply — without un-hiding the volume.
+    final future = DateTime.now().add(const Duration(minutes: 5));
+    final blob =
+        '{"1/book.epub":{"chapterIndex":8,"blockIndex":1,"chapterCount":20,'
+        '"updatedAt":"${future.toIso8601String()}","endReached":false,'
+        '"volume":${'{"seriesOpdsId":1,"title":"A Book","fileName":"book.epub",'
+            '"downloadUrl":"http://host/book.epub","fileSizeBytes":1000}'}}}';
+    expect(await store.mergeSyncBlob(blob), isTrue);
+    expect((await store.load(volume)).chapterIndex, 8);
+    expect(await store.hiddenFromContinue(), contains('1/book.epub'));
+
+    // An older cloud position must not clobber the local one.
+    final past = DateTime.now().subtract(const Duration(days: 1));
+    final stale = blob.replaceFirst(future.toIso8601String(), past.toIso8601String());
+    expect(await store.mergeSyncBlob(stale), isFalse);
+    expect((await store.load(volume)).chapterIndex, 8);
   });
 }

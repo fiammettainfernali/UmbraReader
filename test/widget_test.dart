@@ -9,6 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:umbra_reader/main.dart';
 
+import 'helpers/test_db.dart';
+
 /// Stubs path_provider so the library cache can resolve a directory under
 /// `flutter test`, where no real platform is available.
 class _FakePathProvider extends PathProviderPlatform {
@@ -43,6 +45,8 @@ void main() {
       <String, Object>{'onboarding_done': true},
     );
     PathProviderPlatform.instance = _FakePathProvider();
+    // The library screen reads the SQLite progress store on load.
+    await useInMemoryDatabase();
 
     await tester.pumpWidget(const UmbraReaderApp());
     await _pumpRootGate(tester);
@@ -60,6 +64,7 @@ void main() {
   ) async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     PathProviderPlatform.instance = _FakePathProvider();
+    await useInMemoryDatabase();
 
     await tester.pumpWidget(const UmbraReaderApp());
     await _pumpRootGate(tester);
