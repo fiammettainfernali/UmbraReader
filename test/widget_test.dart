@@ -2,6 +2,7 @@
 
 import 'dart:io';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,6 +17,22 @@ class _FakePathProvider extends PathProviderPlatform {
       Directory.systemTemp.path;
 }
 
+/// Pumps frames until the root gate's async settings lookup resolves. The
+/// lookup spans several event-loop hops (SharedPreferences plus the Keychain
+/// read, which surfaces as an async MissingPluginException under `flutter
+/// test` before falling back), so a fixed pump count is brittle.
+Future<void> _pumpRootGate(WidgetTester tester) async {
+  for (var i = 0; i < 10; i++) {
+    // runAsync gives the secure-storage channel call real event-loop time —
+    // inside the fake-async test zone its future would never complete.
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await tester.pump();
+    if (find.byType(CircularProgressIndicator).evaluate().isEmpty) return;
+  }
+}
+
 void main() {
   testWidgets('App builds and shows the Library screen', (
     WidgetTester tester,
@@ -28,8 +45,7 @@ void main() {
     PathProviderPlatform.instance = _FakePathProvider();
 
     await tester.pumpWidget(const UmbraReaderApp());
-    await tester.pump();
-    await tester.pump(); // resolve the root gate's async lookup
+    await _pumpRootGate(tester);
 
     // The library app bar renders on the first frame, before the async
     // library load completes. pumpAndSettle is deliberately not used — the
@@ -46,8 +62,7 @@ void main() {
     PathProviderPlatform.instance = _FakePathProvider();
 
     await tester.pumpWidget(const UmbraReaderApp());
-    await tester.pump();
-    await tester.pump();
+    await _pumpRootGate(tester);
 
     expect(find.text('Welcome to Umbra Reader'), findsOneWidget);
   });

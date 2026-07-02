@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Connection details for the Novel Grabber OPDS server.
@@ -49,11 +50,14 @@ String normalizeOpdsUrl(String input) {
   return url;
 }
 
-/// Loads and saves the OPDS connection settings via [SharedPreferences].
+/// Loads and saves the OPDS connection settings.
 ///
-/// Note: the password is stored in plain SharedPreferences. For a personal
-/// LAN reader app that is an acceptable tradeoff; if stronger protection is
-/// ever wanted, swap in `flutter_secure_storage`.
+/// The server URL and username live in [SharedPreferences]; the password
+/// lives in the iOS Keychain via [FlutterSecureStorage]. Installs that saved
+/// the password to SharedPreferences before the Keychain move are migrated
+/// on first load. Where the Keychain isn't available (unit tests, platforms
+/// without the plugin) the password transparently falls back to
+/// SharedPreferences so behaviour is unchanged.
 class SettingsService {
   static const _kBaseUrl = 'opds_base_url';
   static const _kUsername = 'opds_username';
@@ -64,12 +68,36 @@ class SettingsService {
   static const _kAutoDownloadWifiOnly = 'auto_download_wifi_only';
   static const _kAutoDeleteFinished = 'auto_delete_finished';
 
+  // first_unlock: readable after the first unlock following a reboot, so
+  // background refresh/downloads don't lose auth while the phone is locked.
+  static const _secure = FlutterSecureStorage(
+    iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
+  );
+
   Future<OpdsSettings> load() async {
     final prefs = await SharedPreferences.getInstance();
+    var password = await _readSecure(_kPassword);
+
+    // One-time migration: older installs kept the password in plain
+    // SharedPreferences. Move it into the Keychain and scrub the prefs copy.
+    final legacy = prefs.getString(_kPassword);
+    if (legacy != null) {
+      if ((password == null || password.isEmpty) && legacy.isNotEmpty) {
+        if (await _writeSecure(_kPassword, legacy)) {
+          await prefs.remove(_kPassword);
+        }
+        password = legacy;
+      } else if (password != null) {
+        // Keychain already authoritative — scrub the stale prefs copy.
+        await prefs.remove(_kPassword);
+      }
+      password ??= legacy;
+    }
+
     return OpdsSettings(
       baseUrl: prefs.getString(_kBaseUrl) ?? '',
       username: prefs.getString(_kUsername) ?? '',
-      password: prefs.getString(_kPassword) ?? '',
+      password: password ?? '',
     );
   }
 
@@ -77,7 +105,44 @@ class SettingsService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kBaseUrl, settings.baseUrl);
     await prefs.setString(_kUsername, settings.username);
-    await prefs.setString(_kPassword, settings.password);
+    if (await _writeSecure(_kPassword, settings.password)) {
+      await prefs.remove(_kPassword);
+    } else {
+      // Keychain unavailable (tests / unsupported platform) — keep the old
+      // SharedPreferences behaviour so settings still round-trip.
+      await prefs.setString(_kPassword, settings.password);
+    }
+  }
+
+  /// Reads [key] from secure storage; null when unset or unavailable.
+  ///
+  /// The catch is deliberately broad: depending on platform and plugin
+  /// version an unavailable Keychain surfaces as `PlatformException`,
+  /// `MissingPluginException`, or `UnimplementedError` (an `Error`, not an
+  /// `Exception`). Any failure means "fall back to SharedPreferences", the
+  /// pre-Keychain behaviour.
+  Future<String?> _readSecure(String key) async {
+    try {
+      return await _secure.read(key: key);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Writes (or, for an empty value, deletes) [key] in secure storage.
+  /// Returns false when secure storage isn't available (see [_readSecure]
+  /// for why the catch is broad).
+  Future<bool> _writeSecure(String key, String value) async {
+    try {
+      if (value.isEmpty) {
+        await _secure.delete(key: key);
+      } else {
+        await _secure.write(key: key, value: value);
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// True once the user has been through (or skipped) the first-launch
