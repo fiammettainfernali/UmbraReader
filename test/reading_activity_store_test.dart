@@ -1,9 +1,12 @@
 // Tests for ReadingActivityStore — daily / per-volume reading-time tallies.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:umbra_reader/db/app_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:umbra_reader/models/volume.dart';
 import 'package:umbra_reader/services/reading_activity_store.dart';
+
+import 'helpers/test_db.dart';
 
 Volume _volume({int seriesId = 1, String fileName = 'book.epub'}) => Volume(
   seriesOpdsId: seriesId,
@@ -15,7 +18,12 @@ Volume _volume({int seriesId = 1, String fileName = 'book.epub'}) => Volume(
 );
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+  setUp(() async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await useInMemoryDatabase();
+  });
+
+  tearDown(AppDatabase.reset);
 
   test('load returns empty activity with no data', () async {
     final activity = await ReadingActivityStore().load();

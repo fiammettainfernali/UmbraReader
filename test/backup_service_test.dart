@@ -1,11 +1,19 @@
 // Tests for BackupService — JSON snapshot of every SharedPreferences value.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:umbra_reader/db/app_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:umbra_reader/services/backup_service.dart';
 
+import 'helpers/test_db.dart';
+
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+  setUp(() async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await useInMemoryDatabase();
+  });
+
+  tearDown(AppDatabase.reset);
 
   test('exportToJson captures every shared-prefs value, typed', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{

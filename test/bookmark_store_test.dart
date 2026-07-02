@@ -1,10 +1,13 @@
 // Tests for BookmarkStore — per-volume saved spots.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:umbra_reader/db/app_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:umbra_reader/models/bookmark.dart';
 import 'package:umbra_reader/models/volume.dart';
 import 'package:umbra_reader/services/bookmark_store.dart';
+
+import 'helpers/test_db.dart';
 
 Volume _volume({String fileName = 'book.epub', int seriesId = 1}) => Volume(
   seriesOpdsId: seriesId,
@@ -29,7 +32,12 @@ Bookmark _mark({
 );
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
+  setUp(() async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    await useInMemoryDatabase();
+  });
+
+  tearDown(AppDatabase.reset);
 
   test('list returns nothing for a fresh volume', () async {
     expect(await BookmarkStore().list(_volume()), isEmpty);

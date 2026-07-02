@@ -1,7 +1,9 @@
 import 'dart:convert';
 
+import 'package:drift/drift.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../db/app_database.dart';
 import '../models/volume.dart';
 
 /// A snapshot of the user's reading-time activity: how many seconds were
@@ -80,42 +82,36 @@ class ReadingActivity {
   }
 }
 
-/// Persists reading-time activity across app launches.
+/// Persists reading-time activity across app launches, in SQLite
+/// ([AppDatabase]) — one row per day plus one row per volume, so recording
+/// a session is two upsert-increments instead of rewriting a whole blob.
 ///
-/// Stored as one JSON blob in SharedPreferences under [_key]. Cheap to load
-/// and write (tens of dates max in practice), so we don't bother with
-/// per-day keys.
+/// Activity recorded before the SQLite move (one JSON blob under the
+/// `reading_activity` SharedPreferences key) is imported once on first use;
+/// the old key stays behind untouched. The blob shape is still the backup
+/// format.
 class ReadingActivityStore {
+  /// Legacy SharedPreferences key — import and backup format.
   static const _key = 'reading_activity';
 
+  /// Set once the legacy prefs data has been imported into SQLite.
+  static const _kMigrated = 'reading_activity_in_sqlite_v1';
+
+  static Future<void>? _migration;
+
+  AppDatabase get _db => AppDatabase.instance;
+
   Future<ReadingActivity> load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_key);
-    if (raw == null || raw.isEmpty) return ReadingActivity.empty;
-    try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! Map<String, dynamic>) return ReadingActivity.empty;
-      final daily = <String, int>{};
-      final perVolume = <String, int>{};
-      final dailyRaw = decoded['daily'];
-      if (dailyRaw is Map) {
-        dailyRaw.forEach((k, v) {
-          if (v is num) daily[k.toString()] = v.toInt();
-        });
-      }
-      final volumeRaw = decoded['perVolume'];
-      if (volumeRaw is Map) {
-        volumeRaw.forEach((k, v) {
-          if (v is num) perVolume[k.toString()] = v.toInt();
-        });
-      }
-      return ReadingActivity(
-        dailySeconds: daily,
-        perVolumeSeconds: perVolume,
-      );
-    } on FormatException {
-      return ReadingActivity.empty;
-    }
+    await _ensureMigrated();
+    final daily = <String, int>{
+      for (final row in await _db.select(_db.dailyActivityRows).get())
+        row.day: row.seconds,
+    };
+    final perVolume = <String, int>{
+      for (final row in await _db.select(_db.volumeActivityRows).get())
+        row.volumeKey: row.seconds,
+    };
+    return ReadingActivity(dailySeconds: daily, perVolumeSeconds: perVolume);
   }
 
   /// Adds [delta] seconds to today's tally and to the per-volume tally for
@@ -124,18 +120,97 @@ class ReadingActivityStore {
   Future<void> record(Volume volume, Duration delta, {DateTime? now}) async {
     final seconds = delta.inSeconds;
     if (seconds <= 0) return;
-    final activity = await load();
+    await _ensureMigrated();
     final dateKey = _dateKey(_today(now));
     final volumeKey = '${volume.seriesOpdsId}/${volume.fileName}';
-    final daily = Map<String, int>.of(activity.dailySeconds);
-    final perVolume = Map<String, int>.of(activity.perVolumeSeconds);
-    daily[dateKey] = (daily[dateKey] ?? 0) + seconds;
-    perVolume[volumeKey] = (perVolume[volumeKey] ?? 0) + seconds;
+    await _db
+        .into(_db.dailyActivityRows)
+        .insert(
+          DailyActivityRowsCompanion(
+            day: Value(dateKey),
+            seconds: Value(seconds),
+          ),
+          onConflict: DoUpdate(
+            (old) => DailyActivityRowsCompanion.custom(
+              seconds: old.seconds + Constant(seconds),
+            ),
+          ),
+        );
+    await _db
+        .into(_db.volumeActivityRows)
+        .insert(
+          VolumeActivityRowsCompanion(
+            volumeKey: Value(volumeKey),
+            seconds: Value(seconds),
+          ),
+          onConflict: DoUpdate(
+            (old) => VolumeActivityRowsCompanion.custom(
+              seconds: old.seconds + Constant(seconds),
+            ),
+          ),
+        );
+  }
+
+  // ── one-time import from SharedPreferences ──────────────────────────────
+
+  Future<void> _ensureMigrated() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _key,
-      jsonEncode({'daily': daily, 'perVolume': perVolume}),
-    );
+    if (prefs.getBool(_kMigrated) ?? false) return;
+    _migration ??= _importFromPrefs(prefs).whenComplete(() => _migration = null);
+    await _migration;
+  }
+
+  Future<void> _importFromPrefs(SharedPreferences prefs) async {
+    final raw = prefs.getString(_key);
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map<String, dynamic>) {
+          final dailyRaw = decoded['daily'];
+          final volumeRaw = decoded['perVolume'];
+          await _db.batch((b) {
+            if (dailyRaw is Map) {
+              b.insertAll(_db.dailyActivityRows, [
+                for (final entry in dailyRaw.entries)
+                  if (entry.value is num)
+                    DailyActivityRowsCompanion(
+                      day: Value(entry.key.toString()),
+                      seconds: Value((entry.value as num).toInt()),
+                    ),
+              ], mode: InsertMode.insertOrIgnore);
+            }
+            if (volumeRaw is Map) {
+              b.insertAll(_db.volumeActivityRows, [
+                for (final entry in volumeRaw.entries)
+                  if (entry.value is num)
+                    VolumeActivityRowsCompanion(
+                      volumeKey: Value(entry.key.toString()),
+                      seconds: Value((entry.value as num).toInt()),
+                    ),
+              ], mode: InsertMode.insertOrIgnore);
+            }
+          });
+        }
+      } on FormatException {
+        // corrupt legacy blob — nothing to import
+      }
+    }
+    await prefs.setBool(_kMigrated, true);
+  }
+
+  /// Backup entry in the legacy prefs shape (one `reading_activity` blob).
+  /// Empty when there is no activity yet.
+  Future<Map<String, Object>> exportBackupEntries() async {
+    final activity = await load();
+    if (activity.dailySeconds.isEmpty && activity.perVolumeSeconds.isEmpty) {
+      return const {};
+    }
+    return {
+      _key: jsonEncode({
+        'daily': activity.dailySeconds,
+        'perVolume': activity.perVolumeSeconds,
+      }),
+    };
   }
 }
 

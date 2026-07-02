@@ -4,12 +4,55 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Reads / writes a JSON snapshot of every value in SharedPreferences. Used
-/// for "Backup & restore" — the user's only safety net since Umbra Reader
-/// otherwise holds reading progress, bookmarks, collections, settings and
-/// feedback in per-device storage that an uninstall would wipe.
+import '../db/app_database.dart';
+import 'bookmark_store.dart';
+import 'collection_store.dart';
+import 'reading_activity_store.dart';
+import 'reading_progress_store.dart';
+
+/// Reads / writes a JSON backup of the app's data. Used for "Backup &
+/// restore" — the user's only safety net since Umbra Reader otherwise holds
+/// reading progress, bookmarks, collections, settings and feedback in
+/// per-device storage that an uninstall would wipe.
+///
+/// The backup file keeps the original SharedPreferences-shaped format even
+/// though several stores now live in SQLite: on export, those stores
+/// serialise back into their legacy prefs keys (fresh from the database, so
+/// the stale prefs copies left behind by the one-time imports are dropped);
+/// on restore, the database is cleared and the stores re-import from the
+/// restored keys on next use. Old backup files restore unchanged.
 class BackupService {
   static const _formatVersion = 1;
+
+  /// Legacy key families owned by SQLite-backed stores. Their prefs copies
+  /// are stale after migration, so exports replace them with fresh
+  /// database-derived values and imports hand them back to the stores.
+  static const _dbKeyPrefixes = [
+    'bookmarks:',
+    'reading_chapter:',
+    'reading_block:',
+    'reading_count:',
+    'reading_time:',
+    'reading_volume:',
+    'reading_end:',
+    'tts_resume:',
+  ];
+  static const _dbKeys = [
+    'continue_hidden',
+    'collections',
+    'collections_modified_at',
+    'reading_activity',
+  ];
+
+  /// Store migration flags ("data already imported into SQLite") end with
+  /// this. They are stripped from exports and cleared on import so a restore
+  /// always re-imports the restored keys.
+  static const _migratedFlagSuffix = '_in_sqlite_v1';
+
+  static bool _ownedByDatabase(String key) =>
+      _dbKeys.contains(key) ||
+      key.endsWith(_migratedFlagSuffix) ||
+      _dbKeyPrefixes.any(key.startsWith);
 
   /// Marker key Umbra writes into the JSON so [importFromJson] can validate
   /// the file came from this app.
@@ -40,13 +83,20 @@ class BackupService {
     return file;
   }
 
-  /// Builds the backup JSON string from current SharedPreferences contents.
+  /// Builds the backup JSON string from current SharedPreferences contents
+  /// plus the SQLite-backed stores (serialised into their legacy prefs
+  /// shape).
   Future<String> exportToJson() async {
     final prefs = await SharedPreferences.getInstance();
     final data = <String, dynamic>{};
     for (final key in prefs.getKeys()) {
+      if (_ownedByDatabase(key)) continue; // stale copy — DB versions win
       data[key] = prefs.get(key);
     }
+    data.addAll(await ReadingProgressStore().exportBackupEntries());
+    data.addAll(await BookmarkStore().exportBackupEntries());
+    data.addAll(await CollectionStore().exportBackupEntries());
+    data.addAll(await ReadingActivityStore().exportBackupEntries());
     final envelope = {
       _signature: _formatVersion,
       'timestamp': DateTime.now().toIso8601String(),
@@ -92,6 +142,9 @@ class BackupService {
     var restored = 0;
     for (final entry in prefsData.entries) {
       final key = entry.key;
+      // Never restore migration flags (backups from older builds may carry
+      // them) — the whole point of the restore is to re-import below.
+      if (key.endsWith(_migratedFlagSuffix)) continue;
       final value = entry.value;
       if (value is bool) {
         await prefs.setBool(key, value);
@@ -113,6 +166,9 @@ class BackupService {
       }
       restored++;
     }
+    // The restored legacy keys are now the source of truth: clear the
+    // database so each store's one-time import runs again from them.
+    await AppDatabase.instance.clearStoreData();
     return restored;
   }
 
@@ -133,13 +189,7 @@ class BackupService {
   }
 
   Future<String> exportAnnotationsToJson() async {
-    final prefs = await SharedPreferences.getInstance();
-    final data = <String, dynamic>{};
-    for (final key in prefs.getKeys()) {
-      if (key.startsWith(_annotationKeyPrefix)) {
-        data[key] = prefs.get(key);
-      }
-    }
+    final data = await BookmarkStore().exportBackupEntries();
     final envelope = {
       _annotationSignature: _formatVersion,
       'timestamp': DateTime.now().toIso8601String(),
@@ -178,18 +228,27 @@ class BackupService {
     if (prefsData is! Map<String, dynamic>) {
       throw BackupException('File is malformed — no "preferences" section.');
     }
-    final prefs = await SharedPreferences.getInstance();
-    var restored = 0;
+    // Re-shape into the sync-blob format (values as decoded lists) and let
+    // the store's union-by-id merge do the work — nothing local is lost.
+    final blob = <String, dynamic>{};
+    var volumes = 0;
     for (final entry in prefsData.entries) {
       final key = entry.key;
       if (!key.startsWith(_annotationKeyPrefix)) continue;
       final value = entry.value;
-      if (value is String) {
-        await prefs.setString(key, value);
-        restored++;
+      if (value is! String || value.isEmpty) continue;
+      try {
+        final decoded = jsonDecode(value);
+        if (decoded is List) {
+          blob[key] = decoded;
+          volumes++;
+        }
+      } on FormatException {
+        continue; // skip a corrupt entry, import the rest
       }
     }
-    return restored;
+    await BookmarkStore().mergeSyncBlob(jsonEncode(blob));
+    return volumes;
   }
 }
 

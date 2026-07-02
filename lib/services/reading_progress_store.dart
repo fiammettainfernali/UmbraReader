@@ -291,6 +291,29 @@ class ReadingProgressStore {
     await prefs.setBool(_kMigrated, true);
   }
 
+  /// Backup entries in the legacy prefs shape — the same per-volume
+  /// `reading_*:` keys, hidden list and resume keys the prefs era wrote, so
+  /// old and new backup files are interchangeable and restore re-imports.
+  Future<Map<String, Object>> exportBackupEntries() async {
+    await _ensureMigrated();
+    final rows = await _db.select(_table).get();
+    final out = <String, Object>{};
+    final hidden = <String>[];
+    for (final row in rows) {
+      final key = row.volumeKey;
+      out['$_chapterPrefix$key'] = row.chapterIndex;
+      out['$_blockPrefix$key'] = row.blockIndex;
+      out['$_countPrefix$key'] = row.chapterCount;
+      out['$_endPrefix$key'] = row.endReached;
+      if (row.updatedAt != null) out['$_timePrefix$key'] = row.updatedAt!;
+      if (row.volumeJson != null) out['$_volumePrefix$key'] = row.volumeJson!;
+      if (row.ttsResume != null) out['$_resumePrefix$key'] = row.ttsResume!;
+      if (row.hidden) hidden.add(key);
+    }
+    if (hidden.isNotEmpty) out[_hiddenKey] = hidden;
+    return out;
+  }
+
   // ── iCloud sync (see CloudSyncService) ─────────────────────────────────
 
   /// Serialises every saved position to a JSON blob for the cloud, keyed by
