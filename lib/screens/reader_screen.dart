@@ -8,6 +8,11 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../feature_flags.dart';
+import '../reader/block_view.dart';
+import '../reader/book_search_screen.dart';
+import '../reader/bookmarks_sheet.dart';
+import '../reader/reader_chrome.dart';
+import '../reader/reader_layout.dart';
 import '../models/bookmark.dart';
 import '../models/content_block.dart';
 import '../models/epub_book.dart';
@@ -32,308 +37,7 @@ import '../utils/volume_ordering.dart';
 import '../widgets/listen_view.dart';
 import 'pronunciation_screen.dart';
 import '../widgets/reader_settings_sheet.dart';
-import '../widgets/seek_button.dart';
 import 'glossary_screen.dart';
-import 'highlights_screen.dart';
-
-// Layout constants — shared by rendering and pagination so the two agree.
-const double _contentVPad = 8;
-const double _topBarHeight = 56;
-const double _bottomBarHeight = 88;
-const double _paragraphGap = 16;
-const double _headingTopGap = 12;
-const double _headingBottomGap = 16;
-const double _dividerHeight = 60;
-
-/// Sentinel for "jump to the last page" when paging backward into a chapter.
-const int _lastPage = -1;
-
-/// Body text style for the active settings.
-TextStyle _paragraphStyle(ReaderSettings s, Color color) {
-  final base = TextStyle(
-    fontSize: s.fontSize,
-    height: s.lineHeight,
-    color: color,
-    fontWeight: s.boldText ? FontWeight.bold : null,
-    fontStyle: s.italicText ? FontStyle.italic : null,
-  );
-  return s.fontFamily.isEmpty
-      ? base
-      : GoogleFonts.getFont(s.fontFamily, textStyle: base);
-}
-
-/// Heading style — sized relative to the body text.
-TextStyle _headingStyle(ReaderSettings s, int level, Color color) {
-  final scale = level <= 2
-      ? 1.35
-      : level <= 4
-      ? 1.18
-      : 1.06;
-  final base = TextStyle(
-    fontSize: s.fontSize * scale,
-    height: 1.3,
-    fontWeight: FontWeight.w700,
-    fontStyle: s.italicText ? FontStyle.italic : null,
-    color: color,
-  );
-  return s.fontFamily.isEmpty
-      ? base
-      : GoogleFonts.getFont(s.fontFamily, textStyle: base);
-}
-
-/// Builds a styled [TextSpan] for a run list, applying bold/italic per run.
-TextSpan _runSpan(List<TextRun> runs, TextStyle base) {
-  return TextSpan(
-    children: [
-      for (final run in runs)
-        TextSpan(
-          text: run.text,
-          style: base.copyWith(
-            fontWeight: run.bold ? FontWeight.bold : null,
-            fontStyle: run.italic ? FontStyle.italic : null,
-          ),
-        ),
-    ],
-  );
-}
-
-/// Measures the rendered height of a block at [width] — used for pagination.
-double _measureBlockHeight(ContentBlock block, double width, ReaderSettings s) {
-  switch (block) {
-    case ParagraphBlock paragraph:
-      final painter = TextPainter(
-        text: _runSpan(
-          paragraph.runs,
-          _paragraphStyle(s, const Color(0xFF000000)),
-        ),
-        textDirection: TextDirection.ltr,
-        textScaler: TextScaler.noScaling,
-      )..layout(maxWidth: width);
-      return painter.height + _paragraphGap;
-    case HeadingBlock heading:
-      final painter = TextPainter(
-        text: _runSpan(
-          heading.runs,
-          _headingStyle(s, heading.level, const Color(0xFF000000)),
-        ),
-        textDirection: TextDirection.ltr,
-        textScaler: TextScaler.noScaling,
-      )..layout(maxWidth: width);
-      return painter.height + _headingTopGap + _headingBottomGap;
-    case DividerBlock _:
-      return _dividerHeight;
-    case ImageBlock image:
-      // Scale the image to the column width and preserve its aspect ratio,
-      // capping height at 80% of a reasonable page so a tall illustration
-      // doesn't push everything else off the page in scroll mode.
-      final natural = image.width <= 0 ? 1 : image.width;
-      final aspect = image.height / natural;
-      final scaledHeight = (width * aspect).clamp(80.0, 900.0);
-      return scaledHeight + _paragraphGap;
-  }
-}
-
-/// One renderable slice on a page.
-///
-/// For a whole block, [block] is the original block and [charOffset] is 0.
-/// For a paragraph split across pages, [block] is a [ParagraphBlock] holding
-/// only that slice's runs, [originIndex] points back to the parent block in
-/// the chapter's block list, and [charOffset] is where the slice's text
-/// begins within the parent paragraph.
-class _PageBlock {
-  const _PageBlock({
-    required this.block,
-    required this.originIndex,
-    this.charOffset = 0,
-  });
-
-  final ContentBlock block;
-  final int originIndex;
-  final int charOffset;
-}
-
-/// Total character length of a run list.
-int _runsLength(List<TextRun> runs) {
-  var total = 0;
-  for (final run in runs) {
-    total += run.text.length;
-  }
-  return total;
-}
-
-/// Lays out a paragraph's runs at [width] for measurement.
-TextPainter _layoutParagraph(
-  List<TextRun> runs,
-  double width,
-  ReaderSettings s,
-) {
-  return TextPainter(
-    text: _runSpan(runs, _paragraphStyle(s, const Color(0xFF000000))),
-    textDirection: TextDirection.ltr,
-    textScaler: TextScaler.noScaling,
-  )..layout(maxWidth: width);
-}
-
-/// Splits a run list into the runs before [offset] and the runs from [offset]
-/// onward, cutting a straddling run in two. Character-exact: the two halves
-/// concatenated equal the input.
-(List<TextRun>, List<TextRun>) _splitRuns(List<TextRun> runs, int offset) {
-  final head = <TextRun>[];
-  final tail = <TextRun>[];
-  var pos = 0;
-  for (final run in runs) {
-    final start = pos;
-    final end = pos + run.text.length;
-    pos = end;
-    if (end <= offset) {
-      head.add(run);
-    } else if (start >= offset) {
-      tail.add(run);
-    } else {
-      final cut = offset - start;
-      head.add(
-        TextRun(run.text.substring(0, cut), bold: run.bold, italic: run.italic),
-      );
-      tail.add(
-        TextRun(run.text.substring(cut), bold: run.bold, italic: run.italic),
-      );
-    }
-  }
-  return (head, tail);
-}
-
-/// Character offset at which the line centred on [centreY] begins.
-int _lineStartOffsetAt(TextPainter painter, double centreY) {
-  final pos = painter.getPositionForOffset(Offset(1, centreY));
-  return painter.getLineBoundary(pos).start;
-}
-
-/// Packs blocks into pages, splitting a paragraph across a page boundary when
-/// it doesn't fully fit — so every page bar a chapter's last fills close to
-/// the bottom. Headings and dividers are never split.
-List<List<_PageBlock>> _paginate(
-  List<ContentBlock> blocks,
-  double width,
-  double height,
-  ReaderSettings settings,
-) {
-  final budget = height;
-  final pages = <List<_PageBlock>>[];
-  var current = <_PageBlock>[];
-  var used = 0.0;
-
-  void flush() {
-    if (current.isNotEmpty) {
-      pages.add(current);
-      current = <_PageBlock>[];
-      used = 0;
-    }
-  }
-
-  for (var i = 0; i < blocks.length; i++) {
-    final block = blocks[i];
-
-    if (block is! ParagraphBlock) {
-      final h = _measureBlockHeight(block, width, settings);
-      if (current.isNotEmpty && used + h > budget) flush();
-      current.add(_PageBlock(block: block, originIndex: i));
-      used += h;
-      continue;
-    }
-
-    // A paragraph: placed whole, or split across one or more page breaks.
-    var runs = block.runs;
-    var charBase = 0;
-    while (true) {
-      final painter = _layoutParagraph(runs, width, settings);
-      final lines = painter.computeLineMetrics();
-      if (lines.isEmpty) break;
-      final totalText = painter.height;
-      final remaining = budget - used;
-
-      if (totalText + _paragraphGap <= remaining) {
-        current.add(
-          _PageBlock(
-            block: ParagraphBlock(runs),
-            originIndex: i,
-            charOffset: charBase,
-          ),
-        );
-        used += totalText + _paragraphGap;
-        break;
-      }
-
-      // How many whole lines fit in the space left on this page?
-      var fitHeight = 0.0;
-      var fitLines = 0;
-      for (final line in lines) {
-        if (fitHeight + line.height > remaining) break;
-        fitHeight += line.height;
-        fitLines++;
-      }
-
-      if (fitLines == 0) {
-        if (used == 0) {
-          // A single line taller than the whole page — place it regardless.
-          fitLines = 1;
-          fitHeight = lines.first.height;
-        } else {
-          flush();
-          continue;
-        }
-      }
-
-      if (fitLines >= lines.length) {
-        // All the lines fit; only the trailing gap didn't — place gapless.
-        current.add(
-          _PageBlock(
-            block: ParagraphBlock(runs),
-            originIndex: i,
-            charOffset: charBase,
-          ),
-        );
-        used += totalText;
-        break;
-      }
-
-      // Split after the last line that fits.
-      final centreY = fitHeight + lines[fitLines].height / 2;
-      final splitOffset = _lineStartOffsetAt(painter, centreY);
-      if (splitOffset <= 0 || splitOffset >= _runsLength(runs)) {
-        // No usable split point — move the whole fragment to a fresh page.
-        if (used == 0) {
-          current.add(
-            _PageBlock(
-              block: ParagraphBlock(runs),
-              originIndex: i,
-              charOffset: charBase,
-            ),
-          );
-          used += totalText + _paragraphGap;
-          break;
-        }
-        flush();
-        continue;
-      }
-      final parts = _splitRuns(runs, splitOffset);
-      current.add(
-        _PageBlock(
-          block: ParagraphBlock(parts.$1),
-          originIndex: i,
-          charOffset: charBase,
-        ),
-      );
-      used += fitHeight;
-      flush();
-      runs = parts.$2;
-      charBase += splitOffset;
-    }
-  }
-
-  flush();
-  if (pages.isEmpty) pages.add(<_PageBlock>[]);
-  return pages;
-}
 
 /// Reads a downloaded volume: parses the EPUB and renders its chapters, with
 /// scroll or paged layout, an immersive (fade-away) chrome, a colour-theme /
@@ -382,7 +86,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   bool _listenMode = false;
 
   // Paged-mode pagination cache.
-  List<List<_PageBlock>>? _pages;
+  List<List<PageBlock>>? _pages;
   String? _pageKey;
   int _pageJumpTarget = 0;
 
@@ -745,7 +449,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       _chapterWordCount = _countWords(blocks);
       _chapterFraction = 0;
       _pageKey = null;
-      _pageJumpTarget = landOnLastPage ? _lastPage : 0;
+      _pageJumpTarget = landOnLastPage ? kLastPage : 0;
     });
     _progressStore.save(
       widget.volume,
@@ -853,9 +557,9 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Cumulative pixel offset of [blockIndex] in scroll mode.
   double _blockOffset(int blockIndex) {
     final blocks = _blocks ?? const <ContentBlock>[];
-    var offset = _contentVPad;
+    var offset = kContentVPad;
     for (var i = 0; i < blockIndex && i < blocks.length; i++) {
-      offset += _measureBlockHeight(blocks[i], _lastContentWidth, _settings);
+      offset += measureBlockHeight(blocks[i], _lastContentWidth, _settings);
     }
     return offset;
   }
@@ -865,9 +569,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     final blocks = _blocks ?? const <ContentBlock>[];
     if (blocks.isEmpty || !_scrollController.hasClients) return 0;
     final target = _scrollController.offset;
-    var acc = _contentVPad;
+    var acc = kContentVPad;
     for (var i = 0; i < blocks.length; i++) {
-      acc += _measureBlockHeight(blocks[i], _lastContentWidth, _settings);
+      acc += measureBlockHeight(blocks[i], _lastContentWidth, _settings);
       if (acc > target) return i;
     }
     return blocks.length - 1;
@@ -891,7 +595,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// The first spread (PageController page) that shows any part of
   /// [blockIndex] in paged mode.
   int _pageForBlock(int blockIndex) {
-    final pages = _pages ?? const <List<_PageBlock>>[];
+    final pages = _pages ?? const <List<PageBlock>>[];
     for (var i = 0; i < pages.length; i++) {
       for (final pb in pages[i]) {
         if (pb.originIndex == blockIndex) return i ~/ _pageStride;
@@ -905,7 +609,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// character [charOffset] — so read-aloud follow stays correct for a
   /// paragraph that spans pages.
   int _pageForBlockAt(int blockIndex, int charOffset) {
-    final pages = _pages ?? const <List<_PageBlock>>[];
+    final pages = _pages ?? const <List<PageBlock>>[];
     final stride = _pageStride;
     var firstPage = -1;
     for (var i = 0; i < pages.length; i++) {
@@ -913,7 +617,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         if (pb.originIndex != blockIndex) continue;
         if (firstPage < 0) firstPage = i;
         final length = pb.block is ParagraphBlock
-            ? _runsLength((pb.block as ParagraphBlock).runs)
+            ? runsLength((pb.block as ParagraphBlock).runs)
             : 0;
         if (charOffset >= pb.charOffset &&
             charOffset < pb.charOffset + length) {
@@ -1913,7 +1617,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.85,
       ),
-      builder: (_) => _BookmarksSheet(
+      builder: (_) => BookmarksSheet(
         volume: widget.volume,
         currentChapterIndex: _chapterIndex,
         currentBlockIndex: clampedTop,
@@ -1957,9 +1661,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     final parser = _parser;
     final book = _book;
     if (parser == null || book == null) return;
-    final hit = await Navigator.of(context).push<_SearchHit>(
+    final hit = await Navigator.of(context).push<SearchHit>(
       MaterialPageRoute(
-        builder: (_) => _BookSearchScreen(
+        builder: (_) => BookSearchScreen(
           parser: parser,
           book: book,
           plainText: _blockText,
@@ -2302,8 +2006,8 @@ class _ReaderScreenState extends State<ReaderScreen>
         ? math.min(mq.size.width, _centeredColumnWidth)
         : mq.size.width;
     _lastContentWidth = areaWidth - 2 * _settings.margin;
-    final topSpace = mq.padding.top + _topBarHeight;
-    final bottomSpace = mq.padding.bottom + _bottomBarHeight;
+    final topSpace = mq.padding.top + kTopBarHeight;
+    final bottomSpace = mq.padding.bottom + kBottomBarHeight;
     // When the chrome is visible, the content sits between the bars. When it's
     // hidden (immersive reading), the content expands to the full screen,
     // clearing only the notch / home-indicator safe area.
@@ -2349,7 +2053,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                   left: 0,
                   right: 0,
                   child: _fadeChrome(
-                    _TopBar(
+                    ReaderTopBar(
                       height: topSpace,
                       title: book.chapters[_chapterIndex].title,
                       preset: preset,
@@ -2371,7 +2075,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                   left: 0,
                   right: 0,
                   child: _fadeChrome(
-                    _ChapterBar(
+                    ReaderChapterBar(
                       height: bottomSpace,
                       preset: preset,
                       index: _chapterIndex,
@@ -2434,10 +2138,10 @@ class _ReaderScreenState extends State<ReaderScreen>
       controller: _scrollController,
       padding: EdgeInsets.symmetric(
         horizontal: _settings.margin,
-        vertical: _contentVPad,
+        vertical: kContentVPad,
       ),
       itemCount: blocks.length,
-      itemBuilder: (context, index) => _BlockView(
+      itemBuilder: (context, index) => BlockView(
         block: blocks[index],
         settings: _settings,
         preset: preset,
@@ -2462,7 +2166,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         // TV mode splits the viewport into two side-by-side columns, so
         // each column is sized like a normal page.
         final colWidth = (usableWidth / stride) - 2 * _settings.margin;
-        final height = usableHeight - 2 * _contentVPad;
+        final height = usableHeight - 2 * kContentVPad;
         final key =
             '$_chapterIndex:${colWidth.round()}x${height.round()}'
             ':${_settings.fontSize}:${_settings.lineHeight}'
@@ -2471,14 +2175,14 @@ class _ReaderScreenState extends State<ReaderScreen>
             ':$stride';
         if (key != _pageKey) {
           _pageKey = key;
-          _pages = _paginate(_blocks ?? const [], colWidth, height, _settings);
+          _pages = paginateBlocks(_blocks ?? const [], colWidth, height, _settings);
           final pageCount = _pages?.length ?? 1;
           final spreadCount = (pageCount / stride).ceil().clamp(1, 1 << 30);
           final int wanted;
           if (_pendingRestoreBlock != null) {
             wanted = _pageForBlock(_pendingRestoreBlock!);
             _pendingRestoreBlock = null;
-          } else if (_pageJumpTarget == _lastPage) {
+          } else if (_pageJumpTarget == kLastPage) {
             wanted = spreadCount - 1;
           } else {
             wanted = _pageJumpTarget;
@@ -2489,7 +2193,7 @@ class _ReaderScreenState extends State<ReaderScreen>
             _saveProgress();
           });
         }
-        final pages = _pages ?? const <List<_PageBlock>>[];
+        final pages = _pages ?? const <List<PageBlock>>[];
         final spreadCount = (pages.length / stride).ceil().clamp(1, 1 << 30);
         final pager = PageView.builder(
           controller: _pageController,
@@ -2530,7 +2234,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Out-of-range page indices (the right-hand column of an odd-last spread)
   /// render an empty placeholder so the spread keeps its width.
   Widget _buildPagedColumn(
-    List<List<_PageBlock>> pages,
+    List<List<PageBlock>> pages,
     int pageIndex,
     ReaderThemePreset preset,
   ) {
@@ -2541,13 +2245,13 @@ class _ReaderScreenState extends State<ReaderScreen>
     return SingleChildScrollView(
       padding: EdgeInsets.symmetric(
         horizontal: _settings.margin,
-        vertical: _contentVPad,
+        vertical: kContentVPad,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           for (var j = 0; j < pageBlocks.length; j++)
-            _BlockView(
+            BlockView(
               block: pageBlocks[j].block,
               settings: _settings,
               preset: preset,
@@ -2563,1347 +2267,6 @@ class _ReaderScreenState extends State<ReaderScreen>
               highlightColor: _highlightedBlocks[pageBlocks[j].originIndex],
             ),
         ],
-      ),
-    );
-  }
-}
-
-/// Renders one [ContentBlock] with the active theme and typography.
-class _BlockView extends StatelessWidget {
-  const _BlockView({
-    required this.block,
-    required this.settings,
-    required this.preset,
-    this.isLast = false,
-    this.highlightStart,
-    this.highlightEnd,
-    this.highlightColor,
-  });
-
-  final ContentBlock block;
-  final ReaderSettings settings;
-  final ReaderThemePreset preset;
-
-  /// True for the last block on a page — its trailing gap is dropped so the
-  /// content can sit flush against the page bottom.
-  final bool isLast;
-
-  /// Character range to highlight (the sentence being read aloud), or null.
-  final int? highlightStart;
-  final int? highlightEnd;
-
-  /// Non-null when the user has saved a passage highlight on this block —
-  /// the paragraph/heading body is painted with the matching tint.
-  final HighlightColor? highlightColor;
-
-  @override
-  Widget build(BuildContext context) {
-    switch (block) {
-      case ParagraphBlock paragraph:
-        return Padding(
-          padding: EdgeInsets.only(bottom: isLast ? 0 : _paragraphGap),
-          child: _maybeTint(
-            child: Text.rich(
-              TextSpan(
-                children: _spansFor(
-                  context,
-                  paragraph.runs,
-                  _paragraphStyle(settings, preset.text),
-                ),
-              ),
-              textAlign: settings.textAlign == ReaderTextAlign.justify
-                  ? TextAlign.justify
-                  : TextAlign.left,
-              textScaler: TextScaler.noScaling,
-            ),
-          ),
-        );
-      case HeadingBlock heading:
-        return Padding(
-          padding: EdgeInsets.only(
-            top: _headingTopGap,
-            bottom: isLast ? 0 : _headingBottomGap,
-          ),
-          child: _maybeTint(
-            child: Text.rich(
-              TextSpan(
-                children: _spansFor(
-                  context,
-                  heading.runs,
-                  _headingStyle(settings, heading.level, preset.text),
-                ),
-              ),
-              textScaler: TextScaler.noScaling,
-            ),
-          ),
-        );
-      case DividerBlock _:
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 20),
-          child: Center(
-            child: Text(
-              '✶  ✶  ✶',
-              style: TextStyle(color: preset.secondary, fontSize: 16),
-            ),
-          ),
-        );
-      case ImageBlock image:
-        return Padding(
-          padding: EdgeInsets.only(bottom: isLast ? 0 : _paragraphGap),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxHeight: 900),
-            child: Image.memory(
-              image.bytes,
-              fit: BoxFit.contain,
-              alignment: Alignment.center,
-              filterQuality: FilterQuality.medium,
-              gaplessPlayback: true,
-              semanticLabel: image.alt.isEmpty ? null : image.alt,
-              errorBuilder: (_, _, _) => Container(
-                height: 80,
-                color: preset.secondary.withValues(alpha: 0.15),
-                alignment: Alignment.center,
-                child: Text(
-                  image.alt.isEmpty ? '[image]' : '[${image.alt}]',
-                  style: TextStyle(color: preset.secondary, fontSize: 12),
-                ),
-              ),
-            ),
-          ),
-        );
-    }
-  }
-
-  /// Wraps [child] in a soft tint matching the saved [highlightColor] when
-  /// present; returns it unchanged otherwise. The tints are semi-transparent
-  /// so they blend acceptably on both light (sepia/paper) and dark themes.
-  Widget _maybeTint({required Widget child}) {
-    final hc = highlightColor;
-    if (hc == null) return child;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-      decoration: BoxDecoration(
-        color: _highlightPaint(hc),
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: child,
-    );
-  }
-
-  static Color _highlightPaint(HighlightColor color) {
-    switch (color) {
-      case HighlightColor.yellow:
-        return const Color(0xFFFFE066).withValues(alpha: 0.32);
-      case HighlightColor.blue:
-        return const Color(0xFF66B5FF).withValues(alpha: 0.30);
-      case HighlightColor.pink:
-        return const Color(0xFFFF8FB5).withValues(alpha: 0.30);
-      case HighlightColor.green:
-        return const Color(0xFF8FE08F).withValues(alpha: 0.30);
-    }
-  }
-
-  /// Builds the run spans, giving the highlighted character range a
-  /// background colour (splitting runs at the highlight boundaries).
-  List<InlineSpan> _spansFor(
-    BuildContext context,
-    List<TextRun> runs,
-    TextStyle base,
-  ) {
-    final hs = highlightStart;
-    final he = highlightEnd;
-    final spans = <InlineSpan>[];
-    var offset = 0;
-    for (final run in runs) {
-      final runStart = offset;
-      final runEnd = offset + run.text.length;
-      offset = runEnd;
-      final style = base.copyWith(
-        fontWeight: run.bold ? FontWeight.bold : null,
-        fontStyle: run.italic ? FontStyle.italic : null,
-      );
-      // Footnote: emit a tappable inline widget that pops the note body in
-      // a bottom sheet. Highlight handling is skipped — the marker is short.
-      final footnote = run.footnoteBody;
-      if (footnote != null) {
-        spans.add(
-          WidgetSpan(
-            alignment: PlaceholderAlignment.middle,
-            baseline: TextBaseline.alphabetic,
-            child: GestureDetector(
-              onTap: () => _showFootnote(context, run.text, footnote),
-              behavior: HitTestBehavior.opaque,
-              child: Text(
-                run.text,
-                style: style.copyWith(
-                  color: preset.text.withValues(alpha: 0.85),
-                  fontSize: (style.fontSize ?? 16) * 0.85,
-                  decoration: TextDecoration.underline,
-                  decorationColor: preset.text.withValues(alpha: 0.45),
-                ),
-              ),
-            ),
-          ),
-        );
-        continue;
-      }
-      if (hs == null || he == null || he <= runStart || hs >= runEnd) {
-        spans.add(TextSpan(text: run.text, style: style));
-        continue;
-      }
-      final a = (hs - runStart).clamp(0, run.text.length);
-      final b = (he - runStart).clamp(0, run.text.length);
-      if (a > 0) {
-        spans.add(TextSpan(text: run.text.substring(0, a), style: style));
-      }
-      spans.add(
-        TextSpan(
-          text: run.text.substring(a, b),
-          style: style.copyWith(backgroundColor: preset.highlight),
-        ),
-      );
-      if (b < run.text.length) {
-        spans.add(TextSpan(text: run.text.substring(b), style: style));
-      }
-    }
-    return spans;
-  }
-
-  /// Pops a small bottom sheet with the translator-note body when the
-  /// inline marker is tapped.
-  void _showFootnote(BuildContext context, String marker, String body) {
-    final theme = Theme.of(context);
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetCtx) => SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Translator note  $marker',
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(body, style: theme.textTheme.bodyMedium),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Overlay top bar: back, chapter title, reading settings, contents.
-/// Actions in the reader's top-bar overflow menu.
-enum _ReaderMenu {
-  contents,
-  search,
-  bookmarks,
-  glossary,
-  skip,
-  pronunciations,
-  prepareOffline,
-  settings,
-}
-
-/// An icon + label row for a [PopupMenuItem].
-class _MenuRow extends StatelessWidget {
-  const _MenuRow(this.icon, this.label);
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 20),
-        const SizedBox(width: 12),
-        Text(label),
-      ],
-    );
-  }
-}
-
-class _TopBar extends StatelessWidget {
-  const _TopBar({
-    required this.height,
-    required this.title,
-    required this.preset,
-    required this.onBack,
-    required this.onToggleListen,
-    required this.onOpenSettings,
-    required this.onShowContents,
-    required this.onSearch,
-    required this.onBookmarks,
-    required this.onGlossary,
-    required this.onOpenSkip,
-    required this.onOpenPronunciations,
-    required this.onPrepareOffline,
-  });
-
-  final double height;
-  final String title;
-  final ReaderThemePreset preset;
-  final VoidCallback onBack;
-  final VoidCallback onToggleListen;
-  final VoidCallback onOpenSettings;
-  final VoidCallback onShowContents;
-  final VoidCallback onSearch;
-  final VoidCallback onBookmarks;
-  final VoidCallback onGlossary;
-  final VoidCallback onOpenSkip;
-  final VoidCallback onOpenPronunciations;
-  final VoidCallback onPrepareOffline;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: preset.background,
-      surfaceTintColor: Colors.transparent,
-      elevation: 2,
-      child: SizedBox(
-        height: height,
-        child: SafeArea(
-          bottom: false,
-          child: Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.arrow_back),
-                color: preset.text,
-                tooltip: 'Back',
-                onPressed: onBack,
-              ),
-              Expanded(
-                child: Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: preset.text,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              if (kReadAloudEnabled)
-                IconButton(
-                  icon: const Icon(Icons.headphones_outlined),
-                  color: preset.text,
-                  tooltip: 'Listen mode',
-                  onPressed: onToggleListen,
-                ),
-              PopupMenuButton<_ReaderMenu>(
-                icon: Icon(Icons.more_vert, color: preset.text),
-                tooltip: 'More',
-                onSelected: (action) {
-                  switch (action) {
-                    case _ReaderMenu.contents:
-                      onShowContents();
-                    case _ReaderMenu.search:
-                      onSearch();
-                    case _ReaderMenu.bookmarks:
-                      onBookmarks();
-                    case _ReaderMenu.glossary:
-                      onGlossary();
-                    case _ReaderMenu.skip:
-                      onOpenSkip();
-                    case _ReaderMenu.pronunciations:
-                      onOpenPronunciations();
-                    case _ReaderMenu.prepareOffline:
-                      onPrepareOffline();
-                    case _ReaderMenu.settings:
-                      onOpenSettings();
-                  }
-                },
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: _ReaderMenu.contents,
-                    child: _MenuRow(Icons.list, 'Contents'),
-                  ),
-                  const PopupMenuItem(
-                    value: _ReaderMenu.search,
-                    child: _MenuRow(Icons.search, 'Search in book'),
-                  ),
-                  const PopupMenuItem(
-                    value: _ReaderMenu.bookmarks,
-                    child: _MenuRow(Icons.bookmark_outline, 'Bookmarks'),
-                  ),
-                  const PopupMenuItem(
-                    value: _ReaderMenu.glossary,
-                    child: _MenuRow(Icons.people_outline, 'Glossary'),
-                  ),
-                  if (kReadAloudEnabled) ...[
-                    const PopupMenuItem(
-                      value: _ReaderMenu.skip,
-                      child: _MenuRow(
-                        Icons.filter_alt_outlined,
-                        'Skip while reading',
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: _ReaderMenu.pronunciations,
-                      child: _MenuRow(
-                        Icons.record_voice_over_outlined,
-                        'Pronunciations',
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: _ReaderMenu.prepareOffline,
-                      child: _MenuRow(
-                        Icons.download_for_offline_outlined,
-                        'Prepare for offline',
-                      ),
-                    ),
-                  ],
-                  const PopupMenuItem(
-                    value: _ReaderMenu.settings,
-                    child: _MenuRow(Icons.text_fields, 'Reading settings'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Tap = step one chapter; long-press opens a popup of larger jumps
-/// (±5 / ±10 / ±25). Used for the prev/next chevrons in [_ChapterBar] —
-/// scratches the very-long-webnovel itch where one chapter at a time is
-/// useless when you want to leap across a 400-chapter book.
-class _ChapterStepButton extends StatelessWidget {
-  const _ChapterStepButton({
-    required this.icon,
-    required this.preset,
-    required this.tooltip,
-    required this.onTap,
-    required this.onJump,
-    required this.forward,
-    required this.bound,
-  });
-
-  final IconData icon;
-  final ReaderThemePreset preset;
-  final String tooltip;
-  final VoidCallback? onTap;
-  final ValueChanged<int> onJump;
-
-  /// Whether this button jumps forward (positive deltas) or back (negative).
-  final bool forward;
-
-  /// Largest absolute jump we should still offer, given how close to the
-  /// book edge the reader is — caps the menu so an option doesn't run off
-  /// the end of the book.
-  final int bound;
-
-  static const _jumps = [5, 10, 25];
-
-  Future<void> _openMenu(BuildContext context) async {
-    final box = context.findRenderObject() as RenderBox?;
-    if (box == null) return;
-    final origin = box.localToGlobal(Offset.zero) & box.size;
-    final available = _jumps.where((j) => j <= bound).toList();
-    if (available.isEmpty) return;
-    final picked = await showMenu<int>(
-      context: context,
-      position: RelativeRect.fromLTRB(
-        origin.left,
-        origin.top - 8 - 48.0 * available.length,
-        origin.right,
-        origin.bottom,
-      ),
-      items: [
-        for (final j in available)
-          PopupMenuItem<int>(
-            value: forward ? j : -j,
-            child: Text('${forward ? '+' : '−'}$j chapters'),
-          ),
-      ],
-    );
-    if (picked != null) onJump(picked);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final enabled = onTap != null;
-    return Tooltip(
-      message: tooltip,
-      child: GestureDetector(
-        onLongPress: enabled && bound > 1 ? () => _openMenu(context) : null,
-        child: IconButton(
-          icon: Icon(icon),
-          color: preset.text,
-          disabledColor: preset.secondary,
-          onPressed: onTap,
-        ),
-      ),
-    );
-  }
-}
-
-/// Overlay bottom bar: previous / position / next chapter.
-class _ChapterBar extends StatelessWidget {
-  const _ChapterBar({
-    required this.height,
-    required this.preset,
-    required this.index,
-    required this.total,
-    required this.progress,
-    required this.minutesLeft,
-    required this.bookMinutesLeft,
-    required this.onPrevious,
-    required this.onNext,
-    required this.onSeek,
-    required this.onJump,
-    required this.isReading,
-    required this.isPlaying,
-    required this.canSeek,
-    required this.onPlayPause,
-    required this.onBack15,
-    required this.onForward15,
-  });
-
-  final double height;
-  final ReaderThemePreset preset;
-  final int index;
-  final int total;
-
-  /// True when read-aloud is playing or paused (shows pause + seek controls).
-  final bool isReading;
-  final bool isPlaying;
-
-  /// Whether the active engine supports 15-second seeking (Kokoro only).
-  final bool canSeek;
-  final VoidCallback onPlayPause;
-  final VoidCallback onBack15;
-  final VoidCallback onForward15;
-
-  /// Fraction (0..1) of the current chapter that has been read.
-  final double progress;
-
-  /// Estimated reading time remaining in the chapter, in minutes.
-  final double minutesLeft;
-
-  /// Estimated reading time remaining in the whole book, in minutes — null
-  /// when no chapter word counts have been measured yet.
-  final double? bookMinutesLeft;
-
-  final VoidCallback onPrevious;
-  final VoidCallback onNext;
-
-  /// Tap or drag along the progress bar to scrub to that fraction of the
-  /// current chapter.
-  final ValueChanged<double> onSeek;
-
-  /// Skip forward (positive) or backward (negative) by N chapters — fired
-  /// when the user picks a quick-skip option from the long-press menu on
-  /// the prev/next chevrons.
-  final ValueChanged<int> onJump;
-
-  /// A short human label for the time left in the chapter and (when known)
-  /// the rest of the book — e.g. "~5 min in chapter · ~2h left in book".
-  String get _timeLabel {
-    final chapter = minutesLeft < 0.5
-        ? 'Almost done'
-        : minutesLeft < 1.5
-            ? '~1 min in chapter'
-            : '~${minutesLeft.round()} min in chapter';
-    final bk = bookMinutesLeft;
-    if (bk == null || bk < 1) return chapter;
-    return '$chapter · ${_formatBookLeft(bk)} in book';
-  }
-
-  /// Human-formatted book-remaining: "~12 min", "~2h", "~3h 25m".
-  String _formatBookLeft(double minutes) {
-    if (minutes < 60) return '~${minutes.round()} min';
-    final h = minutes ~/ 60;
-    final m = (minutes - h * 60).round();
-    if (m == 0) return '~${h}h';
-    return '~${h}h ${m}m';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: preset.background,
-      surfaceTintColor: Colors.transparent,
-      elevation: 2,
-      child: SizedBox(
-        height: height,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // A crisp hairline so the player reads as a distinct surface,
-            // separated from the page content above it.
-            Container(
-              height: 0.5,
-              color: preset.text.withValues(alpha: 0.10),
-            ),
-            // Tap / drag along the bar to scrub through the current chapter.
-            // Expanded vertically to make the touch target comfortable while
-            // the actual visible bar stays a thin 3px line.
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final width = constraints.maxWidth;
-                void seek(double localX) {
-                  if (width <= 0) return;
-                  onSeek((localX / width).clamp(0.0, 1.0));
-                }
-                return GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTapDown: (d) => seek(d.localPosition.dx),
-                  onHorizontalDragStart: (d) => seek(d.localPosition.dx),
-                  onHorizontalDragUpdate: (d) => seek(d.localPosition.dx),
-                  child: SizedBox(
-                    height: 16,
-                    child: Align(
-                      alignment: Alignment.topCenter,
-                      child: LinearProgressIndicator(
-                        value: progress.clamp(0.0, 1.0),
-                        minHeight: 3,
-                        backgroundColor:
-                            preset.secondary.withValues(alpha: 0.25),
-                        color: preset.text.withValues(alpha: 0.55),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-            Expanded(
-              child: SafeArea(
-                top: false,
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      'Chapter ${index + 1} of $total  ·  $_timeLabel',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(color: preset.secondary, fontSize: 11),
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _ChapterStepButton(
-                          icon: Icons.chevron_left,
-                          preset: preset,
-                          tooltip: 'Previous chapter (long-press to skip back)',
-                          onTap: index > 0 ? onPrevious : null,
-                          onJump: onJump,
-                          forward: false,
-                          bound: index,
-                        ),
-                        if (kReadAloudEnabled && isReading && canSeek)
-                          SeekButton(
-                            seconds: -15,
-                            color: preset.text,
-                            size: 32,
-                            onTap: onBack15,
-                          ),
-                        if (kReadAloudEnabled)
-                          IconButton(
-                            iconSize: 40,
-                            color: preset.text,
-                            tooltip: isPlaying ? 'Pause' : 'Play',
-                            icon: Icon(
-                              isPlaying
-                                  ? Icons.pause_circle_filled
-                                  : Icons.play_circle_fill,
-                            ),
-                            onPressed: onPlayPause,
-                          ),
-                        if (kReadAloudEnabled && isReading && canSeek)
-                          SeekButton(
-                            seconds: 15,
-                            color: preset.text,
-                            size: 32,
-                            onTap: onForward15,
-                          ),
-                        _ChapterStepButton(
-                          icon: Icons.chevron_right,
-                          preset: preset,
-                          tooltip: 'Next chapter (long-press to skip ahead)',
-                          onTap: index < total - 1 ? onNext : null,
-                          onJump: onJump,
-                          forward: true,
-                          bound: total - index - 1,
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// One full-text search match within the open book.
-class _SearchHit {
-  const _SearchHit({
-    required this.chapterIndex,
-    required this.blockIndex,
-    required this.chapterTitle,
-    required this.snippet,
-    required this.matchStart,
-    required this.matchEnd,
-  });
-
-  final int chapterIndex;
-  final int blockIndex;
-  final String chapterTitle;
-
-  /// A short excerpt of text around the match.
-  final String snippet;
-
-  /// Character range of the match within [snippet].
-  final int matchStart;
-  final int matchEnd;
-}
-
-/// Full-text search across every chapter of the open book. Pops the chosen
-/// [_SearchHit] back to the reader.
-class _BookSearchScreen extends StatefulWidget {
-  const _BookSearchScreen({
-    required this.parser,
-    required this.book,
-    required this.plainText,
-  });
-
-  final EpubParser parser;
-  final EpubBook book;
-
-  /// Extracts a block's plain text — shared with the reader so matches line up.
-  final String Function(ContentBlock block) plainText;
-
-  @override
-  State<_BookSearchScreen> createState() => _BookSearchScreenState();
-}
-
-class _BookSearchScreenState extends State<_BookSearchScreen> {
-  static const _maxHits = 200;
-
-  final _controller = TextEditingController();
-  Timer? _debounce;
-
-  /// Bumped on every new search so a slower stale search can bail out.
-  int _searchToken = 0;
-  bool _searching = false;
-  String _query = '';
-  List<_SearchHit> _hits = const [];
-
-  @override
-  void dispose() {
-    _debounce?.cancel();
-    _controller.dispose();
-    super.dispose();
-  }
-
-  void _onQueryChanged(String value) {
-    setState(() {}); // refresh the clear button
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 280), () {
-      _runSearch(value.trim());
-    });
-  }
-
-  Future<void> _runSearch(String query) async {
-    final token = ++_searchToken;
-    if (query.length < 2) {
-      setState(() {
-        _query = query;
-        _hits = const [];
-        _searching = false;
-      });
-      return;
-    }
-    setState(() {
-      _query = query;
-      _hits = const [];
-      _searching = true;
-    });
-
-    final needle = query.toLowerCase();
-    final hits = <_SearchHit>[];
-    for (var ci = 0; ci < widget.book.chapters.length; ci++) {
-      if (token != _searchToken) return;
-      final chapter = widget.book.chapters[ci];
-      final blocks = widget.parser.parseChapter(chapter);
-      for (var bi = 0; bi < blocks.length; bi++) {
-        final text = widget.plainText(blocks[bi]);
-        final idx = text.toLowerCase().indexOf(needle);
-        if (idx < 0) continue;
-        hits.add(
-          _buildHit(ci, bi, chapter.title, text, idx, needle.length),
-        );
-        if (hits.length >= _maxHits) break;
-      }
-      // Yield to the UI every few chapters so typing stays responsive and
-      // results stream in for long books.
-      if (ci % 4 == 3) {
-        await Future<void>.delayed(Duration.zero);
-        if (token != _searchToken) return;
-        setState(() => _hits = List.of(hits));
-      }
-      if (hits.length >= _maxHits) break;
-    }
-    if (token != _searchToken) return;
-    setState(() {
-      _hits = List.of(hits);
-      _searching = false;
-    });
-  }
-
-  /// Builds a hit with a snippet of context around the match.
-  _SearchHit _buildHit(
-    int chapterIndex,
-    int blockIndex,
-    String chapterTitle,
-    String text,
-    int matchIndex,
-    int matchLength,
-  ) {
-    const lead = 36;
-    const trail = 96;
-    var start = (matchIndex - lead).clamp(0, text.length);
-    var end = (matchIndex + matchLength + trail).clamp(0, text.length);
-    var snippet = text.substring(start, end).replaceAll('\n', ' ');
-    var matchStart = matchIndex - start;
-    if (start > 0) {
-      snippet = '…$snippet';
-      matchStart += 1;
-    }
-    if (end < text.length) snippet = '$snippet…';
-    return _SearchHit(
-      chapterIndex: chapterIndex,
-      blockIndex: blockIndex,
-      chapterTitle: chapterTitle,
-      snippet: snippet,
-      matchStart: matchStart,
-      matchEnd: matchStart + matchLength,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(
-        title: TextField(
-          controller: _controller,
-          autofocus: true,
-          textInputAction: TextInputAction.search,
-          decoration: const InputDecoration(
-            border: InputBorder.none,
-            hintText: 'Search this book',
-          ),
-          onChanged: _onQueryChanged,
-        ),
-        actions: [
-          if (_controller.text.isNotEmpty)
-            IconButton(
-              icon: const Icon(Icons.close),
-              tooltip: 'Clear',
-              onPressed: () {
-                _controller.clear();
-                _onQueryChanged('');
-              },
-            ),
-        ],
-        bottom: _searching
-            ? const PreferredSize(
-                preferredSize: Size.fromHeight(2),
-                child: LinearProgressIndicator(minHeight: 2),
-              )
-            : null,
-      ),
-      body: _buildBody(theme),
-    );
-  }
-
-  Widget _buildBody(ThemeData theme) {
-    if (_query.length < 2) {
-      return _message(
-        theme,
-        Icons.search,
-        'Search the text of every chapter in this book.',
-      );
-    }
-    if (_hits.isEmpty) {
-      return _searching
-          ? const Center(child: CircularProgressIndicator())
-          : _message(theme, Icons.search_off, 'No matches for “$_query”.');
-    }
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              _searching
-                  ? 'Searching… ${_hits.length} so far'
-                  : '${_hits.length}${_hits.length >= _maxHits ? '+' : ''} '
-                        'result${_hits.length == 1 ? '' : 's'}',
-              style: theme.textTheme.labelMedium?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
-            ),
-          ),
-        ),
-        Expanded(
-          child: ListView.separated(
-            itemCount: _hits.length,
-            separatorBuilder: (_, _) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final hit = _hits[index];
-              return ListTile(
-                title: Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(text: hit.snippet.substring(0, hit.matchStart)),
-                      TextSpan(
-                        text: hit.snippet.substring(
-                          hit.matchStart,
-                          hit.matchEnd,
-                        ),
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: theme.colorScheme.primary,
-                        ),
-                      ),
-                      TextSpan(text: hit.snippet.substring(hit.matchEnd)),
-                    ],
-                  ),
-                  maxLines: 3,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: Text(
-                    hit.chapterTitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.outline,
-                    ),
-                  ),
-                ),
-                onTap: () => Navigator.of(context).pop(hit),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _message(ThemeData theme, IconData icon, String text) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 48, color: theme.colorScheme.outline),
-            const SizedBox(height: 12),
-            Text(
-              text,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Bottom sheet listing this volume's bookmarks, with an "Add bookmark here"
-/// button at the top. Pops with the [Bookmark] the user tapped, or null if
-/// they only added/removed entries.
-/// Carry-result of the highlight prompt: the note text plus the picked
-/// color. Used so the prompt can return both pieces with a single dialog.
-class _HighlightFields {
-  const _HighlightFields(this.note, this.color);
-  final String note;
-  final HighlightColor color;
-}
-
-class _BookmarksSheet extends StatefulWidget {
-  const _BookmarksSheet({
-    required this.volume,
-    required this.currentChapterIndex,
-    required this.currentBlockIndex,
-    required this.currentChapterTitle,
-    required this.currentSnippet,
-  });
-
-  final Volume volume;
-  final int currentChapterIndex;
-  final int currentBlockIndex;
-  final String currentChapterTitle;
-  final String currentSnippet;
-
-  @override
-  State<_BookmarksSheet> createState() => _BookmarksSheetState();
-}
-
-class _BookmarksSheetState extends State<_BookmarksSheet> {
-  final _store = BookmarkStore();
-  List<Bookmark>? _bookmarks;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    final list = await _store.list(widget.volume);
-    if (!mounted) return;
-    setState(() => _bookmarks = list);
-  }
-
-  Future<void> _addHere({bool asHighlight = false}) async {
-    String note = '';
-    var color = HighlightColor.yellow;
-    if (asHighlight) {
-      final result = await _promptForHighlight(
-        initialNote: '',
-        initialColor: color,
-      );
-      if (result == null) return;
-      note = result.note;
-      color = result.color;
-    }
-    final mark = Bookmark(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      chapterIndex: widget.currentChapterIndex,
-      blockIndex: widget.currentBlockIndex,
-      chapterTitle: widget.currentChapterTitle,
-      snippet: widget.currentSnippet,
-      createdAt: DateTime.now(),
-      isHighlight: asHighlight,
-      note: note,
-      color: color,
-    );
-    await _store.add(widget.volume, mark);
-    await _load();
-  }
-
-  Future<void> _remove(String id) async {
-    await _store.remove(widget.volume, id);
-    await _load();
-  }
-
-  Future<void> _editNote(Bookmark mark) async {
-    final result = await _promptForHighlight(
-      initialNote: mark.note,
-      initialColor: mark.color,
-    );
-    if (result == null) return;
-    await _store.remove(widget.volume, mark.id);
-    await _store.add(
-      widget.volume,
-      mark.copyWith(note: result.note, color: result.color),
-    );
-    await _load();
-  }
-
-  /// Dialog that captures the highlight's note + color. Returns null when
-  /// the user cancels.
-  Future<_HighlightFields?> _promptForHighlight({
-    required String initialNote,
-    required HighlightColor initialColor,
-  }) async {
-    final controller = TextEditingController(text: initialNote);
-    var color = initialColor;
-    final result = await showDialog<_HighlightFields>(
-      context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: const Text('Highlight'),
-        content: StatefulBuilder(
-          builder: (ctx, setLocal) => Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: controller,
-                autofocus: true,
-                minLines: 2,
-                maxLines: 5,
-                decoration: const InputDecoration(
-                  hintText: 'Optional note for this passage',
-                ),
-              ),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 10,
-                children: [
-                  for (final c in HighlightColor.values)
-                    GestureDetector(
-                      onTap: () => setLocal(() => color = c),
-                      child: Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: _BlockView._highlightPaint(c),
-                          border: Border.all(
-                            color: color == c
-                                ? Theme.of(ctx).colorScheme.primary
-                                : Colors.transparent,
-                            width: 3,
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(
-              _HighlightFields(controller.text.trim(), color),
-            ),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    return result;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final marks = _bookmarks;
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Bookmarks',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.list_alt_outlined),
-                  tooltip: 'View all annotations',
-                  onPressed: () {
-                    Navigator.of(context).pop();
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => HighlightsScreen(
-                          volume: widget.volume,
-                          bookTitle: widget.volume.title,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close),
-                  tooltip: 'Done',
-                  onPressed: () => Navigator.of(context).pop(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: () => _addHere(),
-                    icon: const Icon(Icons.bookmark_add_outlined),
-                    label: const Text('Bookmark'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton.tonalIcon(
-                    onPressed: () => _addHere(asHighlight: true),
-                    icon: const Icon(Icons.brush_outlined),
-                    label: const Text('Highlight'),
-                  ),
-                ),
-              ],
-            ),
-            Padding(
-              padding: const EdgeInsets.only(top: 4, left: 4),
-              child: Text(
-                'In: ${widget.currentChapterTitle}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Divider(height: 1),
-            Flexible(
-              child: marks == null
-                  ? const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 32),
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  : marks.isEmpty
-                  ? Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 32),
-                      child: Center(
-                        child: Text(
-                          'No bookmarks yet.',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ),
-                    )
-                  : ListView.separated(
-                      shrinkWrap: true,
-                      itemCount: marks.length,
-                      separatorBuilder: (_, _) => const Divider(height: 1),
-                      itemBuilder: (context, index) {
-                        final mark = marks[index];
-                        return ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  mark.chapterTitle,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              if (mark.isHighlight) ...[
-                                const SizedBox(width: 6),
-                                Container(
-                                  width: 12,
-                                  height: 12,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: _BlockView._highlightPaint(
-                                      mark.color,
-                                    ),
-                                    border: Border.all(
-                                      color: theme.colorScheme.outlineVariant,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: theme.colorScheme.primaryContainer,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    'Highlight',
-                                    style: theme.textTheme.labelSmall?.copyWith(
-                                      color:
-                                          theme.colorScheme.onPrimaryContainer,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                          subtitle: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                mark.snippet,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.outline,
-                                ),
-                              ),
-                              if (mark.note.isNotEmpty)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 4),
-                                  child: Text(
-                                    mark.note,
-                                    maxLines: 3,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      fontStyle: FontStyle.italic,
-                                      color: theme.colorScheme.onSurface,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                          trailing: PopupMenuButton<String>(
-                            tooltip: 'More',
-                            icon: const Icon(Icons.more_vert),
-                            onSelected: (value) {
-                              switch (value) {
-                                case 'edit':
-                                  _editNote(mark);
-                                case 'delete':
-                                  _remove(mark.id);
-                              }
-                            },
-                            itemBuilder: (_) => [
-                              if (mark.isHighlight)
-                                const PopupMenuItem(
-                                  value: 'edit',
-                                  child: Text('Edit note'),
-                                ),
-                              const PopupMenuItem(
-                                value: 'delete',
-                                child: Text('Delete'),
-                              ),
-                            ],
-                          ),
-                          onTap: () => Navigator.of(context).pop(mark),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
       ),
     );
   }
