@@ -78,7 +78,7 @@ class EpubParser {
 
     // Manifest: id -> item.
     final manifest = <String, _ManifestItem>{};
-    for (final item in opf.findAllElements('item', namespace: '*')) {
+    for (final item in opf.findAllElements('item', namespaceUri: '*')) {
       final id = item.getAttribute('id');
       final href = item.getAttribute('href');
       if (id == null || href == null) continue;
@@ -91,7 +91,7 @@ class EpubParser {
 
     // Spine: ordered idrefs = reading order.
     final spineIds = <String>[];
-    for (final ref in opf.findAllElements('itemref', namespace: '*')) {
+    for (final ref in opf.findAllElements('itemref', namespaceUri: '*')) {
       final idref = ref.getAttribute('idref');
       if (idref != null) spineIds.add(idref);
     }
@@ -194,8 +194,7 @@ class EpubParser {
       }
     }
     if (found == null || !found.isFile) return null;
-    final content = found.content;
-    return content is List<int> ? content : null;
+    return found.content;
   }
 
   String _decode(List<int> bytes) => utf8.decode(bytes, allowMalformed: true);
@@ -220,7 +219,7 @@ class EpubParser {
   String _opfPath(String containerXml) {
     try {
       final doc = XmlDocument.parse(containerXml);
-      for (final rootfile in doc.findAllElements('rootfile', namespace: '*')) {
+      for (final rootfile in doc.findAllElements('rootfile', namespaceUri: '*')) {
         final fullPath = rootfile.getAttribute('full-path');
         if (fullPath != null && fullPath.isNotEmpty) return fullPath;
       }
@@ -231,7 +230,7 @@ class EpubParser {
   }
 
   String? _firstText(XmlDocument opf, String localName) {
-    for (final el in opf.findAllElements(localName, namespace: '*')) {
+    for (final el in opf.findAllElements(localName, namespaceUri: '*')) {
       final text = el.innerText.trim();
       if (text.isNotEmpty) return text;
     }
@@ -288,14 +287,14 @@ class EpubParser {
     final titles = <String, String>{};
     try {
       final doc = XmlDocument.parse(xml);
-      for (final point in doc.findAllElements('navPoint', namespace: '*')) {
+      for (final point in doc.findAllElements('navPoint', namespaceUri: '*')) {
         final label = point
-            .getElement('navLabel', namespace: '*')
-            ?.getElement('text', namespace: '*')
+            .getElement('navLabel', namespaceUri: '*')
+            ?.getElement('text', namespaceUri: '*')
             ?.innerText
             .trim();
         final src = point
-            .getElement('content', namespace: '*')
+            .getElement('content', namespaceUri: '*')
             ?.getAttribute('src');
         if (label == null || label.isEmpty || src == null) continue;
         titles.putIfAbsent(_resolve(ncxDir, src), () => label);

@@ -103,9 +103,7 @@ List<int> _buildEpub() {
   archive.addFile(
     ArchiveFile('OEBPS/images/art.png', _pixelPng.length, _pixelPng),
   );
-  final encoded = ZipEncoder().encode(archive);
-  if (encoded == null) throw StateError('Failed to encode the test EPUB.');
-  return encoded;
+  return ZipEncoder().encode(archive);
 }
 
 void main() {

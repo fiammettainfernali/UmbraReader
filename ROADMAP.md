@@ -48,9 +48,12 @@ non-starter, so the personal pipeline never ships as part of the product.
       (1 MB total / 1 KB-per-key limits — silently drops data for heavy
       users). Migrate to CloudKit records or iCloud Drive documents with
       per-book last-writer-wins conflict resolution.
-- [ ] **5. Dependency hygiene.** ~26 outdated packages; `share_plus` pinned;
-      `path_provider_foundation` overridden for an App Store bug; `just_audio`
-      0.9 vs 0.10. Quarterly upgrade pass.
+- [x] **5. Dependency hygiene.** Upgraded (2026-07): archive 4, xml 7,
+      google_fonts 8, file_picker 11, connectivity_plus 7, just_audio 0.10,
+      audio_session 0.2 + all minors. Still held back: share_plus 13 and
+      wakelock_plus 1.6 (need win32 6; file_picker 11 pins win32 5) and the
+      `path_provider_foundation` 2.4.1 override (App Store 91080 — only an
+      upload can verify newer versions). Repeat quarterly.
 - [x] **6. Housekeeping.** Real pubspec description; semver version name
       (build number already comes from Codemagic `$BUILD_NUMBER`).
 

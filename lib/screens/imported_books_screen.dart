@@ -36,7 +36,7 @@ class _ImportedBooksScreenState extends State<ImportedBooksScreen> {
   Future<void> _import() async {
     setState(() => _importing = true);
     try {
-      final result = await FilePicker.platform.pickFiles(
+      final result = await FilePicker.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['epub'],
         withData: false,

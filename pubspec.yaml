@@ -39,7 +39,7 @@ dependencies:
 
   # Networking + OPDS feed parsing.
   http: ^1.2.2
-  xml: ^6.5.0
+  xml: ^7.0.1
 
   # Persisting the OPDS server connection settings.
   shared_preferences: ^2.3.2
@@ -48,37 +48,38 @@ dependencies:
   path_provider: ^2.1.5
 
   # EPUB reading: archive unzips the .epub, html parses chapter XHTML.
-  archive: ^3.6.1
+  archive: ^4.0.9
   html: ^0.15.4
 
   # Reading fonts for the theme engine (fetched + cached on first use).
-  google_fonts: ^6.2.1
+  google_fonts: ^8.1.0
 
   # Text-to-speech (read-aloud) — wraps iOS AVSpeechSynthesizer.
   flutter_tts: ^4.2.0
 
   # Gapless playback of the per-sentence MP3 clips streamed from the optional
   # self-hosted Kokoro voice server (the "natural voices" read-aloud engine).
-  just_audio: ^0.9.42
+  just_audio: ^0.10.6
 
   # Configures the iOS audio session for high-quality spoken-audio playback —
   # without this, just_audio can default to a record-capable category that
   # routes to the earpiece / low-quality Bluetooth HFP codec (tinny/robotic).
-  audio_session: ^0.1.25
+  audio_session: ^0.2.4
   # Pinned to 12.x: share_plus 13 needs win32 ^6, which conflicts with
-  # file_picker's win32 ^5. The SharePlus.instance.share(ShareParams) API we
-  # use is identical across 12 and 13.
+  # file_picker's win32 ^5 (still true on file_picker 11). The
+  # SharePlus.instance.share(ShareParams) API we use is identical across
+  # 12 and 13. Same win32 clash holds wakelock_plus at 1.5.
   share_plus: ^12.0.2
 
   # Connection-type detection, so auto-download can be Wi-Fi-only.
-  connectivity_plus: ^6.1.0
+  connectivity_plus: ^7.2.0
 
   # Picking EPUB files from Files / iCloud Drive to import sideloaded books.
-  file_picker: ^8.1.4
+  file_picker: ^11.0.2
 
   # Keeps the screen awake during hands-free reading (auto-scroll / auto-turn
   # / XR-glasses use, where the phone is the source display).
-  wakelock_plus: ^1.2.8
+  wakelock_plus: ^1.5.2
 
   # iOS Keychain storage for the OPDS password (plain SharedPreferences is
   # readable from device backups; Keychain is not).
