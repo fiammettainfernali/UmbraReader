@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
+import '../feature_flags.dart';
 import '../models/bookmark.dart';
 import '../models/content_block.dart';
 import '../models/epub_book.dart';
@@ -1276,6 +1277,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Quietly pre-synthesizes the current chapter (and the next) into the cache
   /// on Wi-Fi, so play is instant/gapless. Kokoro engine only.
   Future<void> _prepareAudio() async {
+    if (!kReadAloudEnabled) return;
     final engine = _ttsService;
     if (engine is! NetworkTtsService) return;
     if (!await _onWifi()) return;
@@ -2892,12 +2894,13 @@ class _TopBar extends StatelessWidget {
                   ),
                 ),
               ),
-              IconButton(
-                icon: const Icon(Icons.headphones_outlined),
-                color: preset.text,
-                tooltip: 'Listen mode',
-                onPressed: onToggleListen,
-              ),
+              if (kReadAloudEnabled)
+                IconButton(
+                  icon: const Icon(Icons.headphones_outlined),
+                  color: preset.text,
+                  tooltip: 'Listen mode',
+                  onPressed: onToggleListen,
+                ),
               PopupMenuButton<_ReaderMenu>(
                 icon: Icon(Icons.more_vert, color: preset.text),
                 tooltip: 'More',
@@ -2921,43 +2924,47 @@ class _TopBar extends StatelessWidget {
                       onOpenSettings();
                   }
                 },
-                itemBuilder: (context) => const [
-                  PopupMenuItem(
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
                     value: _ReaderMenu.contents,
                     child: _MenuRow(Icons.list, 'Contents'),
                   ),
-                  PopupMenuItem(
+                  const PopupMenuItem(
                     value: _ReaderMenu.search,
                     child: _MenuRow(Icons.search, 'Search in book'),
                   ),
-                  PopupMenuItem(
+                  const PopupMenuItem(
                     value: _ReaderMenu.bookmarks,
                     child: _MenuRow(Icons.bookmark_outline, 'Bookmarks'),
                   ),
-                  PopupMenuItem(
+                  const PopupMenuItem(
                     value: _ReaderMenu.glossary,
                     child: _MenuRow(Icons.people_outline, 'Glossary'),
                   ),
-                  PopupMenuItem(
-                    value: _ReaderMenu.skip,
-                    child: _MenuRow(
-                      Icons.filter_alt_outlined,
-                      'Skip while reading',
+                  if (kReadAloudEnabled) ...[
+                    const PopupMenuItem(
+                      value: _ReaderMenu.skip,
+                      child: _MenuRow(
+                        Icons.filter_alt_outlined,
+                        'Skip while reading',
+                      ),
                     ),
-                  ),
-                  PopupMenuItem(
-                    value: _ReaderMenu.pronunciations,
-                    child: _MenuRow(Icons.record_voice_over_outlined,
-                        'Pronunciations'),
-                  ),
-                  PopupMenuItem(
-                    value: _ReaderMenu.prepareOffline,
-                    child: _MenuRow(
-                      Icons.download_for_offline_outlined,
-                      'Prepare for offline',
+                    const PopupMenuItem(
+                      value: _ReaderMenu.pronunciations,
+                      child: _MenuRow(
+                        Icons.record_voice_over_outlined,
+                        'Pronunciations',
+                      ),
                     ),
-                  ),
-                  PopupMenuItem(
+                    const PopupMenuItem(
+                      value: _ReaderMenu.prepareOffline,
+                      child: _MenuRow(
+                        Icons.download_for_offline_outlined,
+                        'Prepare for offline',
+                      ),
+                    ),
+                  ],
+                  const PopupMenuItem(
                     value: _ReaderMenu.settings,
                     child: _MenuRow(Icons.text_fields, 'Reading settings'),
                   ),
@@ -3199,25 +3206,26 @@ class _ChapterBar extends StatelessWidget {
                           forward: false,
                           bound: index,
                         ),
-                        if (isReading && canSeek)
+                        if (kReadAloudEnabled && isReading && canSeek)
                           SeekButton(
                             seconds: -15,
                             color: preset.text,
                             size: 32,
                             onTap: onBack15,
                           ),
-                        IconButton(
-                          iconSize: 40,
-                          color: preset.text,
-                          tooltip: isPlaying ? 'Pause' : 'Play',
-                          icon: Icon(
-                            isPlaying
-                                ? Icons.pause_circle_filled
-                                : Icons.play_circle_fill,
+                        if (kReadAloudEnabled)
+                          IconButton(
+                            iconSize: 40,
+                            color: preset.text,
+                            tooltip: isPlaying ? 'Pause' : 'Play',
+                            icon: Icon(
+                              isPlaying
+                                  ? Icons.pause_circle_filled
+                                  : Icons.play_circle_fill,
+                            ),
+                            onPressed: onPlayPause,
                           ),
-                          onPressed: onPlayPause,
-                        ),
-                        if (isReading && canSeek)
+                        if (kReadAloudEnabled && isReading && canSeek)
                           SeekButton(
                             seconds: 15,
                             color: preset.text,

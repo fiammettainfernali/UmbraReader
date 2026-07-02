@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../feature_flags.dart';
 import '../models/reader_settings.dart';
 import '../models/reader_theme.dart';
 import '../services/custom_theme_store.dart';
@@ -472,11 +473,12 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                 ),
               ],
             ),
-            _section(
-              theme,
-              icon: Icons.graphic_eq,
-              title: 'Read aloud',
-              expanded: true,
+            if (kReadAloudEnabled)
+              _section(
+                theme,
+                icon: Icons.graphic_eq,
+                title: 'Read aloud',
+                expanded: true,
               children: [
                 _label(theme, 'Engine'),
                 SegmentedButton<TtsEngineKind>(
