@@ -44,10 +44,13 @@ non-starter, so the personal pipeline never ships as part of the product.
       reader_screen.dart 3,910 → 1,732 lines. Remaining: the State still
       owns navigation/progress/build — extract further only if it keeps
       hurting; the file is now reviewable.*
-- [ ] **4. Sync durability.** iCloud sync uses `NSUbiquitousKeyValueStore`
-      (1 MB total / 1 KB-per-key limits — silently drops data for heavy
-      users). Migrate to CloudKit records or iCloud Drive documents with
-      per-book last-writer-wins conflict resolution.
+- [x] **4. Sync durability.** Sync now rides on JSON documents in the app's
+      private iCloud Drive container (`ICloudDocsBridge`, NSFileCoordinator
+      + NSMetadataQuery live updates) — no more 1 MB key-value cap. Reads
+      fall back to the legacy key-value store so data synced by older
+      builds migrates on first pull; writes fall back when the container is
+      unavailable. Conflict resolution unchanged (per-book last-write-wins,
+      bookmark union-by-id, whole-set LWW collections).
 - [x] **5. Dependency hygiene.** Upgraded (2026-07): archive 4, xml 7,
       google_fonts 8, file_picker 11, connectivity_plus 7, just_audio 0.10,
       audio_session 0.2 + all minors. Still held back: share_plus 13 and

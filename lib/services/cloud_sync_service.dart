@@ -8,14 +8,20 @@ import 'reader_preferences.dart';
 import 'reading_progress_store.dart';
 import 'recommendation_feedback_store.dart';
 
-/// Syncs a small slice of the user's data across their Apple devices via
-/// iCloud key-value storage (`NSUbiquitousKeyValueStore`), bridged in
-/// `ios/Runner/AppDelegate.swift` over the `umbra/icloud_kv` channel.
+/// Syncs a slice of the user's data across their Apple devices via JSON
+/// files in the app's private iCloud Drive container, bridged in
+/// `ios/Runner/AppDelegate.swift` over the `umbra/icloud_docs` channel.
 ///
 /// Synced: reading progress (per-volume, last-write-wins by `updatedAt`),
-/// collections (whole-set, last-write-wins), and recommendation feedback
-/// (per-series, stronger signal wins). Bookmarks, highlights and reader
-/// settings stay device-local by design.
+/// collections (whole-set, last-write-wins), bookmarks (union by id),
+/// reader settings and recommendation feedback.
+///
+/// The previous transport was iCloud *key-value* storage (1 MB total cap —
+/// too small for a large library). Reads fall back to the old KVS keys when
+/// a document doesn't exist yet, so data synced by older builds migrates
+/// seamlessly: the first pull reads KVS, the next push writes documents.
+/// Writes fall back to KVS when the document container is unavailable
+/// (e.g. an older provisioning profile without the container entitlement).
 ///
 /// Every platform-channel call is guarded: on a device without the native
 /// bridge (Android, tests, desktop) or with iCloud unavailable, all methods
@@ -25,7 +31,8 @@ class CloudSyncService {
   static final CloudSyncService instance = CloudSyncService._();
   factory CloudSyncService() => instance;
 
-  static const MethodChannel _channel = MethodChannel('umbra/icloud_kv');
+  static const MethodChannel _docs = MethodChannel('umbra/icloud_docs');
+  static const MethodChannel _kv = MethodChannel('umbra/icloud_kv');
 
   static const _kProgress = 'cloud_reading_progress';
   static const _kCollections = 'cloud_collections';
@@ -42,18 +49,22 @@ class CloudSyncService {
   void Function()? onRemoteMerge;
 
   Timer? _progressDebounce;
+  Timer? _mergeDebounce;
 
-  /// Wires the external-change listener and kicks off the initial pull.
+  /// Wires the external-change listeners and kicks off the initial pull.
   /// The pull runs unawaited so a slow iCloud round-trip never delays app
   /// launch — merged data lands via [onRemoteMerge] when it arrives.
   Future<void> initialize() async {
-    _channel.setMethodCallHandler(_handleNative);
+    _docs.setMethodCallHandler(_handleNative);
+    _kv.setMethodCallHandler(_handleNative);
     unawaited(pullAndMerge());
   }
 
   Future<void> _handleNative(MethodCall call) async {
     if (call.method == 'changedExternally') {
-      await pullAndMerge();
+      // The metadata query can fire in bursts as files download; coalesce.
+      _mergeDebounce?.cancel();
+      _mergeDebounce = Timer(const Duration(seconds: 2), pullAndMerge);
     }
   }
 
@@ -61,7 +72,17 @@ class CloudSyncService {
 
   Future<String?> _get(String key) async {
     try {
-      return await _channel.invokeMethod<String>('get', {'key': key});
+      final doc = await _docs.invokeMethod<String>('read', {
+        'name': '$key.json',
+      });
+      if (doc != null) return doc;
+    } on Exception {
+      // fall through to the legacy key-value store
+    } on Error {
+      // fall through
+    }
+    try {
+      return await _kv.invokeMethod<String>('get', {'key': key});
     } on Exception {
       return null;
     } on Error {
@@ -71,7 +92,18 @@ class CloudSyncService {
 
   Future<void> _set(String key, String value) async {
     try {
-      await _channel.invokeMethod<void>('set', {'key': key, 'value': value});
+      final ok = await _docs.invokeMethod<bool>('write', {
+        'name': '$key.json',
+        'value': value,
+      });
+      if (ok == true) return;
+    } on Exception {
+      // fall through to the legacy key-value store
+    } on Error {
+      // fall through
+    }
+    try {
+      await _kv.invokeMethod<void>('set', {'key': key, 'value': value});
     } on Exception {
       // No cloud here — local store already holds the truth.
     } on Error {
