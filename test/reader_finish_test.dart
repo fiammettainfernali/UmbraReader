@@ -170,6 +170,41 @@ void main() {
     CloudSyncService().cancelPendingTimers();
   });
 
+  testWidgets('a stuck caught-up book heals on open + close alone', (
+    tester,
+  ) async {
+    final volume = _volume();
+    // The stuck state this regression is about: sitting at the end of the
+    // last chapter, but endReached was never recorded.
+    await ReadingProgressStore().save(
+      volume,
+      const ReadingProgress(chapterIndex: 1, blockIndex: 1, chapterCount: 2),
+    );
+    expect(
+      (await ReadingProgressStore().load(volume)).isFinished,
+      isFalse,
+      reason: 'precondition: the book is stuck in progress',
+    );
+
+    // Open the book… and just close it. No scrolling, no page turns, no
+    // app lifecycle event — the restore-time save must do the healing.
+    await tester.pumpWidget(MaterialApp(home: ReaderScreen(volume: volume)));
+    await _settle(tester);
+    expect(find.textContaining('Fin', findRichText: true), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+
+    final progress = await tester.runAsync(
+      () => ReadingProgressStore().load(volume),
+    );
+    expect(
+      progress!.isFinished,
+      isTrue,
+      reason: 'opening a book resting at its end must record the finish',
+    );
+    CloudSyncService().cancelPendingTimers();
+  });
+
   testWidgets('advancing past the last chapter marks the book finished', (
     tester,
   ) async {

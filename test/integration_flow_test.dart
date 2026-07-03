@@ -17,6 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:umbra_reader/db/app_database.dart';
 import 'package:umbra_reader/models/volume.dart';
 import 'package:umbra_reader/screens/reader_screen.dart';
+import 'package:umbra_reader/services/cloud_sync_service.dart';
 import 'package:umbra_reader/services/download_service.dart';
 import 'package:umbra_reader/services/epub_parser.dart';
 import 'package:umbra_reader/services/library_storage.dart';
@@ -280,5 +281,8 @@ void main() {
     // Tear the reader down cleanly (dispose saves progress, stops timers).
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
+    // The open-time position save arms a debounced iCloud push; cancel it
+    // so no timer outlives the test body.
+    CloudSyncService().cancelPendingTimers();
   });
 }

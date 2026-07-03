@@ -322,6 +322,16 @@ class _ReaderScreenState extends State<ReaderScreen>
         _restoreScrollPosition();
         if (_settings.autoScroll) _startAutoScroll();
         _startAutoPage();
+        // Record the restored position immediately (jumpTo applies the
+        // offset synchronously). Without this, a book opened and closed
+        // without any scroll/page event never saves at all: restoring to
+        // an unchanged offset fires no scroll notification, and the
+        // dispose-time save is skipped once the controllers detach. It
+        // also heals stale finished-state — a book sitting at the end of
+        // its last chapter registers endReached here (the "caught-up book
+        // stuck on the Continue shelf" bug). Paged mode may still be
+        // mid-jump this frame; its controller listener saves right after.
+        if (mounted) _saveProgress();
       });
       _refreshHighlights();
     } on EpubException catch (e) {
