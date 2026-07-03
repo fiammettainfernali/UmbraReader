@@ -349,6 +349,23 @@ class _ReaderScreenState extends State<ReaderScreen>
     // pinning the user on the last page.
     if (index > book.chapters.length - 1 &&
         _chapterIndex == book.chapters.length - 1) {
+      // Advancing past the final chapter is the clearest "I finished this
+      // book" signal there is — record it explicitly, so the volume leaves
+      // the Continue shelf even if no position save happened to catch the
+      // scroll sitting at the very bottom.
+      final blocks = _blocks ?? const <ContentBlock>[];
+      final block = _settings.mode == ReadingMode.paged
+          ? (_pageController.hasClients ? _pagedTopBlockIndex() : 0)
+          : (_scrollController.hasClients ? _scrollTopBlockIndex() : 0);
+      _progressStore.save(
+        widget.volume,
+        ReadingProgress(
+          chapterIndex: _chapterIndex,
+          blockIndex: blocks.isEmpty ? 0 : block.clamp(0, blocks.length - 1),
+          chapterCount: book.chapters.length,
+          endReached: true,
+        ),
+      );
       if (!_endOfVolumePrompted) {
         _endOfVolumePrompted = true;
         _maybeShowEndOfVolumePrompt();
@@ -604,7 +621,11 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
     if (!_scrollController.hasClients) return false;
     final pos = _scrollController.position;
-    return pos.maxScrollExtent > 0 && pos.pixels >= pos.maxScrollExtent - 4;
+    // A chapter short enough to fit the viewport has maxScrollExtent 0 —
+    // the whole chapter is visible, so the reader IS at its end. (Requiring
+    // extent > 0 here left books with a short final chapter permanently
+    // "in progress": endReached could never become true.)
+    return pos.maxScrollExtent <= 0 || pos.pixels >= pos.maxScrollExtent - 4;
   }
 
   // ── in-chapter progress ──────────────────────────────────────────────────

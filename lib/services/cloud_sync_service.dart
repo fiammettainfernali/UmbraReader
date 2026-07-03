@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'bookmark_store.dart';
@@ -50,6 +51,16 @@ class CloudSyncService {
 
   Timer? _progressDebounce;
   Timer? _mergeDebounce;
+
+  /// Cancels any pending debounced work. Tests use this so a 3-second push
+  /// timer armed by a progress save can't outlive the test body.
+  @visibleForTesting
+  void cancelPendingTimers() {
+    _progressDebounce?.cancel();
+    _progressDebounce = null;
+    _mergeDebounce?.cancel();
+    _mergeDebounce = null;
+  }
 
   /// Wires the external-change listeners and kicks off the initial pull.
   /// The pull runs unawaited so a slow iCloud round-trip never delays app
