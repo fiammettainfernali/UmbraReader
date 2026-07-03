@@ -38,9 +38,19 @@ import 'glossary_screen.dart';
 /// scroll or paged layout, an immersive (fade-away) chrome, a colour-theme /
 /// typography engine, chapter navigation and keyboard/remote support.
 class ReaderScreen extends StatefulWidget {
-  const ReaderScreen({super.key, required this.volume});
+  const ReaderScreen({
+    super.key,
+    required this.volume,
+    this.initialChapterIndex,
+    this.initialBlockIndex,
+  });
 
   final Volume volume;
+
+  /// When set, the reader opens at this exact spot (e.g. a library-search
+  /// hit) instead of the saved reading position.
+  final int? initialChapterIndex;
+  final int? initialBlockIndex;
 
   @override
   State<ReaderScreen> createState() => _ReaderScreenState();
@@ -284,10 +294,8 @@ class _ReaderScreenState extends State<ReaderScreen>
         return;
       }
       final progress = await _progressStore.load(widget.volume);
-      final chapterIndex = progress.chapterIndex.clamp(
-        0,
-        book.chapters.length - 1,
-      );
+      final chapterIndex = (widget.initialChapterIndex ?? progress.chapterIndex)
+          .clamp(0, book.chapters.length - 1);
       final blocks = parser.parseChapter(book.chapters[chapterIndex]);
       if (!mounted) return;
       setState(() {
@@ -300,7 +308,10 @@ class _ReaderScreenState extends State<ReaderScreen>
         _settings = settings;
         _pendingRestoreBlock = blocks.isEmpty
             ? 0
-            : progress.blockIndex.clamp(0, blocks.length - 1);
+            : (widget.initialBlockIndex ?? progress.blockIndex).clamp(
+                0,
+                blocks.length - 1,
+              );
         _loading = false;
       });
       _applyOrientation(settings.orientation);

@@ -116,7 +116,13 @@ non-starter, so the personal pipeline never ships as part of the product.
 - [ ] **13.** Tap-hold dictionary lookup (`UIReferenceLibraryViewController`)
       + translate.
 - [ ] **14.** Footnote popovers (ties into #11).
-- [ ] **15.** Full-library search (falls out of the SQLite migration).
+- [x] **15.** Full-library search: `LibrarySearch` streams full-text
+      matches across every downloaded book (index-free scan, per-book +
+      total caps, unreadable books skipped); `LibrarySearchScreen` (via
+      the manage-search icon next to the library search bar) streams
+      results grouped by book, and tapping a hit opens the reader at that
+      exact chapter + paragraph (new ReaderScreen initial-position
+      params). Upgrade path if it ever crawls: FTS5 in AppDatabase.
 - [ ] **16.** Page-turn polish: curl/slide options, tap-zone customization,
       brightness swipe gesture.
 - [ ] **17.** Typography depth: hyphenation, justification toggle, embedded

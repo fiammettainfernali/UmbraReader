@@ -26,6 +26,7 @@ import 'backup_screen.dart';
 import 'collections_screen.dart';
 import 'glossary_screen.dart';
 import 'imported_books_screen.dart';
+import 'library_search_screen.dart';
 import 'manage_screen.dart';
 import 'reader_screen.dart';
 import 'series_detail_screen.dart';
@@ -667,6 +668,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
     await _loadReading();
     await _loadDownloads();
+  }
+
+  /// Full-text search across every downloaded book.
+  Future<void> _openLibrarySearch() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => const LibrarySearchScreen()),
+    );
+    // A search hit may have been read — refresh positions.
+    await _loadReading();
   }
 
   void _openStats() {
@@ -1773,6 +1783,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
               ),
               const SizedBox(width: 4),
+              IconButton(
+                icon: const Icon(Icons.manage_search),
+                tooltip: 'Search inside books',
+                onPressed: _openLibrarySearch,
+              ),
               IconButton(
                 icon: Badge(
                   isLabelVisible: !_filters.isEmpty,
