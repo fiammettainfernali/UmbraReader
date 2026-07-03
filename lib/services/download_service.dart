@@ -92,6 +92,16 @@ class DownloadService {
       await _refreshReadingProgress(volume, epubFile);
     } on DownloadException {
       rethrow;
+    } on FileSystemException catch (e) {
+      // ENOSPC — the one storage failure worth a specific, actionable
+      // message instead of a raw error dump.
+      if (e.osError?.errorCode == 28) {
+        throw DownloadException(
+          'Not enough free space to download "${volume.title}". '
+          'Free up storage (Settings → Storage) and try again.',
+        );
+      }
+      throw DownloadException('Could not save "${volume.title}".\n($e)');
     } on Exception catch (e) {
       throw DownloadException('Could not download "${volume.title}".\n($e)');
     } finally {

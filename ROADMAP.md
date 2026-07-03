@@ -80,9 +80,13 @@ non-starter, so the personal pipeline never ships as part of the product.
 - [ ] **9. iPad + orientation.** Two-page spread in landscape, wider
       margins, keyboard page-turn, pointer support. Gets "Designed for iPad"
       on Apple Silicon Macs free.
-- [ ] **10. Error-state UX audit.** Server unreachable, expired auth, corrupt
-      EPUB, out-of-storage — designed states, not snackbars. Onboarding must
-      work with *no* server (sideload-first) for Path A.
+- [x] **10. Error-state UX audit.** Much already existed (offline banner +
+      cached-library fallback, 401 auth messages, sync-failed retry state,
+      reader corrupt-EPUB screen, skippable onboarding). Added for Path A:
+      the no-server library state is now sideload-first ("Add your first
+      books" with Connect + Import EPUB actions), onboarding's skip is
+      framed as the import path, and out-of-space downloads get a specific
+      actionable message (ENOSPC detection) instead of a raw error dump.
 - [ ] **11. EPUB robustness.** Parser handles clean server EPUBs; wild EPUBs
       bring CSS-heavy layouts, tables, footnotes/endnotes, nested TOCs,
       RTL/vertical text, fixed-layout. Graceful degradation + a golden-test

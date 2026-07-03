@@ -1241,13 +1241,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
         SliverFillRemaining(
           hasScrollBody: false,
           child: _MessageView(
-            icon: Icons.cloud_off_outlined,
-            title: 'Not connected',
+            icon: Icons.auto_stories_outlined,
+            title: 'Add your first books',
             message:
-                'Connect Umbra Reader to your Novel Grabber library to see '
-                'your books here.',
-            actionLabel: 'Connect',
+                'Connect Umbra Reader to your library server, or import '
+                'EPUB files straight from Files / iCloud Drive — no server '
+                'needed.',
+            actionLabel: 'Connect a server',
             onAction: _openSettings,
+            secondaryLabel: 'Import EPUB files',
+            onSecondary: _openImported,
           ),
         ),
       ];
@@ -2199,6 +2202,8 @@ class _MessageView extends StatelessWidget {
     required this.message,
     required this.actionLabel,
     required this.onAction,
+    this.secondaryLabel,
+    this.onSecondary,
   });
 
   final IconData icon;
@@ -2206,6 +2211,11 @@ class _MessageView extends StatelessWidget {
   final String message;
   final String actionLabel;
   final VoidCallback onAction;
+
+  /// Optional second, lower-emphasis action (e.g. "Import books" next to
+  /// "Connect" on the no-server state).
+  final String? secondaryLabel;
+  final VoidCallback? onSecondary;
 
   @override
   Widget build(BuildContext context) {
@@ -2229,6 +2239,13 @@ class _MessageView extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             FilledButton(onPressed: onAction, child: Text(actionLabel)),
+            if (secondaryLabel != null && onSecondary != null) ...[
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: onSecondary,
+                child: Text(secondaryLabel!),
+              ),
+            ],
           ],
         ),
       ),

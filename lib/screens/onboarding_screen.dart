@@ -191,7 +191,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               const SizedBox(height: 12),
               TextButton(
                 onPressed: _skip,
-                child: const Text('Skip for now'),
+                child: const Text('Skip — I\'ll import my own EPUB files'),
               ),
             ],
           ),
