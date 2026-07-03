@@ -25,6 +25,16 @@ void main() {
 
   tearDown(AppDatabase.reset);
 
+  test('todaySeconds reads the local-day bucket', () async {
+    final store = ReadingActivityStore();
+    final now = DateTime(2026, 7, 2, 21, 30);
+    await store.record(_volume(), const Duration(minutes: 10), now: now);
+    final activity = await store.load();
+    expect(activity.todaySeconds(now: now), 600);
+    // A different day sees nothing.
+    expect(activity.todaySeconds(now: DateTime(2026, 7, 3, 1)), 0);
+  });
+
   test('load returns empty activity with no data', () async {
     final activity = await ReadingActivityStore().load();
     expect(activity.totalSeconds, 0);

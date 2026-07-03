@@ -34,6 +34,10 @@ class ReadingActivity {
     return total;
   }
 
+  /// Seconds read today (local time).
+  int todaySeconds({DateTime? now}) =>
+      dailySeconds[_dateKey(_today(now))] ?? 0;
+
   /// Total seconds across the last seven days, inclusive of today.
   int weekSeconds({DateTime? now}) {
     final today = _today(now);

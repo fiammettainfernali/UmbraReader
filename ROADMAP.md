@@ -121,8 +121,10 @@ non-starter, so the personal pipeline never ships as part of the product.
       brightness swipe gesture.
 - [ ] **17.** Typography depth: hyphenation, justification toggle, embedded
       reading fonts (Literata, Charter).
-- [ ] **18.** Reading goals & streaks surfaced from the existing activity
-      store — cheap, drives retention.
+- [x] **18.** Reading goals & streaks surfaced on the library home: a
+      tappable chip under the controls shows the current streak and
+      today-vs-goal progress (goal + full stats already lived in the Stats
+      screen; the chip is the daily-visibility nudge and opens it).
 - [ ] **19.** Export highlights/notes to Markdown/CSV via the share sheet.
 - [ ] **20.** Series intelligence as the marketing wedge: "the reader built
       for 400-chapter series."

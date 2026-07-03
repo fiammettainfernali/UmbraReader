@@ -16,6 +16,7 @@ import '../services/recommendation_engine.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/recommendation_feedback_store.dart';
 import '../services/series_status_store.dart';
+import '../services/reading_activity_store.dart';
 import '../services/settings_service.dart';
 import '../utils/volume_ordering.dart';
 import '../widgets/add_to_collection_sheet.dart';
@@ -116,6 +117,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// Books that have been started but not finished, newest first.
   List<ReadingEntry> _reading = const [];
 
+  /// Reading-time activity + daily goal for the home streak chip.
+  ReadingActivity _activity = ReadingActivity.empty;
+  int _dailyGoalMinutes = 0;
+
   /// "Recommended for you" — rebuilt whenever reading history or the library
   /// changes so it tracks current taste with no manual training step. We
   /// hold a wider pool (~40) and show one window of it; the shuffle button
@@ -213,6 +218,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final feedback = await RecommendationFeedbackStore().load();
     final status = await SeriesStatusStore().load();
     final hidden = await ReadingProgressStore().hiddenFromContinue();
+    final activity = await ReadingActivityStore().load();
+    final dailyGoal = await SettingsService().readDailyMinuteGoal();
     // The Continue shelf excludes volumes the user hid; the filter chips
     // (which use _allReadingEntries) still count them as in-progress.
     final inProgress = entries
@@ -232,6 +239,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (!mounted) return;
     setState(() {
       _allReadingEntries = entries;
+      _activity = activity;
+      _dailyGoalMinutes = dailyGoal;
       _seriesStatus = status;
       _reading = inProgress;
       _recommendations = recs;
@@ -1188,6 +1197,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
         if (_offline) SliverToBoxAdapter(child: _buildOfflineBanner()),
         if (_bulkDownloading) SliverToBoxAdapter(child: _buildBulkBanner()),
         SliverToBoxAdapter(child: _buildControls(all.length, visible.length)),
+        if (showShelves &&
+            (_activity.currentStreak() > 0 || _dailyGoalMinutes > 0))
+          SliverToBoxAdapter(child: _buildStreakChip()),
         if (showShelves && _reading.isNotEmpty)
           SliverToBoxAdapter(child: _buildContinueHero()),
         if (showShelves && _reading.length > 1)
@@ -1282,6 +1294,83 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ),
       ),
     ];
+  }
+
+  /// A compact, tappable streak + daily-goal line under the controls —
+  /// the retention nudge lives where the user lands, not buried in Stats.
+  Widget _buildStreakChip() {
+    final theme = Theme.of(context);
+    final streak = _activity.currentStreak();
+    final todayMinutes = _activity.todaySeconds() ~/ 60;
+    final goal = _dailyGoalMinutes;
+    final goalMet = goal > 0 && todayMinutes >= goal;
+
+    final parts = <String>[
+      if (streak > 0) '$streak-day streak',
+      if (goal > 0)
+        goalMet
+            ? 'goal met — $todayMinutes min today'
+            : '$todayMinutes of $goal min today',
+    ];
+    final label = parts.join('  ·  ');
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Semantics(
+        button: true,
+        label: 'Reading stats: $label',
+        excludeSemantics: true,
+        child: Material(
+          color: theme.colorScheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(12),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: _openStats,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                children: [
+                  Icon(
+                    streak > 0
+                        ? Icons.local_fire_department
+                        : Icons.timer_outlined,
+                    size: 18,
+                    color: goalMet || streak > 0
+                        ? theme.colorScheme.tertiary
+                        : theme.colorScheme.outline,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelMedium,
+                    ),
+                  ),
+                  if (goal > 0) ...[
+                    SizedBox(
+                      width: 44,
+                      child: LinearProgressIndicator(
+                        value: (todayMinutes / goal).clamp(0.0, 1.0),
+                        minHeight: 4,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Icon(
+                    Icons.chevron_right,
+                    size: 16,
+                    color: theme.colorScheme.outline,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   /// A slim banner shown above the grid when browsing the offline cache.
