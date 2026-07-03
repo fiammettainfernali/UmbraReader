@@ -87,6 +87,17 @@ non-starter, so the personal pipeline never ships as part of the product.
       bring CSS-heavy layouts, tables, footnotes/endnotes, nested TOCs,
       RTL/vertical text, fixed-layout. Graceful degradation + a golden-test
       corpus of ~50 diverse public-domain EPUBs (Standard Ebooks, Gutenberg).
+      *In progress — corpus harness landed: `tool/fetch_epub_corpus.sh`
+      pulls 23 books (Standard Ebooks EPUB3, Gutenberg epub2+epub3 in five
+      languages, W3C/IDPF conformance samples incl. RTL + vertical
+      Japanese) into gitignored `test/corpus/`;
+      `test/epub_corpus_test.dart` asserts open + every-chapter parse +
+      content volume, and skips itself when the corpus is absent. Fixed
+      three real parser bugs it caught: a crash on illegal
+      percent-encoding in hrefs, non-ASCII (Japanese) chapter filenames
+      never matching the archive, and SVG spine pages dropped silently.
+      Remaining: grow the corpus, on-device visual spot checks; SVG
+      rasterisation is backlog.*
 - [ ] **12. Testing depth.** Add integration tests for the money paths
       (onboarding → add server → download → read → progress sync), run in
       Codemagic on every push.

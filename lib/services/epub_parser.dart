@@ -103,10 +103,15 @@ class EpubParser {
       final item = manifest[id];
       if (item == null) continue;
       final zipPath = _resolve(_opfDir, item.href);
-      // Only spine items that are actually documents.
-      if (!zipPath.toLowerCase().endsWith('.xhtml') &&
-          !zipPath.toLowerCase().endsWith('.html') &&
-          !zipPath.toLowerCase().endsWith('.htm')) {
+      // Only spine items that are renderable documents. SVG pages are
+      // accepted too (some art books put SVG directly in the spine) — the
+      // chapter walker extracts any bitmap references and otherwise shows
+      // an empty-chapter placeholder rather than dropping the page.
+      final lower = zipPath.toLowerCase();
+      if (!lower.endsWith('.xhtml') &&
+          !lower.endsWith('.html') &&
+          !lower.endsWith('.htm') &&
+          !lower.endsWith('.svg')) {
         continue;
       }
       final index = chapters.length;
@@ -207,11 +212,27 @@ class EpubParser {
   }
 
   /// Resolves [href] (relative, possibly URL-encoded, possibly with a #frag)
-  /// against [baseDir] into an absolute archive path.
+  /// against [baseDir] into an absolute archive path. Tolerant of hrefs that
+  /// aren't valid URIs (a literal `%`, stray spaces) — wild EPUBs have them,
+  /// and a bad TOC link must never take down the whole book.
   String _resolve(String baseDir, String href) {
-    final clean = Uri.decodeFull(href.split('#').first);
+    final raw = href.split('#').first;
+    String clean;
+    try {
+      clean = Uri.decodeFull(raw);
+    } on ArgumentError {
+      clean = raw; // illegal percent-encoding — treat it as a literal path
+    }
     if (baseDir.isEmpty) return clean;
-    return Uri.parse('$baseDir/').resolveUri(Uri.parse(clean)).path;
+    try {
+      final resolved = Uri.parse('$baseDir/').resolveUri(Uri.parse(clean));
+      // pathSegments (not .path): the segments are percent-DECODED, matching
+      // the archive's real file names. .path re-encodes non-ASCII (e.g.
+      // Japanese chapter names → %E8…), which never matches the zip entries.
+      return resolved.pathSegments.join('/');
+    } on FormatException {
+      return '$baseDir/$clean';
+    }
   }
 
   // ── OPF / TOC parsing ────────────────────────────────────────────────────
