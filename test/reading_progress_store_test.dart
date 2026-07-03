@@ -177,6 +177,59 @@ void main() {
     expect(loaded.chapterIndex, 7);
   });
 
+  test('finishing is sticky until the chapter count changes', () async {
+    final store = ReadingProgressStore();
+    final volume = _volume();
+    // Read to the end.
+    await store.save(
+      volume,
+      const ReadingProgress(
+        chapterIndex: 9,
+        blockIndex: 40,
+        chapterCount: 10,
+        endReached: true,
+      ),
+    );
+    // Re-open and scroll around: position saves with endReached false must
+    // NOT flip the book back to in-progress.
+    await store.save(
+      volume,
+      const ReadingProgress(chapterIndex: 9, blockIndex: 2, chapterCount: 10),
+    );
+    expect((await store.load(volume)).isFinished, isTrue);
+    await store.save(
+      volume,
+      const ReadingProgress(chapterIndex: 3, blockIndex: 0, chapterCount: 10),
+    );
+    expect(
+      (await store.load(volume)).isFinished,
+      isTrue,
+      reason: 're-reading an earlier chapter does not unfinish the book',
+    );
+    // New chapters arrive (count grows): now there IS more to read.
+    await store.save(
+      volume,
+      const ReadingProgress(chapterIndex: 9, blockIndex: 0, chapterCount: 12),
+      unhide: false,
+    );
+    expect((await store.load(volume)).isFinished, isFalse);
+  });
+
+  test('markFinished sets endReached without moving the position', () async {
+    final store = ReadingProgressStore();
+    final volume = _volume();
+    await store.save(
+      volume,
+      const ReadingProgress(chapterIndex: 8, blockIndex: 5, chapterCount: 10),
+    );
+    await store.markFinished(volume);
+    final progress = await store.load(volume);
+    expect(progress.isFinished, isTrue);
+    expect(progress.chapterIndex, 8);
+    expect(progress.blockIndex, 5);
+    expect(progress.chapterCount, 10);
+  });
+
   test('prefs import carries over the hidden list and resume point', () async {
     SharedPreferences.setMockInitialValues(<String, Object>{
       'reading_chapter:1/book.epub': 4,

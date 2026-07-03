@@ -119,6 +119,19 @@ class ReadingProgressStore {
     bool unhide = true,
   }) async {
     await _ensureMigrated();
+    // Finishing is sticky per edition: once a book has been read to the
+    // end, re-opening it or scrolling around must not flip it back to
+    // in-progress. Only a chapter-count change (new chapters compiled in)
+    // resets the flag — at which point there genuinely is more to read.
+    var endReached = progress.endReached;
+    if (!endReached) {
+      final existing = await _row(_key(volume));
+      if (existing != null &&
+          existing.endReached &&
+          existing.chapterCount == progress.chapterCount) {
+        endReached = true;
+      }
+    }
     // hidden is absent on background writes (and on the update arm) so the
     // shelf state survives; ttsResume is always absent so a position save
     // never wipes the read-aloud resume point.
@@ -128,7 +141,7 @@ class ReadingProgressStore {
       blockIndex: Value(progress.blockIndex),
       chapterCount: Value(progress.chapterCount),
       updatedAt: Value(DateTime.now().toIso8601String()),
-      endReached: Value(progress.endReached),
+      endReached: Value(endReached),
       volumeJson: Value(jsonEncode(volume.toJson())),
       hidden: unhide ? const Value(false) : const Value.absent(),
     );
@@ -136,6 +149,22 @@ class ReadingProgressStore {
         .into(_table)
         .insert(companion, onConflict: DoUpdate((_) => companion));
     CloudSyncService().pushReadingProgressSoon();
+  }
+
+  /// Marks [volume] as read to the end without touching the position —
+  /// the user-facing "Mark as finished" on the Continue shelf.
+  Future<void> markFinished(Volume volume) async {
+    final current = await load(volume);
+    await save(
+      volume,
+      ReadingProgress(
+        chapterIndex: current.chapterIndex,
+        blockIndex: current.blockIndex,
+        chapterCount: current.chapterCount,
+        updatedAt: current.updatedAt,
+        endReached: true,
+      ),
+    );
   }
 
   /// Forgets the saved position for [volume] so it reopens from the start.

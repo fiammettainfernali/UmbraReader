@@ -866,6 +866,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
               onTap: () => Navigator.pop(ctx, 'series'),
             ),
             ListTile(
+              leading: const Icon(Icons.check_circle_outline),
+              title: const Text('Mark as finished'),
+              subtitle: const Text(
+                'Leaves these shelves until new chapters arrive',
+              ),
+              onTap: () => Navigator.pop(ctx, 'finished'),
+            ),
+            ListTile(
               leading: const Icon(Icons.remove_circle_outline),
               title: const Text('Remove from Currently Reading'),
               subtitle: const Text(
@@ -887,6 +895,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
       } else {
         _snack('That series isn\'t in the library list right now.');
       }
+    } else if (action == 'finished') {
+      await ReadingProgressStore().markFinished(entry.volume);
+      await _loadReading();
     } else if (action == 'remove') {
       await ReadingProgressStore().hideFromContinue(entry.volume);
       await _loadReading();
