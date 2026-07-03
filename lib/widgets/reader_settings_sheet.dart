@@ -479,124 +479,125 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                 icon: Icons.graphic_eq,
                 title: 'Read aloud',
                 expanded: true,
-              children: [
-                _label(theme, 'Engine'),
-                SegmentedButton<TtsEngineKind>(
-                  segments: const [
-                    ButtonSegment(
-                      value: TtsEngineKind.system,
-                      label: Text('On-device'),
-                      icon: Icon(Icons.phone_iphone),
-                    ),
-                    ButtonSegment(
-                      value: TtsEngineKind.kokoro,
-                      label: Text('Natural'),
-                      icon: Icon(Icons.auto_awesome),
-                    ),
-                  ],
-                  selected: {_settings.ttsEngine},
-                  showSelectedIcon: false,
-                  onSelectionChanged: (selection) {
-                    _update(_settings.copyWith(ttsEngine: selection.first));
-                    _loadVoices();
-                  },
-                ),
-                if (_settings.ttsEngine == TtsEngineKind.kokoro) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    'Streams natural neural voices from your own voice server '
-                    '(unmoderated, flat cost).',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.outline,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _urlController,
-                    keyboardType: TextInputType.url,
-                    autocorrect: false,
-                    decoration: const InputDecoration(
-                      labelText: 'Server address',
-                      hintText: 'https://your-voice-server',
-                      isDense: true,
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _tokenController,
-                    obscureText: true,
-                    autocorrect: false,
-                    enableSuggestions: false,
-                    decoration: const InputDecoration(
-                      labelText: 'Access token',
-                      isDense: true,
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      FilledButton.tonalIcon(
-                        onPressed: _loadingVoices ? null : _connect,
-                        icon: _loadingVoices
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.link),
-                        label: const Text('Connect'),
+                children: [
+                  _label(theme, 'Engine'),
+                  SegmentedButton<TtsEngineKind>(
+                    segments: const [
+                      ButtonSegment(
+                        value: TtsEngineKind.system,
+                        label: Text('On-device'),
+                        icon: Icon(Icons.phone_iphone),
                       ),
-                      const SizedBox(width: 12),
-                      if (_voiceStatus != null)
-                        Expanded(
-                          child: Text(
-                            _voiceStatus!,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.outline,
+                      ButtonSegment(
+                        value: TtsEngineKind.kokoro,
+                        label: Text('Natural'),
+                        icon: Icon(Icons.auto_awesome),
+                      ),
+                    ],
+                    selected: {_settings.ttsEngine},
+                    showSelectedIcon: false,
+                    onSelectionChanged: (selection) {
+                      _update(_settings.copyWith(ttsEngine: selection.first));
+                      _loadVoices();
+                    },
+                  ),
+                  if (_settings.ttsEngine == TtsEngineKind.kokoro) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Streams natural neural voices from your own voice server '
+                      '(unmoderated, flat cost).',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.outline,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _urlController,
+                      keyboardType: TextInputType.url,
+                      autocorrect: false,
+                      decoration: const InputDecoration(
+                        labelText: 'Server address',
+                        hintText: 'https://your-voice-server',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _tokenController,
+                      obscureText: true,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      decoration: const InputDecoration(
+                        labelText: 'Access token',
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        FilledButton.tonalIcon(
+                          onPressed: _loadingVoices ? null : _connect,
+                          icon: _loadingVoices
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.link),
+                          label: const Text('Connect'),
+                        ),
+                        const SizedBox(width: 12),
+                        if (_voiceStatus != null)
+                          Expanded(
+                            child: Text(
+                              _voiceStatus!,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.outline,
+                              ),
                             ),
                           ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+
+                  _label(theme, 'Voice & speed'),
+                  _buildVoicePicker(theme),
+                  _slider(
+                    theme,
+                    label: 'Speed',
+                    value: _settings.speechRate.clamp(0.25, 1.5),
+                    min: 0.25,
+                    max: 1.5,
+                    divisions: 10,
+                    display: _speedMultiplier(_settings.speechRate),
+                    onChanged: (v) =>
+                        _update(_settings.copyWith(speechRate: v)),
+                  ),
+                  const SizedBox(height: 16),
+
+                  _label(theme, 'Sleep timer'),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final option in SleepTimerOption.values)
+                        ChoiceChip(
+                          label: Text(option.label),
+                          selected: option == _sleepOption,
+                          onSelected: (_) {
+                            setState(() => _sleepOption = option);
+                            widget.onSleepTimerChanged(option);
+                          },
                         ),
                     ],
                   ),
                 ],
-                const SizedBox(height: 12),
-
-                _label(theme, 'Voice & speed'),
-                _buildVoicePicker(theme),
-                _slider(
-                  theme,
-                  label: 'Speed',
-                  value: _settings.speechRate.clamp(0.25, 1.5),
-                  min: 0.25,
-                  max: 1.5,
-                  divisions: 10,
-                  display: _speedMultiplier(_settings.speechRate),
-                  onChanged: (v) => _update(_settings.copyWith(speechRate: v)),
-                ),
-                const SizedBox(height: 16),
-
-                _label(theme, 'Sleep timer'),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final option in SleepTimerOption.values)
-                      ChoiceChip(
-                        label: Text(option.label),
-                        selected: option == _sleepOption,
-                        onSelected: (_) {
-                          setState(() => _sleepOption = option);
-                          widget.onSleepTimerChanged(option);
-                        },
-                      ),
-                  ],
-                ),
-              ],
-            ),
+              ),
           ],
         ),
       ),
@@ -655,8 +656,14 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
   }
 
   static const _voiceAccents = {
-    'a': 'American', 'b': 'British', 'e': 'Spanish', 'f': 'French',
-    'h': 'Hindi', 'i': 'Italian', 'j': 'Japanese', 'p': 'Portuguese',
+    'a': 'American',
+    'b': 'British',
+    'e': 'Spanish',
+    'f': 'French',
+    'h': 'Hindi',
+    'i': 'Italian',
+    'j': 'Japanese',
+    'p': 'Portuguese',
     'z': 'Mandarin',
   };
 
@@ -933,36 +940,42 @@ class _ThemeSwatch extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: Column(
-        children: [
-          Container(
-            width: 56,
-            height: 56,
-            decoration: BoxDecoration(
-              color: preset.background,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: selected ? accent : Colors.black26,
-                width: selected ? 2.5 : 1,
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '${preset.name} reading theme',
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Column(
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: preset.background,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: selected ? accent : Colors.black26,
+                  width: selected ? 2.5 : 1,
+                ),
               ),
-            ),
-            child: Center(
-              child: Text(
-                'Aa',
-                style: TextStyle(
-                  color: preset.text,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
+              child: Center(
+                child: Text(
+                  'Aa',
+                  style: TextStyle(
+                    color: preset.text,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 4),
-          Text(preset.name, style: Theme.of(context).textTheme.labelSmall),
-        ],
+            const SizedBox(height: 4),
+            Text(preset.name, style: Theme.of(context).textTheme.labelSmall),
+          ],
+        ),
       ),
     );
   }
@@ -977,17 +990,26 @@ class _NewThemeTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        children: [
-          DottedSquare(
-            color: theme.colorScheme.outline,
-            child: Icon(Icons.add, color: theme.colorScheme.outline, size: 24),
-          ),
-          const SizedBox(height: 4),
-          Text('New', style: theme.textTheme.labelSmall),
-        ],
+    return Semantics(
+      button: true,
+      label: 'Create a new reading theme',
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Column(
+          children: [
+            DottedSquare(
+              color: theme.colorScheme.outline,
+              child: Icon(
+                Icons.add,
+                color: theme.colorScheme.outline,
+                size: 24,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text('New', style: theme.textTheme.labelSmall),
+          ],
+        ),
       ),
     );
   }

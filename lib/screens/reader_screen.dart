@@ -821,6 +821,10 @@ class _ReaderScreenState extends State<ReaderScreen>
   };
 
 
+  /// True when the system asks for reduced motion (iOS Reduce Motion) —
+  /// page turns and follow-scrolls jump instead of animating.
+  bool get _reduceMotion => MediaQuery.of(context).disableAnimations;
+
   /// Scrolls/pages so the block being read stays visible — only when the
   /// block changes, so it doesn't fight the reader within a paragraph.
   void _followSpeaking(int blockIndex) {
@@ -832,11 +836,15 @@ class _ReaderScreenState extends State<ReaderScreen>
       final currentPage = _pageController.page?.round() ?? 0;
       if (page != currentPage && page != _followedPage) {
         _followedPage = page;
-        _pageController.animateToPage(
-          page,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeInOut,
-        );
+        if (_reduceMotion) {
+          _pageController.jumpToPage(page);
+        } else {
+          _pageController.animateToPage(
+            page,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+          );
+        }
       }
       return;
     }
@@ -852,11 +860,15 @@ class _ReaderScreenState extends State<ReaderScreen>
       0.0,
       _scrollController.position.maxScrollExtent,
     );
-    _scrollController.animateTo(
-      target,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-    );
+    if (_reduceMotion) {
+      _scrollController.jumpTo(target);
+    } else {
+      _scrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
   }
 
 
@@ -1255,10 +1267,14 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (forward) {
         if (current < pages.length - 1) {
           HapticFeedback.lightImpact();
-          _pageController.nextPage(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOut,
-          );
+          if (_reduceMotion) {
+            _pageController.jumpToPage(current + 1);
+          } else {
+            _pageController.nextPage(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOut,
+            );
+          }
         } else {
           HapticFeedback.mediumImpact();
           _goToChapter(_chapterIndex + 1);
@@ -1266,10 +1282,14 @@ class _ReaderScreenState extends State<ReaderScreen>
       } else {
         if (current > 0) {
           HapticFeedback.lightImpact();
-          _pageController.previousPage(
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOut,
-          );
+          if (_reduceMotion) {
+            _pageController.jumpToPage(current - 1);
+          } else {
+            _pageController.previousPage(
+              duration: const Duration(milliseconds: 220),
+              curve: Curves.easeOut,
+            );
+          }
         } else {
           HapticFeedback.mediumImpact();
           _goToChapter(_chapterIndex - 1, landOnLastPage: true);
@@ -1286,11 +1306,16 @@ class _ReaderScreenState extends State<ReaderScreen>
         _goToChapter(_chapterIndex + 1);
       } else {
         HapticFeedback.lightImpact();
-        _scrollController.animateTo(
-          (pos.pixels + step).clamp(0.0, pos.maxScrollExtent),
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOut,
-        );
+        final next = (pos.pixels + step).clamp(0.0, pos.maxScrollExtent);
+        if (_reduceMotion) {
+          _scrollController.jumpTo(next);
+        } else {
+          _scrollController.animateTo(
+            next,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOut,
+          );
+        }
       }
     } else {
       if (pos.pixels <= 4) {
@@ -1298,11 +1323,16 @@ class _ReaderScreenState extends State<ReaderScreen>
         _goToChapter(_chapterIndex - 1);
       } else {
         HapticFeedback.lightImpact();
-        _scrollController.animateTo(
-          (pos.pixels - step).clamp(0.0, pos.maxScrollExtent),
-          duration: const Duration(milliseconds: 220),
-          curve: Curves.easeOut,
-        );
+        final prev = (pos.pixels - step).clamp(0.0, pos.maxScrollExtent);
+        if (_reduceMotion) {
+          _scrollController.jumpTo(prev);
+        } else {
+          _scrollController.animateTo(
+            prev,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOut,
+          );
+        }
       }
     }
   }

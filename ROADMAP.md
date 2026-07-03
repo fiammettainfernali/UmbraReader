@@ -65,6 +65,13 @@ non-starter, so the personal pipeline never ships as part of the product.
 - [ ] **7. Accessibility (currently zero).** VoiceOver labels on all
       controls, Dynamic Type in app chrome, contrast check on all reader
       themes, reduced-motion support for paged animation.
+      *In progress — done: VoiceOver labels on the custom tap targets
+      (library cover/continue/recommend cards, dismiss chip, theme
+      swatches, highlight-colour picker), the chapter scrubber is now an
+      adjustable slider, and Reduce Motion turns page-turns/follow-scrolls
+      into jumps. Remaining: Dynamic Type layout audit of chrome screens,
+      contrast check on reader themes, VoiceOver pass over the reader
+      content itself.*
 - [x] **8. Crash reporting.** Sentry wired in main.dart — crashes/uncaught
       errors only (no PII, no tracing, no screenshots). Compiled out unless
       a `SENTRY_DSN` --dart-define is provided; codemagic.yaml passes it

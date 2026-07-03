@@ -130,19 +130,24 @@ class _BookmarksSheetState extends State<BookmarksSheet> {
                 spacing: 10,
                 children: [
                   for (final c in HighlightColor.values)
-                    GestureDetector(
-                      onTap: () => setLocal(() => color = c),
-                      child: Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: highlightPaintFor(c),
-                          border: Border.all(
-                            color: color == c
-                                ? Theme.of(ctx).colorScheme.primary
-                                : Colors.transparent,
-                            width: 3,
+                    Semantics(
+                      button: true,
+                      selected: color == c,
+                      label: '${c.name} highlight',
+                      child: GestureDetector(
+                        onTap: () => setLocal(() => color = c),
+                        child: Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: highlightPaintFor(c),
+                            border: Border.all(
+                              color: color == c
+                                  ? Theme.of(ctx).colorScheme.primary
+                                  : Colors.transparent,
+                              width: 3,
+                            ),
                           ),
                         ),
                       ),

@@ -172,8 +172,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// Shows the "back to top" button once the grid is scrolled a few screens
   /// down, and hides it again near the top.
   void _onScroll() {
-    final show = _scrollController.hasClients &&
-        _scrollController.offset > 1200;
+    final show =
+        _scrollController.hasClients && _scrollController.offset > 1200;
     if (show != _showBackToTop) {
       setState(() => _showBackToTop = show);
     }
@@ -216,10 +216,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
     // The Continue shelf excludes volumes the user hid; the filter chips
     // (which use _allReadingEntries) still count them as in-progress.
     final inProgress = entries
-        .where((e) =>
-            e.progress.isStarted &&
-            !e.progress.isFinished &&
-            !hidden.contains('${e.volume.seriesOpdsId}/${e.volume.fileName}'))
+        .where(
+          (e) =>
+              e.progress.isStarted &&
+              !e.progress.isFinished &&
+              !hidden.contains('${e.volume.seriesOpdsId}/${e.volume.fileName}'),
+        )
         .take(12)
         .toList();
     final recs = const RecommendationEngine(maxResults: 40).recommend(
@@ -475,7 +477,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// counts as "in progress" if any of its volumes has been started and not
   /// finished, and "finished" if every started volume is finished.
   ({Set<int> inProgress, Set<int> finished, Map<int, DateTime> lastReadAt})
-      get _seriesReadingState {
+  get _seriesReadingState {
     final inProgress = <int>{};
     final finished = <int>{};
     final lastReadAt = <int, DateTime>{};
@@ -499,11 +501,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     // A series with both an in-progress entry and a finished one is still
     // "in progress" — the user hasn't put it down.
     finished.removeAll(inProgress);
-    return (
-      inProgress: inProgress,
-      finished: finished,
-      lastReadAt: lastReadAt,
-    );
+    return (inProgress: inProgress, finished: finished, lastReadAt: lastReadAt);
   }
 
   /// The library after applying the active search, filter set, and sort.
@@ -522,8 +520,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       }
       if (!_filters.matches(
         series,
-        isDownloaded: downloads?.recordsForSeries(series.opdsId).isNotEmpty
-            ?? false,
+        isDownloaded:
+            downloads?.recordsForSeries(series.opdsId).isNotEmpty ?? false,
       )) {
         continue;
       }
@@ -543,7 +541,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   ReadingStateFilter _resolvedState(
     Series series,
     ({Set<int> inProgress, Set<int> finished, Map<int, DateTime> lastReadAt})
-        readState,
+    readState,
   ) {
     switch (_seriesStatus[series.opdsId]) {
       case SeriesStatus.dropped:
@@ -663,9 +661,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   void _openStats() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const StatsScreen()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const StatsScreen()));
   }
 
   void _openCollections() {
@@ -679,9 +677,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   void _openBackup() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => const BackupScreen()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const BackupScreen()));
   }
 
   Future<void> _openImported() async {
@@ -773,9 +771,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               SeriesStatus.dropped,
             ])
               ListTile(
-                leading: Icon(
-                  current == s ? Icons.check : Icons.label_outline,
-                ),
+                leading: Icon(current == s ? Icons.check : Icons.label_outline),
                 title: Text('Mark: ${s.label}'),
                 onTap: () => Navigator.pop(ctx, 'status:${s.name}'),
               ),
@@ -795,10 +791,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
     } else if (action == 'glossary') {
       Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => GlossaryScreen(
-            seriesId: series.opdsId,
-            title: series.title,
-          ),
+          builder: (_) =>
+              GlossaryScreen(seriesId: series.opdsId, title: series.title),
         ),
       );
     } else if (action == 'collection' && settings != null) {
@@ -1187,12 +1181,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
       // list. Once the user narrows to a reading-state chip (Reading / Unread /
       // Finished / Dropped) or searches, drop straight to the matching grid —
       // recently-updated/recommended aren't relevant to a filtered browse.
-      final showShelves = _searchQuery.trim().isEmpty &&
+      final showShelves =
+          _searchQuery.trim().isEmpty &&
           _readingState == ReadingStateFilter.any;
       return [
         if (_offline) SliverToBoxAdapter(child: _buildOfflineBanner()),
-        if (_bulkDownloading)
-          SliverToBoxAdapter(child: _buildBulkBanner()),
+        if (_bulkDownloading) SliverToBoxAdapter(child: _buildBulkBanner()),
         SliverToBoxAdapter(child: _buildControls(all.length, visible.length)),
         if (showShelves && _reading.isNotEmpty)
           SliverToBoxAdapter(child: _buildContinueHero()),
@@ -1733,8 +1727,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ChoiceChip(
                     label: Text(state.label),
                     selected: _readingState == state,
-                    onSelected: (_) =>
-                        setState(() => _readingState = state),
+                    onSelected: (_) => setState(() => _readingState = state),
                   ),
                   if (state != ReadingStateFilter.values.last)
                     const SizedBox(width: 8),
@@ -1778,64 +1771,75 @@ class _SeriesCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      behavior: HitTestBehavior.opaque,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.4),
-                    blurRadius: 6,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    _CoverImage(series: series, headers: imageHeaders),
-                    if (series.hasMultipleVolumes)
-                      const Positioned(top: 6, right: 6, child: _VolumeBadge()),
-                    if (updateAvailable)
-                      const Positioned(
-                        top: 6,
-                        left: 6,
-                        child: _UpdateBadge(),
-                      ),
+    return Semantics(
+      button: true,
+      label:
+          '${series.title} by ${series.author}'
+          "${updateAvailable ? '. New chapters available' : ''}",
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        behavior: HitTestBehavior.opaque,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.4),
+                      blurRadius: 6,
+                      offset: const Offset(0, 3),
+                    ),
                   ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      _CoverImage(series: series, headers: imageHeaders),
+                      if (series.hasMultipleVolumes)
+                        const Positioned(
+                          top: 6,
+                          right: 6,
+                          child: _VolumeBadge(),
+                        ),
+                      if (updateAvailable)
+                        const Positioned(
+                          top: 6,
+                          left: 6,
+                          child: _UpdateBadge(),
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            series.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-              height: 1.2,
+            const SizedBox(height: 8),
+            Text(
+              series.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                height: 1.2,
+              ),
             ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            series.author,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.outline,
+            const SizedBox(height: 2),
+            Text(
+              series.author,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1867,69 +1871,74 @@ class _ContinueCard extends StatelessWidget {
     final chapterLabel = progress.chapterCount > 0
         ? 'Chapter ${progress.chapterIndex + 1} of ${progress.chapterCount}'
         : 'Chapter ${progress.chapterIndex + 1}';
-    return GestureDetector(
-      onTap: onTap,
-      onLongPress: onLongPress,
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: 124,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 124,
-              height: 165,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.4),
-                      blurRadius: 6,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: series != null
-                      ? _CoverImage(series: series!, headers: imageHeaders)
-                      : _TitleCover(title: entry.volume.title),
+    return Semantics(
+      button: true,
+      label: 'Continue reading $title, $chapterLabel',
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
+          width: 124,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 124,
+                height: 165,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.4),
+                        blurRadius: 6,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: series != null
+                        ? _CoverImage(series: series!, headers: imageHeaders)
+                        : _TitleCover(title: entry.volume.title),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 32,
-              child: Text(
-                title,
-                maxLines: 2,
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 32,
+                child: Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    height: 1.25,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(2),
+                child: LinearProgressIndicator(
+                  value: progress.fraction,
+                  minHeight: 4,
+                  backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                chapterLabel,
+                maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  height: 1.25,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.outline,
                 ),
               ),
-            ),
-            const SizedBox(height: 6),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(2),
-              child: LinearProgressIndicator(
-                value: progress.fraction,
-                minHeight: 4,
-                backgroundColor: theme.colorScheme.surfaceContainerHighest,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              chapterLabel,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1955,73 +1964,77 @@ class _RecommendCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: SizedBox(
-        width: 124,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 124,
-              height: 165,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.4),
-                      blurRadius: 6,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      CachedCover(
-                        seriesId: series.opdsId,
-                        coverUrl: series.coverUrl,
-                        headers: imageHeaders,
-                        fallback: _TitleCover(title: series.title),
+    return Semantics(
+      button: true,
+      label: '${series.title} by ${series.author}',
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
+          width: 124,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 124,
+                height: 165,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.4),
+                        blurRadius: 6,
+                        offset: const Offset(0, 3),
                       ),
-                      if (onDismiss != null)
-                        Positioned(
-                          top: 4,
-                          right: 4,
-                          child: _DismissChip(onPressed: onDismiss!),
-                        ),
                     ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        CachedCover(
+                          seriesId: series.opdsId,
+                          coverUrl: series.coverUrl,
+                          headers: imageHeaders,
+                          fallback: _TitleCover(title: series.title),
+                        ),
+                        if (onDismiss != null)
+                          Positioned(
+                            top: 4,
+                            right: 4,
+                            child: _DismissChip(onPressed: onDismiss!),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 32,
-              child: Text(
-                series.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  height: 1.25,
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 32,
+                child: Text(
+                  series.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    height: 1.25,
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              series.author,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: theme.colorScheme.outline,
+              const SizedBox(height: 4),
+              Text(
+                series.author,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -2053,9 +2066,9 @@ class _TitleCover extends StatelessWidget {
             textAlign: TextAlign.center,
             maxLines: 5,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: scheme.onPrimaryContainer,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.labelMedium?.copyWith(color: scheme.onPrimaryContainer),
           ),
         ),
       ),
@@ -2141,15 +2154,19 @@ class _DismissChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Colors.black.withValues(alpha: 0.55),
-      shape: const CircleBorder(),
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onPressed,
-        child: const Padding(
-          padding: EdgeInsets.all(4),
-          child: Icon(Icons.close, size: 14, color: Colors.white),
+    return Semantics(
+      button: true,
+      label: 'Not interested',
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.55),
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onPressed,
+          child: const Padding(
+            padding: EdgeInsets.all(4),
+            child: Icon(Icons.close, size: 14, color: Colors.white),
+          ),
         ),
       ),
     );
@@ -2249,9 +2266,7 @@ class LibraryFilters {
   /// True when [series] satisfies every active filter clause.
   bool matches(Series series, {required bool isDownloaded}) {
     if (genres.isNotEmpty) {
-      final seriesGenres = {
-        for (final g in series.genres) g.trim(),
-      };
+      final seriesGenres = {for (final g in series.genres) g.trim()};
       if (!seriesGenres.any(genres.contains)) return false;
     }
     if (statuses.isNotEmpty &&
@@ -2358,9 +2373,7 @@ class _LibraryFilterSheetState extends State<_LibraryFilterSheet> {
                         } else {
                           next.remove(genre);
                         }
-                        setState(
-                          () => _draft = _draft.copyWith(genres: next),
-                        );
+                        setState(() => _draft = _draft.copyWith(genres: next));
                       },
                     ),
                 ],
@@ -2397,18 +2410,16 @@ class _LibraryFilterSheetState extends State<_LibraryFilterSheet> {
             _triStateRow(
               value: _draft.downloaded,
               labels: const ['Any', 'Downloaded', 'Not yet'],
-              onChanged: (v) => setState(
-                () => _draft = _draft.copyWith(downloaded: v),
-              ),
+              onChanged: (v) =>
+                  setState(() => _draft = _draft.copyWith(downloaded: v)),
             ),
             const SizedBox(height: 16),
             _sectionLabel(theme, 'Volumes'),
             _triStateRow(
               value: _draft.multiVolume,
               labels: const ['Any', 'Multi-volume', 'Single volume'],
-              onChanged: (v) => setState(
-                () => _draft = _draft.copyWith(multiVolume: v),
-              ),
+              onChanged: (v) =>
+                  setState(() => _draft = _draft.copyWith(multiVolume: v)),
             ),
             const SizedBox(height: 24),
             Row(

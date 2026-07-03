@@ -364,22 +364,29 @@ class ReaderChapterBar extends StatelessWidget {
                   onSeek((localX / width).clamp(0.0, 1.0));
                 }
 
-                return GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTapDown: (d) => seek(d.localPosition.dx),
-                  onHorizontalDragStart: (d) => seek(d.localPosition.dx),
-                  onHorizontalDragUpdate: (d) => seek(d.localPosition.dx),
-                  child: SizedBox(
-                    height: 16,
-                    child: Align(
-                      alignment: Alignment.topCenter,
-                      child: LinearProgressIndicator(
-                        value: progress.clamp(0.0, 1.0),
-                        minHeight: 3,
-                        backgroundColor: preset.secondary.withValues(
-                          alpha: 0.25,
+                return Semantics(
+                  slider: true,
+                  label: 'Chapter progress',
+                  value: '${(progress.clamp(0.0, 1.0) * 100).round()} percent',
+                  onIncrease: () => onSeek((progress + 0.05).clamp(0.0, 1.0)),
+                  onDecrease: () => onSeek((progress - 0.05).clamp(0.0, 1.0)),
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTapDown: (d) => seek(d.localPosition.dx),
+                    onHorizontalDragStart: (d) => seek(d.localPosition.dx),
+                    onHorizontalDragUpdate: (d) => seek(d.localPosition.dx),
+                    child: SizedBox(
+                      height: 16,
+                      child: Align(
+                        alignment: Alignment.topCenter,
+                        child: LinearProgressIndicator(
+                          value: progress.clamp(0.0, 1.0),
+                          minHeight: 3,
+                          backgroundColor: preset.secondary.withValues(
+                            alpha: 0.25,
+                          ),
+                          color: preset.text.withValues(alpha: 0.55),
                         ),
-                        color: preset.text.withValues(alpha: 0.55),
                       ),
                     ),
                   ),
