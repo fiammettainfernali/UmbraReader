@@ -62,16 +62,16 @@ non-starter, so the personal pipeline never ships as part of the product.
 
 ## Phase 2 — Ship quality (what reviewers and real users hit)
 
-- [ ] **7. Accessibility (currently zero).** VoiceOver labels on all
-      controls, Dynamic Type in app chrome, contrast check on all reader
-      themes, reduced-motion support for paged animation.
-      *In progress — done: VoiceOver labels on the custom tap targets
-      (library cover/continue/recommend cards, dismiss chip, theme
-      swatches, highlight-colour picker), the chapter scrubber is now an
-      adjustable slider, and Reduce Motion turns page-turns/follow-scrolls
-      into jumps. Remaining: Dynamic Type layout audit of chrome screens,
-      contrast check on reader themes, VoiceOver pass over the reader
-      content itself.*
+- [x] **7. Accessibility.** VoiceOver labels on all custom tap targets
+      (library cards, swatches, dismiss chip), the chapter scrubber as an
+      adjustable slider (crash found by the integration test, fixed),
+      Reduce Motion honoured (page turns/follow-scrolls jump). Theme
+      contrast is now enforced by test (WCAG AA 4.5:1 body / 3:1
+      secondary; Sepia's secondary was nudged imperceptibly to clear it).
+      Dynamic Type: onboarding + library verified overflow-free at 2.0x
+      scale by test; the reader page intentionally ignores system scale
+      (font size is a reader setting). Remaining niceties (on-device
+      VoiceOver sweep of every sheet) fold into normal QA.
 - [x] **8. Crash reporting.** Sentry wired in main.dart — crashes/uncaught
       errors only (no PII, no tracing, no screenshots). Compiled out unless
       a `SENTRY_DSN` --dart-define is provided; codemagic.yaml passes it

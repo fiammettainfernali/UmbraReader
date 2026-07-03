@@ -41,7 +41,9 @@ const List<ReaderThemePreset> kReaderThemes = [
     name: 'Sepia',
     background: Color(0xFFFBF0D9),
     text: Color(0xFF5B4636),
-    secondary: Color(0xFFA28B68),
+    // Nudged from 0xFFA28B68 (2.89:1) to clear the 3:1 contrast bar --
+    // visually identical, see theme_contrast_test.dart.
+    secondary: Color(0xFF9D8663),
     highlight: Color(0xFFEAD49C),
   ),
   ReaderThemePreset(
