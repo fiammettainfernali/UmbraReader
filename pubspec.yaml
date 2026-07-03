@@ -89,7 +89,9 @@ dependencies:
 
   # Crash reporting. Fully disabled unless a SENTRY_DSN --dart-define is
   # baked in at build time (see main.dart + codemagic.yaml).
-  sentry_flutter: ^8.14.2
+  # (8.14.x failed to compile on CI: its Swift plugin used a sentry-cocoa
+  # internal that newer pods renamed — keep this current.)
+  sentry_flutter: ^9.23.0
 
 dev_dependencies:
   flutter_test:
