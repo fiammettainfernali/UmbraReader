@@ -102,9 +102,14 @@ non-starter, so the personal pipeline never ships as part of the product.
       never matching the archive, and SVG spine pages dropped silently.
       Remaining: grow the corpus, on-device visual spot checks; SVG
       rasterisation is backlog.*
-- [ ] **12. Testing depth.** Add integration tests for the money paths
-      (onboarding → add server → download → read → progress sync), run in
-      Codemagic on every push.
+- [x] **12. Testing depth.** `test/integration_flow_test.dart` runs the
+      money path against a real in-test HTTP server playing OPDS: browse →
+      volumes → streamed download → parse → resume position, plus the
+      downloaded book rendering in the real ReaderScreen (which builds the
+      semantics tree — it immediately caught a VoiceOver crash in the
+      scrubber). Codemagic now gates every build on `flutter analyze` +
+      `flutter test`. On-device integration_test runs remain out of reach
+      without a Mac; the in-process harness is the pragmatic substitute.
 
 ## Phase 3 — Reader feature parity (ranked impact-per-effort)
 

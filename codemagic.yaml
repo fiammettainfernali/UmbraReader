@@ -49,6 +49,12 @@ workflows:
           xcode-project use-profiles
       - name: Flutter pub get
         script: flutter pub get
+      - name: Analyze + test
+        script: |
+          # Gate the build on the full suite — a broken build should fail
+          # here in seconds, not after 15 minutes of Xcode.
+          flutter analyze
+          flutter test
       # No explicit `pod install` — a fresh `flutter create` project has no
       # ios/Podfile until Flutter generates one. `flutter build ipa` runs
       # CocoaPods (and generates the Podfile) itself as part of the build.

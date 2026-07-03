@@ -364,10 +364,16 @@ class ReaderChapterBar extends StatelessWidget {
                   onSeek((localX / width).clamp(0.0, 1.0));
                 }
 
+                final pct = (progress.clamp(0.0, 1.0) * 100).round();
                 return Semantics(
                   slider: true,
                   label: 'Chapter progress',
-                  value: '${(progress.clamp(0.0, 1.0) * 100).round()} percent',
+                  value: '$pct percent',
+                  // increase/decrease actions require the projected values
+                  // to be annotated too — omitting them is a semantics-tree
+                  // assertion (crash under VoiceOver).
+                  increasedValue: '${(pct + 5).clamp(0, 100)} percent',
+                  decreasedValue: '${(pct - 5).clamp(0, 100)} percent',
                   onIncrease: () => onSeek((progress + 0.05).clamp(0.0, 1.0)),
                   onDecrease: () => onSeek((progress - 0.05).clamp(0.0, 1.0)),
                   child: GestureDetector(
