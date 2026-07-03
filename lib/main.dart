@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'screens/library_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'services/cloud_sync_service.dart';
 import 'services/custom_theme_store.dart';
 import 'services/settings_service.dart';
+
+/// Sentry crash-reporting DSN, baked in at build time via
+/// `--dart-define=SENTRY_DSN=…` (a Codemagic env var). Empty in local/dev
+/// builds and on CI until the var is configured — in which case crash
+/// reporting is entirely disabled and no SDK code runs.
+const _sentryDsn = String.fromEnvironment('SENTRY_DSN');
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -14,7 +21,21 @@ Future<void> main() async {
   // Wire iCloud sync (reading progress / collections / rec feedback). The
   // initial pull runs in the background; no-ops where iCloud is unavailable.
   await CloudSyncService().initialize();
-  runApp(const UmbraReaderApp());
+
+  if (_sentryDsn.isEmpty) {
+    runApp(const UmbraReaderApp());
+    return;
+  }
+  await SentryFlutter.init((options) {
+    options.dsn = _sentryDsn;
+    // Crashes and uncaught errors only — no performance tracing, no session
+    // replay, and never any personally identifying info. What the user
+    // reads stays on the device.
+    options.sendDefaultPii = false;
+    options.tracesSampleRate = 0;
+    options.attachScreenshot = false;
+    // (attachViewHierarchy is experimental and already defaults to off.)
+  }, appRunner: () => runApp(const UmbraReaderApp()));
 }
 
 class UmbraReaderApp extends StatelessWidget {

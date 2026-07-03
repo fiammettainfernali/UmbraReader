@@ -57,9 +57,13 @@ workflows:
           # --build-number=$BUILD_NUMBER: TestFlight rejects duplicate build
           # numbers, so use Codemagic's auto-incrementing build counter for
           # CFBundleVersion. The version name (1.0.0) stays from pubspec.yaml.
+          # SENTRY_DSN: optional Codemagic env var (add it to the "signing"
+          # group, mark Secure). When unset, crash reporting is compiled out
+          # and the app runs exactly as before.
           flutter build ipa \
             --release \
             --build-number=$BUILD_NUMBER \
+            --dart-define=SENTRY_DSN=${SENTRY_DSN:-} \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - build/ios/ipa/*.ipa

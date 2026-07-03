@@ -65,8 +65,11 @@ non-starter, so the personal pipeline never ships as part of the product.
 - [ ] **7. Accessibility (currently zero).** VoiceOver labels on all
       controls, Dynamic Type in app chrome, contrast check on all reader
       themes, reduced-motion support for paged animation.
-- [ ] **8. Crash reporting.** Sentry Flutter SDK; wire `FlutterError.onError`
-      + async guards. Can't run a business on emailed screenshots.
+- [x] **8. Crash reporting.** Sentry wired in main.dart — crashes/uncaught
+      errors only (no PII, no tracing, no screenshots). Compiled out unless
+      a `SENTRY_DSN` --dart-define is provided; codemagic.yaml passes it
+      from an env var. *User setup: free sentry.io account → Flutter
+      project → copy DSN → add `SENTRY_DSN` env var in Codemagic.*
 - [ ] **9. iPad + orientation.** Two-page spread in landscape, wider
       margins, keyboard page-turn, pointer support. Gets "Designed for iPad"
       on Apple Silicon Macs free.

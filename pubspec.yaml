@@ -87,6 +87,10 @@ dependencies:
   drift: ^2.34.0
   drift_flutter: ^0.3.0
 
+  # Crash reporting. Fully disabled unless a SENTRY_DSN --dart-define is
+  # baked in at build time (see main.dart + codemagic.yaml).
+  sentry_flutter: ^8.14.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
