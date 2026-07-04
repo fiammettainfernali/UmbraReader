@@ -218,10 +218,13 @@ void main() {
     await _settle(tester);
 
     // The chevron is disabled on the last chapter; going "past the end" is
-    // the right-edge page-turn tap, which fires the finish save + prompt.
+    // the right-edge page-turn tap — which only works with the chrome
+    // hidden (a tap with chrome up just dismisses it), so tap twice.
     final size = tester.getSize(find.byType(ReaderScreen));
     await tester.tapAt(Offset(size.width * 0.9, size.height * 0.5));
-    await _settle(tester);
+    await _settle(tester); // first tap: hides the chrome
+    await tester.tapAt(Offset(size.width * 0.9, size.height * 0.5));
+    await _settle(tester); // second tap: pages past the end
 
     final progress = await tester.runAsync(
       () => ReadingProgressStore().load(volume),
