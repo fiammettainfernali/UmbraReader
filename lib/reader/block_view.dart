@@ -82,7 +82,16 @@ class BlockView extends StatelessWidget {
           child: Center(
             child: Text(
               '✶  ✶  ✶',
-              style: TextStyle(color: preset.secondary, fontSize: 16),
+              // inherit: false + fixed height so the divider renders exactly
+              // the kDividerHeight the pagination budgeted (40 + 16*1.25).
+              style: TextStyle(
+                inherit: false,
+                letterSpacing: 0,
+                wordSpacing: 0,
+                color: preset.secondary,
+                fontSize: 16,
+                height: 1.25,
+              ),
             ),
           ),
         );

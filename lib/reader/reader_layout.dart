@@ -23,7 +23,22 @@ const int kLastPage = -1;
 
 /// Body text style for the active settings.
 TextStyle paragraphStyle(ReaderSettings s, Color color) {
+  // inherit: false — the reader's text must NOT merge with the ambient
+  // Material DefaultTextStyle (letterSpacing etc.). Pagination measures the
+  // raw style with a TextPainter; if rendering inherited extra properties,
+  // lines wrapped differently and pages packed more than fits (headings
+  // rendered a whole line taller than measured).
+  // letterSpacing/wordSpacing are set EXPLICITLY to 0: inherit:false only
+  // stops the framework's DefaultTextStyle merge — at the engine level a
+  // null letterSpacing still inherits the enclosing paragraph's root style,
+  // and under a Scaffold that root is Material bodyMedium with
+  // letterSpacing 0.3. Rendered lines then run ~0.3px/char wider than the
+  // TextPainter measurement, re-wrapping onto extra lines and making paged
+  // mode spill past the bottom of the page.
   final base = TextStyle(
+    inherit: false,
+    letterSpacing: 0,
+    wordSpacing: 0,
     fontSize: s.fontSize,
     height: s.lineHeight,
     color: color,
@@ -43,6 +58,9 @@ TextStyle headingStyle(ReaderSettings s, int level, Color color) {
       ? 1.18
       : 1.06;
   final base = TextStyle(
+    inherit: false,
+    letterSpacing: 0,
+    wordSpacing: 0,
     fontSize: s.fontSize * scale,
     height: 1.3,
     fontWeight: FontWeight.w700,
