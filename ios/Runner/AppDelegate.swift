@@ -56,10 +56,14 @@ final class DefineBridge {
         return
       }
       DispatchQueue.main.async {
+        // .keyWindow on UIWindowScene needs iOS 15; enumerate windows for
+        // compatibility with the app's lower deployment target.
         guard
           let root = UIApplication.shared.connectedScenes
-            .compactMap({ ($0 as? UIWindowScene)?.keyWindow })
-            .first?.rootViewController
+            .compactMap({ $0 as? UIWindowScene })
+            .flatMap({ $0.windows })
+            .first(where: { $0.isKeyWindow })?
+            .rootViewController
         else {
           result(false)
           return
