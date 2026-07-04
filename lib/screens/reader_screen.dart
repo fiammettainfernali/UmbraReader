@@ -1532,8 +1532,11 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (listenMode) return buildListenView(book, preset);
     final mq = MediaQuery.of(context);
     // Centred-column mode caps the reading area to a comfortable measure and
-    // centres it (wide side gutters); otherwise it spans the screen.
-    final areaWidth = _settings.centeredColumn
+    // centres it (wide side gutters); otherwise it spans the screen. TV mode
+    // ignores the cap: its two-column spread needs the whole display (it
+    // applies its own overscan-safe insets), and squeezing a spread into the
+    // 620px column made two unreadably narrow strips on big screens.
+    final areaWidth = _settings.centeredColumn && !_settings.tvMode
         ? math.min(mq.size.width, _centeredColumnWidth)
         : mq.size.width;
     _lastContentWidth = areaWidth - 2 * _settings.margin;
@@ -1694,9 +1697,13 @@ class _ReaderScreenState extends State<ReaderScreen>
         final tvSafeV = _settings.tvMode ? constraints.maxHeight * 0.04 : 0.0;
         final usableWidth = constraints.maxWidth - 2 * tvSafeH;
         final usableHeight = constraints.maxHeight - 2 * tvSafeV;
-        // TV mode splits the viewport into two side-by-side columns, so
-        // each column is sized like a normal page.
-        final colWidth = (usableWidth / stride) - 2 * _settings.margin;
+        // TV mode splits the viewport into two side-by-side columns with a
+        // fixed gutter between them, so each column is sized like a normal
+        // page and the two texts don't visually run together.
+        const columnGutter = 36.0;
+        final gutterTotal = columnGutter * (stride - 1);
+        final colWidth =
+            ((usableWidth - gutterTotal) / stride) - 2 * _settings.margin;
         final height = usableHeight - 2 * kContentVPad;
         final key =
             '$_chapterIndex:${colWidth.round()}x${height.round()}'
@@ -1736,7 +1743,8 @@ class _ReaderScreenState extends State<ReaderScreen>
             return Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                for (var c = 0; c < stride; c++)
+                for (var c = 0; c < stride; c++) ...[
+                  if (c > 0) const SizedBox(width: columnGutter),
                   Expanded(
                     child: _buildPagedColumn(
                       pages,
@@ -1744,6 +1752,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                       preset,
                     ),
                   ),
+                ],
               ],
             );
           },
