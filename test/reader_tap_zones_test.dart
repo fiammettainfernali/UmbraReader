@@ -154,4 +154,43 @@ void main() {
     await tester.pump();
     CloudSyncService().cancelPendingTimers();
   });
+
+  testWidgets('long-press on a word opens the dictionary for it', (
+    tester,
+  ) async {
+    final defined = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(const MethodChannel('umbra/define'), (
+          call,
+        ) async {
+          if (call.method == 'define') {
+            defined.add((call.arguments as Map)['term'] as String);
+            return true;
+          }
+          return null;
+        });
+
+    await tester.pumpWidget(MaterialApp(home: ReaderScreen(volume: _volume())));
+    await _settle(tester);
+
+    final paragraph = find.textContaining('Short first', findRichText: true);
+    expect(paragraph, findsOneWidget);
+    // Press ON the first word — the widget's centre is past the end of this
+    // short line, which correctly resolves to nothing.
+    await tester.longPressAt(
+      tester.getTopLeft(paragraph) + const Offset(24, 12),
+    );
+    await tester.pump();
+
+    expect(defined, hasLength(1), reason: 'long-press must hit the bridge');
+    expect(
+      RegExp('Short|first|chapter').hasMatch(defined.single),
+      isTrue,
+      reason: 'looked-up word was "${defined.single}"',
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    CloudSyncService().cancelPendingTimers();
+  });
 }

@@ -7,6 +7,7 @@ import MediaPlayer
   private var nowPlaying: NowPlayingBridge?
   private var iCloudKv: ICloudKvBridge?
   private var iCloudDocs: ICloudDocsBridge?
+  private var define: DefineBridge?
 
   override func application(
     _ application: UIApplication,
@@ -25,6 +26,52 @@ import MediaPlayer
     }
     if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "ICloudDocsBridge") {
       iCloudDocs = ICloudDocsBridge(messenger: registrar.messenger())
+    }
+    if let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "DefineBridge") {
+      define = DefineBridge(messenger: registrar.messenger())
+    }
+  }
+}
+
+/// Presents the system dictionary (UIReferenceLibraryViewController) for a
+/// term selected in the reader. Dart calls `define {term}`.
+final class DefineBridge {
+  private let channel: FlutterMethodChannel
+
+  init(messenger: FlutterBinaryMessenger) {
+    channel = FlutterMethodChannel(
+      name: "umbra/define",
+      binaryMessenger: messenger
+    )
+    channel.setMethodCallHandler { call, result in
+      guard call.method == "define" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      let args = call.arguments as? [String: Any]
+      guard let term = args?["term"] as? String,
+            !term.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      else {
+        result(false)
+        return
+      }
+      DispatchQueue.main.async {
+        guard
+          let root = UIApplication.shared.connectedScenes
+            .compactMap({ ($0 as? UIWindowScene)?.keyWindow })
+            .first?.rootViewController
+        else {
+          result(false)
+          return
+        }
+        var top = root
+        while let presented = top.presentedViewController { top = presented }
+        top.present(
+          UIReferenceLibraryViewController(term: term),
+          animated: true
+        )
+        result(true)
+      }
     }
   }
 }

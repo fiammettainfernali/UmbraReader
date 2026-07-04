@@ -19,6 +19,7 @@ import '../models/reader_settings.dart';
 import '../models/reader_theme.dart';
 import '../models/volume.dart';
 import '../services/bookmark_store.dart';
+import '../services/dictionary_service.dart';
 import '../services/epub_parser.dart';
 import '../services/library_cache.dart';
 import '../services/cover_cache.dart';
@@ -726,6 +727,164 @@ class _ReaderScreenState extends State<ReaderScreen>
     _scrollController.jumpTo(
       _blockOffset(block).clamp(0.0, _scrollController.position.maxScrollExtent),
     );
+  }
+
+  /// Kindle-style word lookup: long-press a word to open the system
+  /// dictionary. The word under the finger is resolved with the same
+  /// TextPainter layout math the pagination uses, so it's exact.
+  void _onContentLongPress(LongPressStartDetails details) {
+    final word = _wordAt(details.globalPosition);
+    if (word == null) return;
+    HapticFeedback.selectionClick();
+    DictionaryService().define(word);
+  }
+
+  /// The word at [globalPosition], or null when the press isn't on text.
+  String? _wordAt(Offset globalPosition) {
+    final blocks = _blocks;
+    if (blocks == null || blocks.isEmpty) return null;
+    final mq = MediaQuery.of(context);
+    final areaWidth = _settings.centeredColumn && !_settings.tvMode
+        ? math.min(mq.size.width, _centeredColumnWidth)
+        : mq.size.width;
+    final contentLeft = (mq.size.width - areaWidth) / 2;
+    final contentTop = _chromeVisible
+        ? mq.padding.top + kTopBarHeight
+        : mq.padding.top + 8;
+
+    final (block, slice, localX, localY) = _settings.mode == ReadingMode.paged
+        ? _pagedHit(globalPosition, areaWidth, contentLeft, contentTop)
+        : _scrollHit(globalPosition, contentLeft, contentTop);
+    if (block == null) return null;
+
+    final ParagraphBlock? paragraph = switch (slice ?? block) {
+      ParagraphBlock p => p,
+      HeadingBlock h => ParagraphBlock(h.runs),
+      _ => null,
+    };
+    if (paragraph == null) return null;
+
+    final width = _settings.mode == ReadingMode.paged
+        ? _pagedColumnTextWidth(areaWidth)
+        : areaWidth - 2 * _settings.margin;
+    final style = (slice ?? block) is HeadingBlock
+        ? headingStyle(
+            _settings,
+            ((slice ?? block) as HeadingBlock).level,
+            _settings.theme.text,
+          )
+        : paragraphStyle(_settings, _settings.theme.text);
+    final painter = TextPainter(
+      text: runSpan(paragraph.runs, style),
+      textDirection: TextDirection.ltr,
+      textScaler: TextScaler.noScaling,
+    )..layout(maxWidth: width);
+    if (localY < 0 || localY > painter.height) return null;
+    final pos = painter.getPositionForOffset(Offset(localX, localY));
+    final text = paragraph.runs.map((r) => r.text).join();
+    final range = painter.getWordBoundary(pos);
+    if (range.start >= range.end || range.end > text.length) return null;
+    final word = text
+        .substring(range.start, range.end)
+        .replaceAll(RegExp(r'''^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$''', unicode: true), '');
+    if (word.isEmpty || word.length > 40) return null;
+    if (!RegExp(r'\p{L}', unicode: true).hasMatch(word)) return null;
+    return word;
+  }
+
+  /// Text width of one paged column (matches _buildPaged's colWidth).
+  double _pagedColumnTextWidth(double areaWidth) {
+    final stride = _pageStride;
+    final tvSafeH = _settings.tvMode ? areaWidth * 0.055 : 0.0;
+    final usableWidth = areaWidth - 2 * tvSafeH;
+    const columnGutter = 36.0;
+    final gutterTotal = columnGutter * (stride - 1);
+    return ((usableWidth - gutterTotal) / stride) - 2 * _settings.margin;
+  }
+
+  /// Resolves a scroll-mode press to (block, sliceless, x, y within the
+  /// block's own text layout).
+  (ContentBlock?, ContentBlock?, double, double) _scrollHit(
+    Offset global,
+    double contentLeft,
+    double contentTop,
+  ) {
+    final blocks = _blocks!;
+    if (!_scrollController.hasClients) return (null, null, 0, 0);
+    final x = global.dx - contentLeft - _settings.margin;
+    var y = global.dy - contentTop + _scrollController.offset - kContentVPad;
+    for (final block in blocks) {
+      final h = measureBlockHeight(block, _lastContentWidth, _settings);
+      if (y < h) {
+        // Headings carry a top gap before their text.
+        final inset = block is HeadingBlock ? kHeadingTopGap : 0.0;
+        return (block, null, x, y - inset);
+      }
+      y -= h;
+    }
+    return (null, null, 0, 0);
+  }
+
+  /// Resolves a paged-mode press to (origin block, rendered slice, x, y
+  /// within the slice's own text layout).
+  (ContentBlock?, ContentBlock?, double, double) _pagedHit(
+    Offset global,
+    double areaWidth,
+    double contentLeft,
+    double contentTop,
+  ) {
+    final pages = _pages;
+    if (pages == null || pages.isEmpty || !_pageController.hasClients) {
+      return (null, null, 0, 0);
+    }
+    final stride = _pageStride;
+    final tvSafeH = _settings.tvMode ? areaWidth * 0.055 : 0.0;
+    final tvSafeV = _settings.tvMode
+        ? (MediaQuery.of(context).size.height) * 0.04
+        : 0.0;
+    const columnGutter = 36.0;
+    final colOuter =
+        ((areaWidth - 2 * tvSafeH) - columnGutter * (stride - 1)) / stride;
+    var x = global.dx - contentLeft - tvSafeH;
+    var col = 0;
+    while (col < stride - 1 && x > colOuter + columnGutter / 2) {
+      x -= colOuter + columnGutter;
+      col++;
+    }
+    final spread = (_pageController.page ?? 0).round();
+    final pageIndex = spread * stride + col;
+    if (pageIndex < 0 || pageIndex >= pages.length) return (null, null, 0, 0);
+
+    final textX = x - _settings.margin;
+    var y = global.dy - contentTop - tvSafeV - kContentVPad;
+    final width = _pagedColumnTextWidth(areaWidth);
+    for (final pb in pages[pageIndex]) {
+      final block = pb.block;
+      final double h;
+      final double inset;
+      switch (block) {
+        case ParagraphBlock p:
+          h = layoutParagraph(p.runs, width, _settings).height + kParagraphGap;
+          inset = 0;
+        case HeadingBlock _:
+          h = measureBlockHeight(block, width, _settings);
+          inset = kHeadingTopGap;
+        case DividerBlock _:
+          h = kDividerHeight;
+          inset = 0;
+        case ImageBlock _:
+          h = measureBlockHeight(block, width, _settings);
+          inset = 0;
+      }
+      if (y < h) {
+        final origin = (_blocks != null && pb.originIndex < _blocks!.length)
+            ? _blocks![pb.originIndex]
+            : block;
+        return (origin, block, textX, y - inset);
+      }
+      y -= h;
+    }
+    return (null, null, 0, 0);
   }
 
   void _toggleChrome() {
@@ -1570,6 +1729,7 @@ class _ReaderScreenState extends State<ReaderScreen>
           onKeyEvent: _handleKey,
           child: GestureDetector(
             onTapUp: _onContentTap,
+            onLongPressStart: _onContentLongPress,
             behavior: HitTestBehavior.opaque,
             child: Stack(
               children: [

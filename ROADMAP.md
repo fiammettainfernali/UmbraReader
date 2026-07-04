@@ -113,8 +113,13 @@ non-starter, so the personal pipeline never ships as part of the product.
 
 ## Phase 3 — Reader feature parity (ranked impact-per-effort)
 
-- [ ] **13.** Tap-hold dictionary lookup (`UIReferenceLibraryViewController`)
-      + translate.
+- [x] **13.** Tap-hold dictionary lookup: long-press any word in the
+      reader → the system dictionary (UIReferenceLibraryViewController via
+      the `umbra/define` bridge). Word resolution uses the pagination's own
+      TextPainter math (scroll + paged/TV modes), so it's exact and has no
+      gesture-arena conflicts with taps/page-turns. Translate + text
+      selection/copy deferred to their own slice — SelectionArea fought
+      the reader's gesture stack and lost.
 - [ ] **14.** Footnote popovers (ties into #11).
 - [x] **15.** Full-library search: `LibrarySearch` streams full-text
       matches across every downloaded book (index-free scan, per-book +
