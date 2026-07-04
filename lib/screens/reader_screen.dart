@@ -742,6 +742,13 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Routes a tap on the page: the left and right edges turn the page, while
   /// the centre toggles the reading chrome.
   void _onContentTap(TapUpDetails details) {
+    // While the chrome is up, any tap on the page just dismisses it — the
+    // edge zones stay dormant. Otherwise a tap meant to close the menu
+    // that landed near an edge flipped a page as a side effect.
+    if (_chromeVisible) {
+      _toggleChrome();
+      return;
+    }
     final width = MediaQuery.of(context).size.width;
     final x = details.globalPosition.dx;
     if (x < width * 0.28) {
