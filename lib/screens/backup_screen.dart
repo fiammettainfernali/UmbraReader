@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../services/annotations_export.dart';
 import '../services/backup_service.dart';
 import '../widgets/section_header.dart';
 
@@ -44,6 +45,36 @@ class _BackupScreenState extends State<BackupScreen> {
       _setStatus('Backup ready — save it somewhere safe.');
     } on Exception catch (e) {
       _setStatus('Backup failed: $e', isError: true);
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  Future<void> _exportMarkdown() async {
+    setState(() {
+      _exporting = true;
+      _status = null;
+    });
+    try {
+      final file = await AnnotationsExport().exportToFile();
+      if (!mounted) return;
+      if (file == null) {
+        _setStatus('No highlights or notes to export yet.');
+        return;
+      }
+      final box = context.findRenderObject() as RenderBox?;
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path, mimeType: 'text/markdown')],
+          subject: 'Umbra Reader annotations (Markdown)',
+          sharePositionOrigin: box != null
+              ? box.localToGlobal(Offset.zero) & box.size
+              : null,
+        ),
+      );
+      _setStatus('Markdown exported.');
+    } on Exception catch (e) {
+      _setStatus('Export failed: $e', isError: true);
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
@@ -233,6 +264,20 @@ class _BackupScreenState extends State<BackupScreen> {
           Text(
             'Just your bookmarks and highlights — restorable on top of an '
             'existing install without overwriting other settings.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _exporting ? null : _exportMarkdown,
+            icon: const Icon(Icons.notes_outlined),
+            label: const Text('Export annotations as Markdown'),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Every highlight and note from every book in one readable '
+            'document — for Obsidian, Notes, or a journal.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.outline,
             ),

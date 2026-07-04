@@ -136,7 +136,11 @@ non-starter, so the personal pipeline never ships as part of the product.
       tappable chip under the controls shows the current streak and
       today-vs-goal progress (goal + full stats already lived in the Stats
       screen; the chip is the daily-visibility nudge and opens it).
-- [ ] **19.** Export highlights/notes to Markdown/CSV via the share sheet.
+- [x] **19.** Annotations → Markdown: the per-book copy/share already
+      existed on the Highlights screen; added the library-wide export
+      (`AnnotationsExport`) — every highlight and note from every book in
+      one document, grouped book → chapter in reading order, shared as a
+      .md file from Backup & restore.
 - [ ] **20.** Series intelligence as the marketing wedge: "the reader built
       for 400-chapter series."
 
