@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/pro_sheet.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../models/download_record.dart';
@@ -415,6 +416,8 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   }
 
   Future<void> _addToCollection() async {
+    if (!await requirePro(context, feature: 'Collections')) return;
+    if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,

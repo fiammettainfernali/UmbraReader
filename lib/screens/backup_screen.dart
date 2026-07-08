@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../services/annotations_export.dart';
+import '../widgets/pro_sheet.dart';
 import '../services/backup_service.dart';
 import '../widgets/section_header.dart';
 
@@ -51,6 +52,13 @@ class _BackupScreenState extends State<BackupScreen> {
   }
 
   Future<void> _exportMarkdown() async {
+    if (!await requirePro(
+      context,
+      feature: 'Export annotations as Markdown',
+    )) {
+      return;
+    }
+    if (!mounted) return;
     setState(() {
       _exporting = true;
       _status = null;

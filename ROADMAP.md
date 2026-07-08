@@ -152,9 +152,16 @@ non-starter, so the personal pipeline never ships as part of the product.
 
 ## Phase 4 — Business mechanics
 
-- [ ] **21. Monetization.** Free + one-time "Umbra Pro" unlock (themes,
-      stats, sync) — e-reader users are subscription-hostile. StoreKit 2 via
-      `in_app_purchase`. No accounts; iCloud is the sync identity.
+- [ ] **21. Monetization.** Free + one-time "Umbra Pro" unlock — e-reader
+      users are subscription-hostile. No accounts; iCloud is the sync
+      identity. *In progress — entitlement layer landed: `ProService`
+      (build-flag `UMBRA_PRO`, defaults UNLOCKED until launch; persisted
+      purchase flag), `requirePro` gate + upsell sheet, and the power-user
+      split wired: Pro = custom themes, full-library search, stats/goals/
+      streaks, Markdown export, iCloud sync, collections, TV mode. Free =
+      the complete reading experience. Remaining: the StoreKit flow via
+      `in_app_purchase` (needs the IAP product created in App Store
+      Connect first) and the launch-pipeline `UMBRA_PRO=false` flip.*
 - [ ] **22. App Store package.** Privacy policy + nutrition labels (nothing
       is collected — say so loudly), screenshots per device class,
       description, support URL, EULA. Verify font licensing (OFL is fine).

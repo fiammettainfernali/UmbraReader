@@ -66,10 +66,16 @@ workflows:
           # SENTRY_DSN: optional Codemagic env var (add it to the "signing"
           # group, mark Secure). When unset, crash reporting is compiled out
           # and the app runs exactly as before.
+          # UMBRA_PRO: Pro-entitlement build flag. Defaults to true (every
+          # build fully unlocked). LAUNCH CHECKLIST: the public App Store
+          # pipeline must pass UMBRA_PRO=false to turn the paywall on; this
+          # personal pipeline keeps true so the developer's own builds can
+          # never lock them out.
           flutter build ipa \
             --release \
             --build-number=$BUILD_NUMBER \
             --dart-define=SENTRY_DSN=${SENTRY_DSN:-} \
+            --dart-define=UMBRA_PRO=${UMBRA_PRO:-true} \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - build/ios/ipa/*.ipa

@@ -4,6 +4,7 @@ import '../feature_flags.dart';
 import '../models/reader_settings.dart';
 import '../models/reader_theme.dart';
 import '../services/custom_theme_store.dart';
+import 'pro_sheet.dart';
 import '../services/network_tts_service.dart';
 import '../services/tts_engine.dart';
 import '../services/tts_service.dart';
@@ -249,7 +250,16 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                     'a TV with the phone as the remote.',
                   ),
                   value: _settings.tvMode,
-                  onChanged: (on) => _update(_settings.copyWith(tvMode: on)),
+                  onChanged: (on) async {
+                    if (on &&
+                        !await requirePro(
+                          context,
+                          feature: 'TV & spread reading mode',
+                        )) {
+                      return;
+                    }
+                    _update(_settings.copyWith(tvMode: on));
+                  },
                 ),
                 const SizedBox(height: 8),
                 _label(theme, 'Orientation'),
@@ -359,7 +369,17 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                         ),
                       Padding(
                         padding: const EdgeInsets.only(right: 12),
-                        child: _NewThemeTile(onTap: _createCustomTheme),
+                        child: _NewThemeTile(
+                          onTap: () async {
+                            if (!await requirePro(
+                              context,
+                              feature: 'Custom reading themes',
+                            )) {
+                              return;
+                            }
+                            _createCustomTheme();
+                          },
+                        ),
                       ),
                     ],
                   ),

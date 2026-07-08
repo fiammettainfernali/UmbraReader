@@ -27,6 +27,7 @@ import 'collections_screen.dart';
 import 'glossary_screen.dart';
 import 'imported_books_screen.dart';
 import 'library_search_screen.dart';
+import '../widgets/pro_sheet.dart';
 import 'manage_screen.dart';
 import 'reader_screen.dart';
 import 'series_detail_screen.dart';
@@ -670,8 +671,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
     await _loadDownloads();
   }
 
-  /// Full-text search across every downloaded book.
+  /// Full-text search across every downloaded book. (Pro)
   Future<void> _openLibrarySearch() async {
+    if (!await requirePro(context, feature: 'Search inside every book')) {
+      return;
+    }
+    if (!mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => const LibrarySearchScreen()),
     );
@@ -679,7 +684,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
     await _loadReading();
   }
 
-  void _openStats() {
+  Future<void> _openStats() async {
+    if (!await requirePro(
+      context,
+      feature: 'Reading stats, goals & streaks',
+    )) {
+      return;
+    }
+    if (!mounted) return;
+    _openStatsUnlocked();
+  }
+
+  void _openStatsUnlocked() {
     Navigator.of(
       context,
     ).push(MaterialPageRoute<void>(builder: (_) => const StatsScreen()));
@@ -815,7 +831,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ),
       );
     } else if (action == 'collection' && settings != null) {
-      await showModalBottomSheet<void>(
+      if (!await requirePro(context, feature: 'Collections')) return;
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
         showDragHandle: true,

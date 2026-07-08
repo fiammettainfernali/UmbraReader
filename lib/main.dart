@@ -5,6 +5,7 @@ import 'screens/library_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'services/cloud_sync_service.dart';
 import 'services/custom_theme_store.dart';
+import 'services/pro_service.dart';
 import 'services/settings_service.dart';
 
 /// Sentry crash-reporting DSN, baked in at build time via
@@ -18,9 +19,14 @@ Future<void> main() async {
   // Load user-defined reading themes into the in-memory registry so
   // readerThemeById can find them synchronously.
   await CustomThemeStore().initialize();
+  // Load the Pro entitlement (build-flag or persisted purchase).
+  await ProService().initialize();
   // Wire iCloud sync (reading progress / collections / rec feedback). The
   // initial pull runs in the background; no-ops where iCloud is unavailable.
-  await CloudSyncService().initialize();
+  // iCloud sync is a Pro feature; free builds stay local-only.
+  if (ProService().isPro.value) {
+    await CloudSyncService().initialize();
+  }
 
   if (_sentryDsn.isEmpty) {
     runApp(const UmbraReaderApp());
