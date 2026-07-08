@@ -130,8 +130,14 @@ non-starter, so the personal pipeline never ships as part of the product.
       params). Upgrade path if it ever crawls: FTS5 in AppDatabase.
 - [ ] **16.** Page-turn polish: curl/slide options, tap-zone customization,
       brightness swipe gesture.
-- [ ] **17.** Typography depth: hyphenation, justification toggle, embedded
-      reading fonts (Literata, Charter).
+- [x] **17.** Typography: Literata, Lora and Atkinson Hyperlegible are
+      now bundled app assets (regular/bold/italic/bold-italic, OFL
+      licences included) — correct rendering offline from first launch,
+      no google_fonts network fetch (dependency removed). The
+      justification toggle already existed. Hyphenation consciously
+      deferred: Flutter has no engine hyphenation, and soft-hyphen
+      injection would desync every char-offset feature (highlights,
+      lookup, search).
 - [x] **18.** Reading goals & streaks surfaced on the library home: a
       tappable chip under the controls shows the current streak and
       today-vs-goal progress (goal + full stats already lived in the Stats

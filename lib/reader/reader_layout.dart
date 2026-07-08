@@ -4,7 +4,6 @@
 library;
 
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
 import '../models/content_block.dart';
 import '../models/reader_settings.dart';
@@ -45,9 +44,11 @@ TextStyle paragraphStyle(ReaderSettings s, Color color) {
     fontWeight: s.boldText ? FontWeight.bold : null,
     fontStyle: s.italicText ? FontStyle.italic : null,
   );
+  // Reading fonts are bundled app assets — a plain fontFamily reference,
+  // no network fetch, identical metrics for measurement and render.
   return s.fontFamily.isEmpty
       ? base
-      : GoogleFonts.getFont(s.fontFamily, textStyle: base);
+      : base.copyWith(fontFamily: s.fontFamily);
 }
 
 /// Heading style — sized relative to the body text.
@@ -69,7 +70,7 @@ TextStyle headingStyle(ReaderSettings s, int level, Color color) {
   );
   return s.fontFamily.isEmpty
       ? base
-      : GoogleFonts.getFont(s.fontFamily, textStyle: base);
+      : base.copyWith(fontFamily: s.fontFamily);
 }
 
 /// Builds a styled [TextSpan] for a run list, applying bold/italic per run.

@@ -3,7 +3,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../reader/block_view.dart';
@@ -281,7 +280,6 @@ class _ReaderScreenState extends State<ReaderScreen>
       LibraryStorage(),
     ).cached(widget.volume.seriesOpdsId);
     ttsCoverPath = cover?.path;
-    await _preloadFont(settings.fontFamily);
     try {
       final file = await LibraryStorage().epubFile(widget.volume);
       if (!file.existsSync()) {
@@ -337,16 +335,6 @@ class _ReaderScreenState extends State<ReaderScreen>
       _refreshHighlights();
     } on EpubException catch (e) {
       _fail(e.message);
-    }
-  }
-
-  Future<void> _preloadFont(String family) async {
-    if (family.isEmpty) return;
-    try {
-      GoogleFonts.getFont(family);
-      await GoogleFonts.pendingFonts();
-    } on Exception {
-      // Offline or fetch failed — the font falls back gracefully.
     }
   }
 
@@ -963,9 +951,10 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
     // The cache is keyed by voice/engine, so re-warm it when either changes.
     if (voiceChanged || engineChanged) prepareAudio();
-    if (fontChanged) {
-      await _preloadFont(next.fontFamily);
-      if (mounted) setState(() => _fontToken++);
+    if (fontChanged && mounted) {
+      // Bundled fonts need no preload; bump the token so paged mode
+      // re-paginates with the new family's metrics.
+      setState(() => _fontToken++);
     }
     if (autoScrollChanged) {
       if (next.autoScroll && next.mode == ReadingMode.scroll) {

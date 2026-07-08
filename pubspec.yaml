@@ -51,9 +51,6 @@ dependencies:
   archive: ^4.0.9
   html: ^0.15.4
 
-  # Reading fonts for the theme engine (fetched + cached on first use).
-  google_fonts: ^8.1.0
-
   # Text-to-speech (read-aloud) — wraps iOS AVSpeechSynthesizer.
   flutter_tts: ^4.2.0
 
@@ -137,6 +134,42 @@ flutter:
 
   # For details regarding adding assets from package dependencies, see
   # https://flutter.dev/to/asset-from-package
+
+  # Bundled reading fonts (OFL — licences alongside the files). Family
+  # names match the long-standing kReaderFonts entries, so settings saved
+  # when these were fetched via google_fonts keep working; bundling means
+  # they render correctly offline from the very first launch.
+  fonts:
+    - family: Literata
+      fonts:
+        - asset: assets/fonts/Literata-Regular.ttf
+        - asset: assets/fonts/Literata-Italic.ttf
+          style: italic
+        - asset: assets/fonts/Literata-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Literata-BoldItalic.ttf
+          weight: 700
+          style: italic
+    - family: Lora
+      fonts:
+        - asset: assets/fonts/Lora-Regular.ttf
+        - asset: assets/fonts/Lora-Italic.ttf
+          style: italic
+        - asset: assets/fonts/Lora-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/Lora-BoldItalic.ttf
+          weight: 700
+          style: italic
+    - family: Atkinson Hyperlegible
+      fonts:
+        - asset: assets/fonts/AtkinsonHyperlegible-Regular.ttf
+        - asset: assets/fonts/AtkinsonHyperlegible-Italic.ttf
+          style: italic
+        - asset: assets/fonts/AtkinsonHyperlegible-Bold.ttf
+          weight: 700
+        - asset: assets/fonts/AtkinsonHyperlegible-BoldItalic.ttf
+          weight: 700
+          style: italic
 
   # To add custom fonts to your application, add a fonts section here,
   # in this "flutter" section. Each entry in this list should have a
