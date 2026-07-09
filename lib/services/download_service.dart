@@ -150,6 +150,8 @@ class DownloadService {
             book.chapters.length - 1,
           ),
           blockIndex: progress.blockIndex,
+          blockChar: progress.blockChar,
+          chapterPath: progress.chapterPath,
           chapterCount: book.chapters.length,
         ),
         // A background count refresh must not un-hide a volume the user

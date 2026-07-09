@@ -44,6 +44,29 @@ class $ReadingProgressRowsTable extends ReadingProgressRows
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _blockCharMeta = const VerificationMeta(
+    'blockChar',
+  );
+  @override
+  late final GeneratedColumn<int> blockChar = GeneratedColumn<int>(
+    'block_char',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _chapterPathMeta = const VerificationMeta(
+    'chapterPath',
+  );
+  @override
+  late final GeneratedColumn<String> chapterPath = GeneratedColumn<String>(
+    'chapter_path',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _chapterCountMeta = const VerificationMeta(
     'chapterCount',
   );
@@ -122,6 +145,8 @@ class $ReadingProgressRowsTable extends ReadingProgressRows
     volumeKey,
     chapterIndex,
     blockIndex,
+    blockChar,
+    chapterPath,
     chapterCount,
     updatedAt,
     endReached,
@@ -162,6 +187,21 @@ class $ReadingProgressRowsTable extends ReadingProgressRows
       context.handle(
         _blockIndexMeta,
         blockIndex.isAcceptableOrUnknown(data['block_index']!, _blockIndexMeta),
+      );
+    }
+    if (data.containsKey('block_char')) {
+      context.handle(
+        _blockCharMeta,
+        blockChar.isAcceptableOrUnknown(data['block_char']!, _blockCharMeta),
+      );
+    }
+    if (data.containsKey('chapter_path')) {
+      context.handle(
+        _chapterPathMeta,
+        chapterPath.isAcceptableOrUnknown(
+          data['chapter_path']!,
+          _chapterPathMeta,
+        ),
       );
     }
     if (data.containsKey('chapter_count')) {
@@ -224,6 +264,14 @@ class $ReadingProgressRowsTable extends ReadingProgressRows
         DriftSqlType.int,
         data['${effectivePrefix}block_index'],
       )!,
+      blockChar: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}block_char'],
+      )!,
+      chapterPath: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}chapter_path'],
+      ),
       chapterCount: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}chapter_count'],
@@ -263,6 +311,16 @@ class ReadingProgressRow extends DataClass
   final String volumeKey;
   final int chapterIndex;
   final int blockIndex;
+
+  /// Character offset of the first visible line within the block — Kindle
+  /// "location" / EPUB-CFI-style precision, so a stop mid-way through a
+  /// huge webnovel paragraph restores to the exact line, not the
+  /// paragraph top.
+  final int blockChar;
+
+  /// The chapter's spine href at save time. If a recompiled volume shifts
+  /// chapter indexes, the reader re-finds the chapter by path.
+  final String? chapterPath;
   final int chapterCount;
   final String? updatedAt;
   final bool endReached;
@@ -281,6 +339,8 @@ class ReadingProgressRow extends DataClass
     required this.volumeKey,
     required this.chapterIndex,
     required this.blockIndex,
+    required this.blockChar,
+    this.chapterPath,
     required this.chapterCount,
     this.updatedAt,
     required this.endReached,
@@ -294,6 +354,10 @@ class ReadingProgressRow extends DataClass
     map['volume_key'] = Variable<String>(volumeKey);
     map['chapter_index'] = Variable<int>(chapterIndex);
     map['block_index'] = Variable<int>(blockIndex);
+    map['block_char'] = Variable<int>(blockChar);
+    if (!nullToAbsent || chapterPath != null) {
+      map['chapter_path'] = Variable<String>(chapterPath);
+    }
     map['chapter_count'] = Variable<int>(chapterCount);
     if (!nullToAbsent || updatedAt != null) {
       map['updated_at'] = Variable<String>(updatedAt);
@@ -314,6 +378,10 @@ class ReadingProgressRow extends DataClass
       volumeKey: Value(volumeKey),
       chapterIndex: Value(chapterIndex),
       blockIndex: Value(blockIndex),
+      blockChar: Value(blockChar),
+      chapterPath: chapterPath == null && nullToAbsent
+          ? const Value.absent()
+          : Value(chapterPath),
       chapterCount: Value(chapterCount),
       updatedAt: updatedAt == null && nullToAbsent
           ? const Value.absent()
@@ -338,6 +406,8 @@ class ReadingProgressRow extends DataClass
       volumeKey: serializer.fromJson<String>(json['volumeKey']),
       chapterIndex: serializer.fromJson<int>(json['chapterIndex']),
       blockIndex: serializer.fromJson<int>(json['blockIndex']),
+      blockChar: serializer.fromJson<int>(json['blockChar']),
+      chapterPath: serializer.fromJson<String?>(json['chapterPath']),
       chapterCount: serializer.fromJson<int>(json['chapterCount']),
       updatedAt: serializer.fromJson<String?>(json['updatedAt']),
       endReached: serializer.fromJson<bool>(json['endReached']),
@@ -353,6 +423,8 @@ class ReadingProgressRow extends DataClass
       'volumeKey': serializer.toJson<String>(volumeKey),
       'chapterIndex': serializer.toJson<int>(chapterIndex),
       'blockIndex': serializer.toJson<int>(blockIndex),
+      'blockChar': serializer.toJson<int>(blockChar),
+      'chapterPath': serializer.toJson<String?>(chapterPath),
       'chapterCount': serializer.toJson<int>(chapterCount),
       'updatedAt': serializer.toJson<String?>(updatedAt),
       'endReached': serializer.toJson<bool>(endReached),
@@ -366,6 +438,8 @@ class ReadingProgressRow extends DataClass
     String? volumeKey,
     int? chapterIndex,
     int? blockIndex,
+    int? blockChar,
+    Value<String?> chapterPath = const Value.absent(),
     int? chapterCount,
     Value<String?> updatedAt = const Value.absent(),
     bool? endReached,
@@ -376,6 +450,8 @@ class ReadingProgressRow extends DataClass
     volumeKey: volumeKey ?? this.volumeKey,
     chapterIndex: chapterIndex ?? this.chapterIndex,
     blockIndex: blockIndex ?? this.blockIndex,
+    blockChar: blockChar ?? this.blockChar,
+    chapterPath: chapterPath.present ? chapterPath.value : this.chapterPath,
     chapterCount: chapterCount ?? this.chapterCount,
     updatedAt: updatedAt.present ? updatedAt.value : this.updatedAt,
     endReached: endReached ?? this.endReached,
@@ -392,6 +468,10 @@ class ReadingProgressRow extends DataClass
       blockIndex: data.blockIndex.present
           ? data.blockIndex.value
           : this.blockIndex,
+      blockChar: data.blockChar.present ? data.blockChar.value : this.blockChar,
+      chapterPath: data.chapterPath.present
+          ? data.chapterPath.value
+          : this.chapterPath,
       chapterCount: data.chapterCount.present
           ? data.chapterCount.value
           : this.chapterCount,
@@ -413,6 +493,8 @@ class ReadingProgressRow extends DataClass
           ..write('volumeKey: $volumeKey, ')
           ..write('chapterIndex: $chapterIndex, ')
           ..write('blockIndex: $blockIndex, ')
+          ..write('blockChar: $blockChar, ')
+          ..write('chapterPath: $chapterPath, ')
           ..write('chapterCount: $chapterCount, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('endReached: $endReached, ')
@@ -428,6 +510,8 @@ class ReadingProgressRow extends DataClass
     volumeKey,
     chapterIndex,
     blockIndex,
+    blockChar,
+    chapterPath,
     chapterCount,
     updatedAt,
     endReached,
@@ -442,6 +526,8 @@ class ReadingProgressRow extends DataClass
           other.volumeKey == this.volumeKey &&
           other.chapterIndex == this.chapterIndex &&
           other.blockIndex == this.blockIndex &&
+          other.blockChar == this.blockChar &&
+          other.chapterPath == this.chapterPath &&
           other.chapterCount == this.chapterCount &&
           other.updatedAt == this.updatedAt &&
           other.endReached == this.endReached &&
@@ -454,6 +540,8 @@ class ReadingProgressRowsCompanion extends UpdateCompanion<ReadingProgressRow> {
   final Value<String> volumeKey;
   final Value<int> chapterIndex;
   final Value<int> blockIndex;
+  final Value<int> blockChar;
+  final Value<String?> chapterPath;
   final Value<int> chapterCount;
   final Value<String?> updatedAt;
   final Value<bool> endReached;
@@ -465,6 +553,8 @@ class ReadingProgressRowsCompanion extends UpdateCompanion<ReadingProgressRow> {
     this.volumeKey = const Value.absent(),
     this.chapterIndex = const Value.absent(),
     this.blockIndex = const Value.absent(),
+    this.blockChar = const Value.absent(),
+    this.chapterPath = const Value.absent(),
     this.chapterCount = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.endReached = const Value.absent(),
@@ -477,6 +567,8 @@ class ReadingProgressRowsCompanion extends UpdateCompanion<ReadingProgressRow> {
     required String volumeKey,
     this.chapterIndex = const Value.absent(),
     this.blockIndex = const Value.absent(),
+    this.blockChar = const Value.absent(),
+    this.chapterPath = const Value.absent(),
     this.chapterCount = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.endReached = const Value.absent(),
@@ -489,6 +581,8 @@ class ReadingProgressRowsCompanion extends UpdateCompanion<ReadingProgressRow> {
     Expression<String>? volumeKey,
     Expression<int>? chapterIndex,
     Expression<int>? blockIndex,
+    Expression<int>? blockChar,
+    Expression<String>? chapterPath,
     Expression<int>? chapterCount,
     Expression<String>? updatedAt,
     Expression<bool>? endReached,
@@ -501,6 +595,8 @@ class ReadingProgressRowsCompanion extends UpdateCompanion<ReadingProgressRow> {
       if (volumeKey != null) 'volume_key': volumeKey,
       if (chapterIndex != null) 'chapter_index': chapterIndex,
       if (blockIndex != null) 'block_index': blockIndex,
+      if (blockChar != null) 'block_char': blockChar,
+      if (chapterPath != null) 'chapter_path': chapterPath,
       if (chapterCount != null) 'chapter_count': chapterCount,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (endReached != null) 'end_reached': endReached,
@@ -515,6 +611,8 @@ class ReadingProgressRowsCompanion extends UpdateCompanion<ReadingProgressRow> {
     Value<String>? volumeKey,
     Value<int>? chapterIndex,
     Value<int>? blockIndex,
+    Value<int>? blockChar,
+    Value<String?>? chapterPath,
     Value<int>? chapterCount,
     Value<String?>? updatedAt,
     Value<bool>? endReached,
@@ -527,6 +625,8 @@ class ReadingProgressRowsCompanion extends UpdateCompanion<ReadingProgressRow> {
       volumeKey: volumeKey ?? this.volumeKey,
       chapterIndex: chapterIndex ?? this.chapterIndex,
       blockIndex: blockIndex ?? this.blockIndex,
+      blockChar: blockChar ?? this.blockChar,
+      chapterPath: chapterPath ?? this.chapterPath,
       chapterCount: chapterCount ?? this.chapterCount,
       updatedAt: updatedAt ?? this.updatedAt,
       endReached: endReached ?? this.endReached,
@@ -548,6 +648,12 @@ class ReadingProgressRowsCompanion extends UpdateCompanion<ReadingProgressRow> {
     }
     if (blockIndex.present) {
       map['block_index'] = Variable<int>(blockIndex.value);
+    }
+    if (blockChar.present) {
+      map['block_char'] = Variable<int>(blockChar.value);
+    }
+    if (chapterPath.present) {
+      map['chapter_path'] = Variable<String>(chapterPath.value);
     }
     if (chapterCount.present) {
       map['chapter_count'] = Variable<int>(chapterCount.value);
@@ -579,6 +685,8 @@ class ReadingProgressRowsCompanion extends UpdateCompanion<ReadingProgressRow> {
           ..write('volumeKey: $volumeKey, ')
           ..write('chapterIndex: $chapterIndex, ')
           ..write('blockIndex: $blockIndex, ')
+          ..write('blockChar: $blockChar, ')
+          ..write('chapterPath: $chapterPath, ')
           ..write('chapterCount: $chapterCount, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('endReached: $endReached, ')
@@ -2178,6 +2286,8 @@ typedef $$ReadingProgressRowsTableCreateCompanionBuilder =
       required String volumeKey,
       Value<int> chapterIndex,
       Value<int> blockIndex,
+      Value<int> blockChar,
+      Value<String?> chapterPath,
       Value<int> chapterCount,
       Value<String?> updatedAt,
       Value<bool> endReached,
@@ -2191,6 +2301,8 @@ typedef $$ReadingProgressRowsTableUpdateCompanionBuilder =
       Value<String> volumeKey,
       Value<int> chapterIndex,
       Value<int> blockIndex,
+      Value<int> blockChar,
+      Value<String?> chapterPath,
       Value<int> chapterCount,
       Value<String?> updatedAt,
       Value<bool> endReached,
@@ -2221,6 +2333,16 @@ class $$ReadingProgressRowsTableFilterComposer
 
   ColumnFilters<int> get blockIndex => $composableBuilder(
     column: $table.blockIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get blockChar => $composableBuilder(
+    column: $table.blockChar,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get chapterPath => $composableBuilder(
+    column: $table.chapterPath,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -2279,6 +2401,16 @@ class $$ReadingProgressRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get blockChar => $composableBuilder(
+    column: $table.blockChar,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get chapterPath => $composableBuilder(
+    column: $table.chapterPath,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get chapterCount => $composableBuilder(
     column: $table.chapterCount,
     builder: (column) => ColumnOrderings(column),
@@ -2329,6 +2461,14 @@ class $$ReadingProgressRowsTableAnnotationComposer
 
   GeneratedColumn<int> get blockIndex => $composableBuilder(
     column: $table.blockIndex,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get blockChar =>
+      $composableBuilder(column: $table.blockChar, builder: (column) => column);
+
+  GeneratedColumn<String> get chapterPath => $composableBuilder(
+    column: $table.chapterPath,
     builder: (column) => column,
   );
 
@@ -2403,6 +2543,8 @@ class $$ReadingProgressRowsTableTableManager
                 Value<String> volumeKey = const Value.absent(),
                 Value<int> chapterIndex = const Value.absent(),
                 Value<int> blockIndex = const Value.absent(),
+                Value<int> blockChar = const Value.absent(),
+                Value<String?> chapterPath = const Value.absent(),
                 Value<int> chapterCount = const Value.absent(),
                 Value<String?> updatedAt = const Value.absent(),
                 Value<bool> endReached = const Value.absent(),
@@ -2414,6 +2556,8 @@ class $$ReadingProgressRowsTableTableManager
                 volumeKey: volumeKey,
                 chapterIndex: chapterIndex,
                 blockIndex: blockIndex,
+                blockChar: blockChar,
+                chapterPath: chapterPath,
                 chapterCount: chapterCount,
                 updatedAt: updatedAt,
                 endReached: endReached,
@@ -2427,6 +2571,8 @@ class $$ReadingProgressRowsTableTableManager
                 required String volumeKey,
                 Value<int> chapterIndex = const Value.absent(),
                 Value<int> blockIndex = const Value.absent(),
+                Value<int> blockChar = const Value.absent(),
+                Value<String?> chapterPath = const Value.absent(),
                 Value<int> chapterCount = const Value.absent(),
                 Value<String?> updatedAt = const Value.absent(),
                 Value<bool> endReached = const Value.absent(),
@@ -2438,6 +2584,8 @@ class $$ReadingProgressRowsTableTableManager
                 volumeKey: volumeKey,
                 chapterIndex: chapterIndex,
                 blockIndex: blockIndex,
+                blockChar: blockChar,
+                chapterPath: chapterPath,
                 chapterCount: chapterCount,
                 updatedAt: updatedAt,
                 endReached: endReached,

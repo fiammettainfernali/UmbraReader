@@ -91,6 +91,10 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// can't trigger a second (skipped-chapter) cross.
   DateTime _lastChapterChange = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// Character offset within [_pendingRestoreBlock]'s text to restore to —
+  /// the line-level precision part of the saved position.
+  int _pendingRestoreChar = 0;
+
   /// Block index to restore to on open; consumed once the content lays out.
   int? _pendingRestoreBlock;
 
@@ -293,8 +297,16 @@ class _ReaderScreenState extends State<ReaderScreen>
         return;
       }
       final progress = await _progressStore.load(widget.volume);
-      final chapterIndex = (widget.initialChapterIndex ?? progress.chapterIndex)
+      var chapterIndex = (widget.initialChapterIndex ?? progress.chapterIndex)
           .clamp(0, book.chapters.length - 1);
+      // Recompiled-volume resilience: if the saved chapter still exists but
+      // at a different index (chapters inserted/reordered), follow its
+      // spine path instead of the stale number.
+      final savedPath = progress.chapterPath;
+      if (widget.initialChapterIndex == null && savedPath != null) {
+        final byPath = book.chapters.indexWhere((c) => c.zipPath == savedPath);
+        if (byPath >= 0) chapterIndex = byPath;
+      }
       final blocks = parser.parseChapter(book.chapters[chapterIndex]);
       if (!mounted) return;
       setState(() {
@@ -311,6 +323,10 @@ class _ReaderScreenState extends State<ReaderScreen>
                 0,
                 blocks.length - 1,
               );
+        // Search hits target a block; the saved position carries the char.
+        _pendingRestoreChar = widget.initialBlockIndex != null
+            ? 0
+            : progress.blockChar;
         _loading = false;
       });
       _applyOrientation(settings.orientation);
@@ -372,6 +388,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         ReadingProgress(
           chapterIndex: _chapterIndex,
           blockIndex: blocks.isEmpty ? 0 : block.clamp(0, blocks.length - 1),
+          chapterPath: _currentChapterPath,
           chapterCount: book.chapters.length,
           endReached: true,
         ),
@@ -403,6 +420,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       ReadingProgress(
         chapterIndex: clamped,
         blockIndex: 0,
+        chapterPath: book.chapters[clamped].zipPath,
         chapterCount: book.chapters.length,
       ),
     );
@@ -539,19 +557,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     return pageBlocks.isEmpty ? 0 : pageBlocks.first.originIndex;
   }
 
-  /// The first spread (PageController page) that shows any part of
-  /// [blockIndex] in paged mode.
-  int _pageForBlock(int blockIndex) {
-    final pages = _pages ?? const <List<PageBlock>>[];
-    for (var i = 0; i < pages.length; i++) {
-      for (final pb in pages[i]) {
-        if (pb.originIndex == blockIndex) return i ~/ _pageStride;
-      }
-    }
-    if (pages.isEmpty) return 0;
-    return (pages.length - 1) ~/ _pageStride;
-  }
-
   /// The spread (PageController page) showing block [blockIndex] at
   /// character [charOffset] — so read-aloud follow stays correct for a
   /// paragraph that spans pages.
@@ -585,9 +590,11 @@ class _ReaderScreenState extends State<ReaderScreen>
     final ttsActive =
         ttsEngine.state != TtsPlaybackState.stopped && speakingBlock != null;
     final int block;
+    final int blockChar;
     final bool atEnd;
     if (ttsActive) {
       block = speakingBlock!.clamp(0, blocks.isEmpty ? 0 : blocks.length - 1);
+      blockChar = speakingStart;
       atEnd = blocks.isNotEmpty && block >= blocks.length - 1;
       // Record the word-level resume point (Kokoro can seek back to it).
       _progressStore.saveResumeOffset(widget.volume, block, speakingStart);
@@ -596,10 +603,12 @@ class _ReaderScreenState extends State<ReaderScreen>
       // during dispose) — saving a fallback 0 would clobber the real position.
       if (!_pageController.hasClients) return;
       block = _pagedTopBlockIndex();
+      blockChar = _pagedTopChar(block);
       atEnd = _isAtChapterEnd();
     } else {
       if (!_scrollController.hasClients) return;
       block = _scrollTopBlockIndex();
+      blockChar = _scrollTopChar(block);
       atEnd = _isAtChapterEnd();
     }
     final chapterCount = _book?.chapters.length ?? 0;
@@ -612,10 +621,55 @@ class _ReaderScreenState extends State<ReaderScreen>
       ReadingProgress(
         chapterIndex: _chapterIndex,
         blockIndex: block,
+        blockChar: blockChar,
+        chapterPath: _currentChapterPath,
         chapterCount: chapterCount,
         endReached: onLastChapter && atEnd,
       ),
     );
+  }
+
+  /// Spine href of the open chapter — the recompile-proof anchor stored
+  /// alongside the numeric index.
+  String? get _currentChapterPath {
+    final book = _book;
+    if (book == null ||
+        _chapterIndex < 0 ||
+        _chapterIndex >= book.chapters.length) {
+      return null;
+    }
+    return book.chapters[_chapterIndex].zipPath;
+  }
+
+  /// Character offset (line start) of the first visible line within [block]
+  /// in scroll mode — 0 when the block top is visible or it isn't text.
+  int _scrollTopChar(int block) {
+    final blocks = _blocks ?? const <ContentBlock>[];
+    if (block < 0 || block >= blocks.length) return 0;
+    final b = blocks[block];
+    if (b is! ParagraphBlock || !_scrollController.hasClients) return 0;
+    final yIn = _scrollController.offset - _blockOffset(block);
+    if (yIn <= 4) return 0;
+    final painter = layoutParagraph(b.runs, _lastContentWidth, _settings);
+    final pos = painter.getPositionForOffset(
+      Offset(0, (yIn + 1).clamp(0.0, painter.height)),
+    );
+    return painter.getLineBoundary(pos).start;
+  }
+
+  /// Character offset of the current page's first slice when it belongs to
+  /// [block] — the paged-mode precision component.
+  int _pagedTopChar(int block) {
+    final pages = _pages;
+    if (pages == null || pages.isEmpty || !_pageController.hasClients) {
+      return 0;
+    }
+    final spread = _pageController.page?.round() ?? 0;
+    final underlying = (spread * _pageStride).clamp(0, pages.length - 1);
+    final pageBlocks = pages[underlying];
+    if (pageBlocks.isEmpty) return 0;
+    final first = pageBlocks.first;
+    return first.originIndex == block ? first.charOffset : 0;
   }
 
   /// True when the view is at the very end of the current chapter — the last
@@ -712,8 +766,26 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (block == null || _settings.mode != ReadingMode.scroll) return;
     if (!_scrollController.hasClients) return;
     _pendingRestoreBlock = null;
+    var offset = _blockOffset(block);
+    final char = _pendingRestoreChar;
+    _pendingRestoreChar = 0;
+    final blocks = _blocks ?? const <ContentBlock>[];
+    if (char > 0 && block < blocks.length) {
+      final b = blocks[block];
+      if (b is ParagraphBlock) {
+        // Land on the exact line the reader stopped at, not the paragraph
+        // top — webnovel paragraphs can be a whole screen tall.
+        final painter = layoutParagraph(b.runs, _lastContentWidth, _settings);
+        offset += painter
+            .getOffsetForCaret(
+              TextPosition(offset: char.clamp(0, runsLength(b.runs))),
+              Rect.zero,
+            )
+            .dy;
+      }
+    }
     _scrollController.jumpTo(
-      _blockOffset(block).clamp(0.0, _scrollController.position.maxScrollExtent),
+      offset.clamp(0.0, _scrollController.position.maxScrollExtent),
     );
   }
 
@@ -881,7 +953,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     // page height changes, so remembering the page number landed on the wrong
     // content.
     if (_settings.mode == ReadingMode.paged && _pageController.hasClients) {
-      _pendingRestoreBlock = _pagedTopBlockIndex();
+      final block = _pagedTopBlockIndex();
+      _pendingRestoreBlock = block;
+      _pendingRestoreChar = _pagedTopChar(block);
     }
     setState(() => _chromeVisible = !_chromeVisible);
   }
@@ -1372,6 +1446,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       ReadingProgress(
         chapterIndex: clamped,
         blockIndex: targetBlock,
+        chapterPath: book.chapters[clamped].zipPath,
         chapterCount: book.chapters.length,
       ),
     );
@@ -1874,8 +1949,12 @@ class _ReaderScreenState extends State<ReaderScreen>
           final spreadCount = (pageCount / stride).ceil().clamp(1, 1 << 30);
           final int wanted;
           if (_pendingRestoreBlock != null) {
-            wanted = _pageForBlock(_pendingRestoreBlock!);
+            wanted = _pageForBlockAt(
+              _pendingRestoreBlock!,
+              _pendingRestoreChar,
+            );
             _pendingRestoreBlock = null;
+            _pendingRestoreChar = 0;
           } else if (_pageJumpTarget == kLastPage) {
             wanted = spreadCount - 1;
           } else {

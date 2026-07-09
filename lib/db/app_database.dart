@@ -16,6 +16,17 @@ class ReadingProgressRows extends Table {
 
   IntColumn get chapterIndex => integer().withDefault(const Constant(0))();
   IntColumn get blockIndex => integer().withDefault(const Constant(0))();
+
+  /// Character offset of the first visible line within the block — Kindle
+  /// "location" / EPUB-CFI-style precision, so a stop mid-way through a
+  /// huge webnovel paragraph restores to the exact line, not the
+  /// paragraph top.
+  IntColumn get blockChar => integer().withDefault(const Constant(0))();
+
+  /// The chapter's spine href at save time. If a recompiled volume shifts
+  /// chapter indexes, the reader re-finds the chapter by path.
+  TextColumn get chapterPath => text().nullable()();
+
   IntColumn get chapterCount => integer().withDefault(const Constant(0))();
   TextColumn get updatedAt => text().nullable()();
   BoolColumn get endReached => boolean().withDefault(const Constant(false))();
@@ -138,7 +149,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -151,6 +162,14 @@ class AppDatabase extends _$AppDatabase {
         await m.createTable(dailyActivityRows);
         await m.createTable(volumeActivityRows);
         await m.createTable(kvRows);
+      }
+      if (from < 3) {
+        // v3: character-precision reading positions + spine-path anchors.
+        await m.addColumn(readingProgressRows, readingProgressRows.blockChar);
+        await m.addColumn(
+          readingProgressRows,
+          readingProgressRows.chapterPath,
+        );
       }
     },
   );

@@ -12,6 +12,8 @@ class ReadingProgress {
   const ReadingProgress({
     required this.chapterIndex,
     required this.blockIndex,
+    this.blockChar = 0,
+    this.chapterPath,
     this.chapterCount = 0,
     this.updatedAt,
     this.endReached = false,
@@ -21,6 +23,15 @@ class ReadingProgress {
 
   /// Index of the paragraph/heading block at the top of the view.
   final int blockIndex;
+
+  /// Character offset of the first visible line within [blockIndex] —
+  /// Kindle-location / EPUB-CFI-grade precision, so stopping mid-way
+  /// through a huge paragraph restores to the exact line.
+  final int blockChar;
+
+  /// The chapter's spine href at save time; lets the reader re-find the
+  /// chapter if a recompiled volume shifts indexes.
+  final String? chapterPath;
 
   /// Total chapters in the book — 0 when not recorded (legacy entries).
   final int chapterCount;
@@ -78,6 +89,8 @@ class ReadingProgressStore {
   static const _volumePrefix = 'reading_volume:';
   static const _endPrefix = 'reading_end:';
   static const _resumePrefix = 'tts_resume:';
+  static const _charPrefix = 'reading_charoff:';
+  static const _pathPrefix = 'reading_path:';
   static const _hiddenKey = 'continue_hidden';
 
   /// Set once the legacy prefs data has been imported into SQLite.
@@ -94,6 +107,8 @@ class ReadingProgressStore {
   ReadingProgress _fromRow(ReadingProgressRow row) => ReadingProgress(
     chapterIndex: row.chapterIndex,
     blockIndex: row.blockIndex,
+    blockChar: row.blockChar,
+    chapterPath: row.chapterPath,
     chapterCount: row.chapterCount,
     updatedAt: DateTime.tryParse(row.updatedAt ?? ''),
     endReached: row.endReached,
@@ -139,6 +154,8 @@ class ReadingProgressStore {
       volumeKey: Value(_key(volume)),
       chapterIndex: Value(progress.chapterIndex),
       blockIndex: Value(progress.blockIndex),
+      blockChar: Value(progress.blockChar),
+      chapterPath: Value(progress.chapterPath),
       chapterCount: Value(progress.chapterCount),
       updatedAt: Value(DateTime.now().toIso8601String()),
       endReached: Value(endReached),
@@ -160,6 +177,8 @@ class ReadingProgressStore {
       ReadingProgress(
         chapterIndex: current.chapterIndex,
         blockIndex: current.blockIndex,
+        blockChar: current.blockChar,
+        chapterPath: current.chapterPath,
         chapterCount: current.chapterCount,
         updatedAt: current.updatedAt,
         endReached: true,
@@ -306,6 +325,8 @@ class ReadingProgressStore {
           volumeKey: key,
           chapterIndex: Value(prefs.getInt('$_chapterPrefix$key') ?? 0),
           blockIndex: Value(prefs.getInt('$_blockPrefix$key') ?? 0),
+          blockChar: Value(prefs.getInt('$_charPrefix$key') ?? 0),
+          chapterPath: Value(prefs.getString('$_pathPrefix$key')),
           chapterCount: Value(prefs.getInt('$_countPrefix$key') ?? 0),
           updatedAt: Value(prefs.getString('$_timePrefix$key')),
           endReached: Value(_legacyEndReached(prefs, key)),
@@ -332,6 +353,10 @@ class ReadingProgressStore {
       final key = row.volumeKey;
       out['$_chapterPrefix$key'] = row.chapterIndex;
       out['$_blockPrefix$key'] = row.blockIndex;
+      if (row.blockChar != 0) out['$_charPrefix$key'] = row.blockChar;
+      if (row.chapterPath != null) {
+        out['$_pathPrefix$key'] = row.chapterPath!;
+      }
       out['$_countPrefix$key'] = row.chapterCount;
       out['$_endPrefix$key'] = row.endReached;
       if (row.updatedAt != null) out['$_timePrefix$key'] = row.updatedAt!;
@@ -355,6 +380,9 @@ class ReadingProgressStore {
         _key(e.volume): {
           'chapterIndex': e.progress.chapterIndex,
           'blockIndex': e.progress.blockIndex,
+          if (e.progress.blockChar != 0) 'blockChar': e.progress.blockChar,
+          if (e.progress.chapterPath != null)
+            'chapterPath': e.progress.chapterPath,
           'chapterCount': e.progress.chapterCount,
           'updatedAt': e.progress.updatedAt?.toIso8601String(),
           'endReached': e.progress.endReached,
@@ -398,6 +426,8 @@ class ReadingProgressStore {
         volumeKey: Value(key),
         chapterIndex: Value((value['chapterIndex'] as num?)?.toInt() ?? 0),
         blockIndex: Value((value['blockIndex'] as num?)?.toInt() ?? 0),
+        blockChar: Value((value['blockChar'] as num?)?.toInt() ?? 0),
+        chapterPath: Value(value['chapterPath'] as String?),
         chapterCount: Value((value['chapterCount'] as num?)?.toInt() ?? 0),
         updatedAt: Value(cloudUpdated.toIso8601String()),
         endReached: Value(value['endReached'] == true),
