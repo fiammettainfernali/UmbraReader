@@ -92,6 +92,15 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// can't trigger a second (skipped-chapter) cross.
   DateTime _lastChapterChange = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// Reading-ruler band index on the current page (paged mode): the band
+  /// steps down the page tap by tap, rolling into a page turn at the
+  /// bottom. Reset to the top on any page/chapter change.
+  int _rulerBand = 0;
+
+  /// The spread the ruler band was last positioned on — a manual swipe
+  /// bypasses _advance, so the position tick resets the band on change.
+  int _rulerSpread = 0;
+
   /// Character offset within [_pendingRestoreBlock]'s text to restore to —
   /// the line-level precision part of the saved position.
   int _pendingRestoreChar = 0;
@@ -702,6 +711,17 @@ class _ReaderScreenState extends State<ReaderScreen>
   int _lastSavedBlock = -1;
 
   void _onPositionTick() {
+    // A page change from any source (swipe, scrubber, follow) resets the
+    // ruler band to the top of the new page.
+    if (_settings.lineFocus &&
+        _settings.mode == ReadingMode.paged &&
+        _pageController.hasClients) {
+      final spread = _pageController.page?.round() ?? 0;
+      if (spread != _rulerSpread) {
+        _rulerSpread = spread;
+        if (_rulerBand != 0) setState(() => _rulerBand = 0);
+      }
+    }
     final fraction = _computeChapterFraction();
     if ((fraction * 200).round() != (_chapterFraction * 200).round()) {
       setState(() => _chapterFraction = fraction);
@@ -1532,7 +1552,53 @@ class _ReaderScreenState extends State<ReaderScreen>
     setState(() => _chapterFraction = clamped);
   }
 
+  /// Height of the ruler's content area (mirrors contentPadding).
+  double _rulerAreaHeight() {
+    final mq = MediaQuery.of(context);
+    return _chromeVisible
+        ? mq.size.height -
+              (mq.padding.top + kTopBarHeight) -
+              (mq.padding.bottom + kBottomBarHeight)
+        : mq.size.height - (mq.padding.top + 8) - (mq.padding.bottom + 8);
+  }
+
+  double get _rulerBandHeight =>
+      _settings.fontSize * _settings.lineHeight * 3.2;
+
+  /// Highest band index that still shows content on the page.
+  int get _rulerMaxBand {
+    final h = _rulerAreaHeight();
+    if (h <= 0) return 0;
+    return ((h / _rulerBandHeight).ceil() - 1).clamp(0, 999);
+  }
+
   void _advance({required bool forward}) {
+    // Stepping band: with the ruler on in paged mode, the page is static,
+    // so the focus band moves instead of the text — each advance steps the
+    // band one height down, rolling into a real page turn at the bottom
+    // (and back up / page-back in reverse).
+    if (_settings.lineFocus && _settings.mode == ReadingMode.paged) {
+      if (forward) {
+        if (_rulerBand < _rulerMaxBand) {
+          HapticFeedback.selectionClick();
+          setState(() => _rulerBand++);
+          return;
+        }
+        _rulerBand = 0; // page turns below; new page starts at the top
+      } else {
+        if (_rulerBand > 0) {
+          HapticFeedback.selectionClick();
+          setState(() => _rulerBand--);
+          return;
+        }
+        // Paging back lands the band on the bottom of the previous page.
+        _rulerBand = _rulerMaxBand;
+      }
+    }
+    _advancePage(forward: forward);
+  }
+
+  void _advancePage({required bool forward}) {
     if (_settings.mode == ReadingMode.paged) {
       final pages = _pages ?? const [];
       final current =
@@ -1821,8 +1887,12 @@ class _ReaderScreenState extends State<ReaderScreen>
                         padding: contentPadding,
                         child: LineFocusOverlay(
                           background: preset.background,
-                          bandHeight:
-                              _settings.fontSize * _settings.lineHeight * 3.2,
+                          bandHeight: _rulerBandHeight,
+                          // Paged: the band steps down the static page.
+                          // Scroll: fixed teleprompter position.
+                          bandTop: _settings.mode == ReadingMode.paged
+                              ? _rulerBand * _rulerBandHeight
+                              : null,
                         ),
                       ),
                     ),

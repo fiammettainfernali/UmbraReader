@@ -155,6 +155,51 @@ void main() {
     CloudSyncService().cancelPendingTimers();
   });
 
+  testWidgets('paged ruler: taps step the band, then turn the page', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'reader_mode': 'paged',
+      'reader_line_focus': true,
+    });
+    await tester.pumpWidget(MaterialApp(home: ReaderScreen(volume: _volume())));
+    await _settle(tester);
+    expect(find.textContaining('Short first', findRichText: true),
+        findsOneWidget);
+
+    final size = tester.getSize(find.byType(ReaderScreen));
+    final rightEdge = Offset(size.width * 0.9, size.height * 0.5);
+    await tester.tapAt(rightEdge); // hide chrome
+    await _settle(tester);
+
+    // First advance must step the band, NOT turn the page (this chapter is
+    // a single page — without the stepping band it would jump to ch2).
+    await tester.tapAt(rightEdge);
+    await _settle(tester);
+    expect(
+      find.textContaining('Short first', findRichText: true),
+      findsOneWidget,
+      reason: 'the first tap steps the focus band, not the page',
+    );
+
+    // Keep advancing: once the band reaches the page bottom, the next tap
+    // turns the page for real.
+    var turned = false;
+    for (var i = 0; i < 15 && !turned; i++) {
+      await tester.tapAt(rightEdge);
+      await _settle(tester);
+      turned = find
+          .textContaining('Second chapter', findRichText: true)
+          .evaluate()
+          .isNotEmpty;
+    }
+    expect(turned, isTrue, reason: 'band rollover must still turn pages');
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    CloudSyncService().cancelPendingTimers();
+  });
+
   testWidgets('long-press on a word opens the dictionary for it', (
     tester,
   ) async {
