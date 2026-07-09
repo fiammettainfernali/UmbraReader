@@ -51,17 +51,47 @@ class ReadingActivity {
     return total;
   }
 
-  /// Consecutive days up to and including today with at least one second
-  /// of reading. Zero when the user hasn't read today.
-  int currentStreak({DateTime? now}) {
+  /// Consecutive reading days ending today — with grace:
+  ///
+  ///  - Today without reading yet does NOT break the streak (the day isn't
+  ///    over); the count then ends at yesterday.
+  ///  - One missed day per rolling 7 is forgiven (a "rest day"), so a
+  ///    single off-day doesn't zero weeks of momentum. Two gaps within a
+  ///    week ends the streak. [streakUsedGrace] reports honestly when the
+  ///    current streak leans on a rest day.
+  int currentStreak({DateTime? now}) => _streak(now).$1;
+
+  /// True when the current streak includes a forgiven rest day.
+  bool streakUsedGrace({DateTime? now}) => _streak(now).$2;
+
+  (int, bool) _streak(DateTime? now) {
     final today = _today(now);
+    var cursor = (dailySeconds[_dateKey(today)] ?? 0) > 0
+        ? today
+        : today.subtract(const Duration(days: 1));
     var streak = 0;
-    var cursor = today;
-    while ((dailySeconds[_dateKey(cursor)] ?? 0) > 0) {
-      streak++;
+    var usedGrace = false;
+    var daysSinceGrace = 8; // no forgiveness spent yet
+    while (true) {
+      final read = (dailySeconds[_dateKey(cursor)] ?? 0) > 0;
+      if (read) {
+        streak++;
+      } else {
+        // A gap: forgivable only if reading continues on the far side and
+        // no other rest day was spent in the trailing week.
+        final dayBefore = cursor.subtract(const Duration(days: 1));
+        final continues = (dailySeconds[_dateKey(dayBefore)] ?? 0) > 0;
+        if (streak > 0 && continues && daysSinceGrace >= 7) {
+          usedGrace = true;
+          daysSinceGrace = 0;
+        } else {
+          break;
+        }
+      }
+      daysSinceGrace++;
       cursor = cursor.subtract(const Duration(days: 1));
     }
-    return streak;
+    return (streak, usedGrace);
   }
 
   /// The longest run of consecutive days with any reading, across all

@@ -183,18 +183,21 @@ Atkinson Hyperlegible bundled, Reduce Motion support, glossary,
 distraction-free immersive mode, line-precision resume.
 
 ### Quick wins (days each)
-- [ ] **Reading ruler / line focus.** Dim everything except the current
-      2-4 lines; tap or swipe advances the focus band. The single most
-      requested ADHD reading aid.
+- [x] **Reading ruler / line focus.** "Reading ruler" toggle in Layout &
+      motion: dims all but a ~3-line band at the teleprompter position
+      (LineFocusOverlay — pure pointer-transparent overlay, theme-tinted
+      scrims so dimmed text ghosts through); text scrolls/pages through
+      the fixed band. Pairs naturally with auto-scroll.
 - [ ] **Focus-paragraph mode.** Render one paragraph at a time (chunking);
       tap advances. Reuses the block model directly.
 - [ ] **Fixation anchors (Bionic-style).** Bold the first 2-3 letters of
       each word. Evidence is mixed but many ADHD readers swear by it —
       cheap toggle, rendered via TextRun splitting (measurement stays
       consistent since we control both sides).
-- [ ] **Streak grace.** One missed day doesn't zero the streak (a "rest
-      day" per week, shown honestly). Punitive streaks demotivate the
-      exact people streaks are supposed to help.
+- [x] **Streak grace.** currentStreak now forgives one missed day per
+      rolling week (shown honestly: chip reads "(rest day used)"), and a
+      not-yet-read today no longer zeroes the streak before the day is
+      over. Two gaps in a week still end it.
 - [ ] **Letter/word/paragraph spacing controls.** We pinned spacing for
       pagination correctness; expose it as a real setting threaded through
       measurement (visual crowding is a genuine barrier).

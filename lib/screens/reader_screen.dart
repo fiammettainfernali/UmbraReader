@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../reader/block_view.dart';
+import '../reader/line_focus_overlay.dart';
 import '../reader/book_search_screen.dart';
 import '../reader/bookmarks_sheet.dart';
 import '../reader/reader_chrome.dart';
@@ -1813,6 +1814,19 @@ class _ReaderScreenState extends State<ReaderScreen>
                     ),
                   ),
                 ),
+                if (_settings.lineFocus)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Padding(
+                        padding: contentPadding,
+                        child: LineFocusOverlay(
+                          background: preset.background,
+                          bandHeight:
+                              _settings.fontSize * _settings.lineHeight * 3.2,
+                        ),
+                      ),
+                    ),
+                  ),
                 Positioned(
                   top: 0,
                   left: 0,

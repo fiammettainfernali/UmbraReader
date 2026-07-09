@@ -30,6 +30,7 @@ class ReaderPreferences {
   static const _kBrightness = 'reader_brightness';
   static const _kTextAlign = 'reader_text_align';
   static const _kAutoScroll = 'reader_auto_scroll';
+  static const _kLineFocus = 'reader_line_focus';
   static const _kOrientation = 'reader_orientation';
   static const _kTvMode = 'reader_tv_mode';
   static const _kCenteredColumn = 'reader_centered_column';
@@ -51,7 +52,8 @@ class ReaderPreferences {
   static const _globalKeys = [
     _kMode, _kThemeId, _kFontFamily, _kFontSize, _kLineHeight, _kMargin,
     _kSpeechRate, _kVoiceName, _kVoiceLocale, _kBoldText, _kItalicText,
-    _kBrightness, _kTextAlign, _kAutoScroll, _kOrientation, _kTvMode,
+    _kBrightness, _kTextAlign, _kAutoScroll, _kLineFocus, _kOrientation,
+    _kTvMode,
     _kCenteredColumn, _kKeepAwake, _kAutoPageSeconds,
     _kTtsEngine, _kTtsServerUrl, _kTtsServerToken, _kTtsSkips,
   ];
@@ -107,6 +109,7 @@ class ReaderPreferences {
         orElse: () => d.textAlign,
       ),
       autoScroll: prefs.getBool('$p$_kAutoScroll') ?? d.autoScroll,
+      lineFocus: prefs.getBool('$p$_kLineFocus') ?? d.lineFocus,
       orientation: ReaderOrientation.values.firstWhere(
         (o) => o.name == prefs.getString('$p$_kOrientation'),
         orElse: () => d.orientation,
@@ -146,6 +149,7 @@ class ReaderPreferences {
     await prefs.setDouble('$p$_kBrightness', settings.brightness);
     await prefs.setString('$p$_kTextAlign', settings.textAlign.name);
     await prefs.setBool('$p$_kAutoScroll', settings.autoScroll);
+    await prefs.setBool('$p$_kLineFocus', settings.lineFocus);
     await prefs.setString('$p$_kOrientation', settings.orientation.name);
     await prefs.setBool('$p$_kTvMode', settings.tvMode);
     await prefs.setBool('$p$_kCenteredColumn', settings.centeredColumn);

@@ -101,6 +101,53 @@ void main() {
     expect((await store.load()).totalSeconds, 0);
   });
 
+  test('streak grace: today unread keeps the streak alive', () async {
+    final store = ReadingActivityStore();
+    final v = _volume();
+    // Read the last three days, nothing yet today (it's 9am).
+    for (var d = 1; d <= 3; d++) {
+      await store.record(
+        v,
+        const Duration(minutes: 10),
+        now: DateTime(2026, 7, 3 - d, 12),
+      );
+    }
+    final a = await store.load();
+    expect(a.currentStreak(now: DateTime(2026, 7, 3, 9)), 3);
+    expect(a.streakUsedGrace(now: DateTime(2026, 7, 3, 9)), isFalse);
+  });
+
+  test('streak grace: one rest day per week is forgiven', () async {
+    final store = ReadingActivityStore();
+    final v = _volume();
+    // Read July 1 and July 3 — July 2 was a rest day.
+    await store.record(v, const Duration(minutes: 10),
+        now: DateTime(2026, 7, 1, 12));
+    await store.record(v, const Duration(minutes: 10),
+        now: DateTime(2026, 7, 3, 12));
+    final a = await store.load();
+    expect(
+      a.currentStreak(now: DateTime(2026, 7, 3, 20)),
+      2,
+      reason: 'a single missed day must not zero the streak',
+    );
+    expect(a.streakUsedGrace(now: DateTime(2026, 7, 3, 20)), isTrue);
+  });
+
+  test('streak grace: two gaps in a week end the streak', () async {
+    final store = ReadingActivityStore();
+    final v = _volume();
+    // Read July 1, skipped 2, read 3, skipped 4, reading 5.
+    for (final day in [1, 3, 5]) {
+      await store.record(v, const Duration(minutes: 10),
+          now: DateTime(2026, 7, day, 12));
+    }
+    final a = await store.load();
+    // Walking back from the 5th: the gap on the 4th is forgiven, but the
+    // second gap (the 2nd) within the same week is not.
+    expect(a.currentStreak(now: DateTime(2026, 7, 5, 20)), 2);
+  });
+
   test('currentStreak counts back from today', () async {
     final store = ReadingActivityStore();
     final t0 = DateTime(2026, 5, 20, 12);

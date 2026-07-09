@@ -1344,8 +1344,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final goal = _dailyGoalMinutes;
     final goalMet = goal > 0 && todayMinutes >= goal;
 
+    final restDay = _activity.streakUsedGrace();
     final parts = <String>[
-      if (streak > 0) '$streak-day streak',
+      if (streak > 0) '$streak-day streak${restDay ? ' (rest day used)' : ''}',
       if (goal > 0)
         goalMet
             ? 'goal met — $todayMinutes min today'

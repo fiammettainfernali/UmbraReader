@@ -14,6 +14,7 @@ import 'package:path_provider_platform_interface/path_provider_platform_interfac
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:umbra_reader/models/volume.dart';
 import 'package:umbra_reader/screens/reader_screen.dart';
+import 'package:umbra_reader/reader/line_focus_overlay.dart';
 import 'package:umbra_reader/services/cloud_sync_service.dart';
 import 'package:umbra_reader/services/library_storage.dart';
 import 'package:umbra_reader/services/reading_progress_store.dart';
@@ -171,6 +172,18 @@ void main() {
           'a couple of lines (block-only precision restored to 0)',
     );
 
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    CloudSyncService().cancelPendingTimers();
+  });
+
+  testWidgets('reading ruler overlay appears when enabled', (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'reader_line_focus': true,
+    });
+    await tester.pumpWidget(MaterialApp(home: ReaderScreen(volume: _volume())));
+    await _settle(tester);
+    expect(find.byType(LineFocusOverlay), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
     CloudSyncService().cancelPendingTimers();

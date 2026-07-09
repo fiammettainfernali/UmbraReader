@@ -45,6 +45,7 @@ class ReaderSettings {
     required this.brightness,
     required this.textAlign,
     required this.autoScroll,
+    required this.lineFocus,
     required this.orientation,
     required this.tvMode,
     required this.centeredColumn,
@@ -96,6 +97,11 @@ class ReaderSettings {
   /// Whether the scroll-mode reader slowly auto-scrolls for hands-free
   /// reading. Crosses chapters automatically when it reaches the bottom.
   final bool autoScroll;
+
+  /// The reading ruler: dims everything except a band of a few lines at
+  /// the teleprompter position, so the eye can't wander — a focus aid for
+  /// ADHD/visual-stress readers. Text scrolls/pages through the fixed band.
+  final bool lineFocus;
 
   /// Locks the reader to a fixed orientation, or follows the system's
   /// auto-rotate setting when [ReaderOrientation.auto].
@@ -150,6 +156,7 @@ class ReaderSettings {
     brightness: 1.0,
     textAlign: ReaderTextAlign.left,
     autoScroll: false,
+    lineFocus: false,
     orientation: ReaderOrientation.auto,
     tvMode: false,
     centeredColumn: false,
@@ -178,6 +185,7 @@ class ReaderSettings {
     double? brightness,
     ReaderTextAlign? textAlign,
     bool? autoScroll,
+    bool? lineFocus,
     ReaderOrientation? orientation,
     bool? tvMode,
     bool? centeredColumn,
@@ -203,6 +211,7 @@ class ReaderSettings {
       brightness: brightness ?? this.brightness,
       textAlign: textAlign ?? this.textAlign,
       autoScroll: autoScroll ?? this.autoScroll,
+      lineFocus: lineFocus ?? this.lineFocus,
       orientation: orientation ?? this.orientation,
       tvMode: tvMode ?? this.tvMode,
       centeredColumn: centeredColumn ?? this.centeredColumn,

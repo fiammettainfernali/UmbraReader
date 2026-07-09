@@ -483,6 +483,18 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
                   dense: true,
+                  title: const Text('Reading ruler'),
+                  subtitle: const Text(
+                    'Dim everything except a few lines — a focus aid; the '
+                    'text moves through the bright band',
+                  ),
+                  value: _settings.lineFocus,
+                  onChanged: (on) =>
+                      _update(_settings.copyWith(lineFocus: on)),
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
                   title: const Text('Auto-scroll'),
                   subtitle: const Text(
                     'Slowly scrolls scroll-mode for hands-free reading',
