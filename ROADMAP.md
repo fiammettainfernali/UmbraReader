@@ -173,6 +173,73 @@ non-starter, so the personal pipeline never ships as part of the product.
 - [ ] **25. Localization.** Do `intl`/ARB *extraction* early (brutal to
       retrofit); translate only when downloads justify it.
 
+## Phase 6 — Focus & sensory accessibility (ADHD / autism)
+
+Principle: **accessibility features are never Pro-gated.** They ship free.
+Second principle: everything here is opt-in, individually toggleable, and
+never shames the reader. Existing foundations already serving this:
+word-highlighted read-aloud (dormant, resurrectable), full theme engine,
+Atkinson Hyperlegible bundled, Reduce Motion support, glossary,
+distraction-free immersive mode, line-precision resume.
+
+### Quick wins (days each)
+- [ ] **Reading ruler / line focus.** Dim everything except the current
+      2-4 lines; tap or swipe advances the focus band. The single most
+      requested ADHD reading aid.
+- [ ] **Focus-paragraph mode.** Render one paragraph at a time (chunking);
+      tap advances. Reuses the block model directly.
+- [ ] **Fixation anchors (Bionic-style).** Bold the first 2-3 letters of
+      each word. Evidence is mixed but many ADHD readers swear by it —
+      cheap toggle, rendered via TextRun splitting (measurement stays
+      consistent since we control both sides).
+- [ ] **Streak grace.** One missed day doesn't zero the streak (a "rest
+      day" per week, shown honestly). Punitive streaks demotivate the
+      exact people streaks are supposed to help.
+- [ ] **Letter/word/paragraph spacing controls.** We pinned spacing for
+      pagination correctness; expose it as a real setting threaded through
+      measurement (visual crowding is a genuine barrier).
+- [ ] **OpenDyslexic font option** (bundled, OFL) — dyslexia co-occurs
+      heavily with both communities.
+- [ ] **In-app animation kill-switch** (beyond honouring system Reduce
+      Motion) + haptics toggle — sensory control shouldn't require
+      changing system settings.
+
+### Medium (a week-ish each)
+- [ ] **"Where was I?" re-entry aid.** On reopen, briefly highlight the
+      last-read line (we know it to the character now) and offer a
+      one-tap "recap" showing the previous few paragraphs dimmed-to-bright.
+- [ ] **Gentle session timers.** Opt-in "read for N minutes" with a quiet
+      visual fill (no alarms); optional hyperfocus check-in ("you've been
+      reading 90 min — water?") that is dismissible and never modal
+      mid-sentence (shows between chapters only).
+- [ ] **Exact-numbers mode.** Swap "~5 min left" style labels for precise
+      counts (pages/paragraphs/percent to 1 decimal) app-wide — many
+      autistic readers strongly prefer exact over vague.
+- [ ] **Quick thought capture.** One gesture drops a note at the current
+      position without opening a dialog flow (voice-note optional later)
+      — protects reading flow from "I must write this down" derailment.
+- [ ] **Tinted overlays.** A colour-wash layer over the page (severity
+      slider), independent of theme — visual-stress relief (Irlen-style),
+      also useful for night reading.
+- [ ] **Character memory.** Extend the existing glossary: per-series
+      character notes with "last seen in chapter N" — working-memory
+      support for 800-chapter webnovels.
+
+### Bigger bets
+- [ ] **Read-aloud resurrection as an accessibility feature.** The whole
+      TTS + word-highlighting stack exists behind kReadAloudEnabled.
+      On-device system voices (free, offline) with the existing follow
+      highlighting is a first-class multimodal reading aid for both
+      communities — no server needed. Ship the on-device engine free;
+      premium voices can be a paid layer later.
+- [ ] **Routine anchoring.** Opt-in reading reminders tied to the user's
+      chosen time, phrased as invitations not obligations; pairs with
+      streak grace.
+- [ ] **Predictability audit.** A pass over the whole app against a
+      written principle: nothing moves, reorders, or pops up without the
+      user causing it. Document it and keep it true (this is a design
+      contract, not a feature).
+
 ## Phase 5 — Differentiators (after it's a business)
 
 - [ ] **26.** Read-aloud resurrected properly (`kReadAloudEnabled` flag
