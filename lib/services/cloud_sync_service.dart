@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'bookmark_store.dart';
 import 'collection_store.dart';
 import 'reader_preferences.dart';
+import 'reading_activity_store.dart';
 import 'reading_progress_store.dart';
 import 'recommendation_feedback_store.dart';
 
@@ -40,6 +41,7 @@ class CloudSyncService {
   static const _kRecFeedback = 'cloud_rec_feedback';
   static const _kBookmarks = 'cloud_bookmarks';
   static const _kReaderSettings = 'cloud_reader_settings';
+  static const _kActivity = 'cloud_activity';
 
   /// True while a cloud→local merge is in flight, so the store-write hooks
   /// don't bounce the just-merged data straight back up to the cloud.
@@ -50,6 +52,7 @@ class CloudSyncService {
   void Function()? onRemoteMerge;
 
   Timer? _progressDebounce;
+  Timer? _activityDebounce;
   Timer? _mergeDebounce;
 
   /// Cancels any pending debounced work. Tests use this so a 3-second push
@@ -58,6 +61,8 @@ class CloudSyncService {
   void cancelPendingTimers() {
     _progressDebounce?.cancel();
     _progressDebounce = null;
+    _activityDebounce?.cancel();
+    _activityDebounce = null;
     _mergeDebounce?.cancel();
     _mergeDebounce = null;
   }
@@ -147,6 +152,19 @@ class CloudSyncService {
     _set(_kRecFeedback, await RecommendationFeedbackStore().exportSyncBlob());
   }
 
+  /// Pushes the reading-activity ledger, debounced — session flushes fire
+  /// on every reader close/background.
+  void pushActivitySoon() {
+    if (_merging) return;
+    _activityDebounce?.cancel();
+    _activityDebounce = Timer(const Duration(seconds: 5), pushActivity);
+  }
+
+  Future<void> pushActivity() async {
+    if (_merging) return;
+    _set(_kActivity, await ReadingActivityStore().exportSyncBlob());
+  }
+
   Future<void> pushBookmarks() async {
     if (_merging) return;
     _set(_kBookmarks, await BookmarkStore().exportSyncBlob());
@@ -188,6 +206,11 @@ class CloudSyncService {
           await ReaderPreferences().mergeSyncBlob(readerSettings)) {
         changed = true;
       }
+      final activity = await _get(_kActivity);
+      if (activity != null &&
+          await ReadingActivityStore().mergeSyncBlob(activity)) {
+        changed = true;
+      }
     } finally {
       _merging = false;
     }
@@ -200,6 +223,7 @@ class CloudSyncService {
       await pushRecFeedback();
       await pushBookmarks();
       await pushReaderSettings();
+      await pushActivity();
       onRemoteMerge?.call();
     }
   }

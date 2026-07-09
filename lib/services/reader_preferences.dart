@@ -56,6 +56,25 @@ class ReaderPreferences {
     _kTtsEngine, _kTtsServerUrl, _kTtsServerToken, _kTtsSkips,
   ];
 
+  /// Settings that describe the DEVICE in hand rather than reading taste —
+  /// layout mode, TV/spread mode, orientation lock, centred column, screen
+  /// geometry (font size, margins), brightness, hands-free motion. These
+  /// never merge in from iCloud: turning on TV mode on the iPad must not
+  /// flip the phone into TV mode. (They still travel in the export for
+  /// back-compat; the merge side ignores them.)
+  static const _deviceLocalKeys = {
+    _kMode,
+    _kTvMode,
+    _kOrientation,
+    _kCenteredColumn,
+    _kKeepAwake,
+    _kBrightness,
+    _kAutoScroll,
+    _kAutoPageSeconds,
+    _kFontSize,
+    _kMargin,
+  };
+
   /// Per-volume keys are global keys prefixed with this + the volume's id
   /// (e.g. `book:42/Lord-of-the-Mysteries-Vol-03.epub/reader_font_size`).
   String _volumePrefix(Volume v) => 'book:${v.seriesOpdsId}/${v.fileName}/';
@@ -187,6 +206,7 @@ class ReaderPreferences {
     final values = decoded['values'];
     if (values is! Map) return false;
     for (final key in _globalKeys) {
+      if (_deviceLocalKeys.contains(key)) continue; // this device's business
       final v = values[key];
       if (v is bool) {
         await prefs.setBool(key, v);

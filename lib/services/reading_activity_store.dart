@@ -1,10 +1,13 @@
 import 'dart:convert';
 
+import 'dart:math';
+
 import 'package:drift/drift.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../db/app_database.dart';
 import '../models/volume.dart';
+import 'cloud_sync_service.dart';
 
 /// A snapshot of the user's reading-time activity: how many seconds were
 /// spent reading on each calendar day, and the per-volume total.
@@ -90,6 +93,11 @@ class ReadingActivity {
 /// ([AppDatabase]) — one row per day plus one row per volume, so recording
 /// a session is two upsert-increments instead of rewriting a whole blob.
 ///
+/// Cross-device: the local tables are THIS device's ledger; other devices'
+/// ledgers arrive via iCloud sync and are cached in the kv table. [load]
+/// sums every ledger, so totals — and streaks — span all devices without
+/// double counting (each device only ever writes its own ledger).
+///
 /// Activity recorded before the SQLite move (one JSON blob under the
 /// `reading_activity` SharedPreferences key) is imported once on first use;
 /// the old key stays behind untouched. The blob shape is still the backup
@@ -101,11 +109,34 @@ class ReadingActivityStore {
   /// Set once the legacy prefs data has been imported into SQLite.
   static const _kMigrated = 'reading_activity_in_sqlite_v1';
 
+  /// Stable id for this install, distinguishing its ledger in the sync map.
+  static const _kDeviceId = 'sync_device_id';
+
+  /// kv key caching other devices' ledgers (JSON map deviceId -> ledger).
+  static const _kRemote = 'activity_remote_ledgers';
+
   static Future<void>? _migration;
 
   AppDatabase get _db => AppDatabase.instance;
 
   Future<ReadingActivity> load() async {
+    final local = await _loadLocal();
+    final daily = Map<String, int>.of(local.dailySeconds);
+    final perVolume = Map<String, int>.of(local.perVolumeSeconds);
+    // Fold in every other device's ledger.
+    for (final ledger in (await _remoteLedgers()).values) {
+      ledger.dailySeconds.forEach(
+        (k, v) => daily[k] = (daily[k] ?? 0) + v,
+      );
+      ledger.perVolumeSeconds.forEach(
+        (k, v) => perVolume[k] = (perVolume[k] ?? 0) + v,
+      );
+    }
+    return ReadingActivity(dailySeconds: daily, perVolumeSeconds: perVolume);
+  }
+
+  /// This device's own ledger only.
+  Future<ReadingActivity> _loadLocal() async {
     await _ensureMigrated();
     final daily = <String, int>{
       for (final row in await _db.select(_db.dailyActivityRows).get())
@@ -116,6 +147,102 @@ class ReadingActivityStore {
         row.volumeKey: row.seconds,
     };
     return ReadingActivity(dailySeconds: daily, perVolumeSeconds: perVolume);
+  }
+
+  /// A stable random id naming this install's ledger in the sync map.
+  Future<String> _deviceId() async {
+    final prefs = await SharedPreferences.getInstance();
+    var id = prefs.getString(_kDeviceId);
+    if (id == null || id.isEmpty) {
+      final rng = Random.secure();
+      id = List.generate(
+        16,
+        (_) => rng.nextInt(16).toRadixString(16),
+      ).join();
+      await prefs.setString(_kDeviceId, id);
+    }
+    return id;
+  }
+
+  Future<Map<String, ReadingActivity>> _remoteLedgers() async {
+    final raw = await _db.kvGet(_kRemote);
+    if (raw == null || raw.isEmpty) return const {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return const {};
+      final out = <String, ReadingActivity>{};
+      for (final entry in decoded.entries) {
+        final v = entry.value;
+        if (entry.key is! String || v is! Map) continue;
+        out[entry.key as String] = _ledgerFromJson(v);
+      }
+      return out;
+    } on FormatException {
+      return const {};
+    }
+  }
+
+  ReadingActivity _ledgerFromJson(Map<dynamic, dynamic> json) {
+    final daily = <String, int>{};
+    final perVolume = <String, int>{};
+    final d = json['daily'];
+    if (d is Map) {
+      d.forEach((k, v) {
+        if (v is num) daily[k.toString()] = v.toInt();
+      });
+    }
+    final p = json['perVolume'];
+    if (p is Map) {
+      p.forEach((k, v) {
+        if (v is num) perVolume[k.toString()] = v.toInt();
+      });
+    }
+    return ReadingActivity(dailySeconds: daily, perVolumeSeconds: perVolume);
+  }
+
+  Map<String, dynamic> _ledgerToJson(ReadingActivity a) => {
+    'daily': a.dailySeconds,
+    'perVolume': a.perVolumeSeconds,
+  };
+
+  // ── iCloud sync (see CloudSyncService) ──────────────────────────────────
+
+  /// The full multi-device ledger map (every known device, this one's
+  /// ledger fresh from its tables) as the sync blob.
+  Future<String> exportSyncBlob() async {
+    final id = await _deviceId();
+    final map = <String, dynamic>{
+      for (final entry in (await _remoteLedgers()).entries)
+        entry.key: _ledgerToJson(entry.value),
+      id: _ledgerToJson(await _loadLocal()),
+    };
+    return jsonEncode(map);
+  }
+
+  /// Caches every ledger in the cloud map EXCEPT this device's own (the
+  /// local tables are always authoritative for it). Returns true when the
+  /// remote cache changed.
+  Future<bool> mergeSyncBlob(String blob) async {
+    if (blob.isEmpty) return false;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(blob);
+    } on FormatException {
+      return false;
+    }
+    if (decoded is! Map) return false;
+    final id = await _deviceId();
+    final remote = <String, dynamic>{};
+    for (final entry in decoded.entries) {
+      if (entry.key is! String || entry.key == id) continue;
+      if (entry.value is! Map) continue;
+      remote[entry.key as String] = entry.value;
+    }
+    final encoded = jsonEncode(remote);
+    final existing = await _db.kvGet(_kRemote);
+    if (existing == encoded) return false;
+    await _db.kvSet(_kRemote, encoded);
+    return true;
   }
 
   /// Adds [delta] seconds to today's tally and to the per-volume tally for
@@ -153,6 +280,7 @@ class ReadingActivityStore {
             ),
           ),
         );
+    CloudSyncService().pushActivitySoon();
   }
 
   // ── one-time import from SharedPreferences ──────────────────────────────
@@ -203,9 +331,10 @@ class ReadingActivityStore {
   }
 
   /// Backup entry in the legacy prefs shape (one `reading_activity` blob).
-  /// Empty when there is no activity yet.
+  /// Empty when there is no activity yet. Exports THIS device's ledger only
+  /// — remote ledgers re-arrive via sync.
   Future<Map<String, Object>> exportBackupEntries() async {
-    final activity = await load();
+    final activity = await _loadLocal();
     if (activity.dailySeconds.isEmpty && activity.perVolumeSeconds.isEmpty) {
       return const {};
     }

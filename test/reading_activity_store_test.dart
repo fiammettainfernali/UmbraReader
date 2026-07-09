@@ -5,6 +5,7 @@ import 'package:umbra_reader/db/app_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:umbra_reader/models/volume.dart';
 import 'package:umbra_reader/services/reading_activity_store.dart';
+import 'package:umbra_reader/services/cloud_sync_service.dart';
 
 import 'helpers/test_db.dart';
 
@@ -24,6 +25,42 @@ void main() {
   });
 
   tearDown(AppDatabase.reset);
+
+  test('remote device ledgers merge into totals and streaks', () async {
+    final store = ReadingActivityStore();
+    // This device read today.
+    final today = DateTime(2026, 7, 3, 9);
+    await store.record(_volume(), const Duration(minutes: 5), now: today);
+    // Another device read yesterday (and adds to the same volume).
+    final merged = await store.mergeSyncBlob(
+      '{"otherdevice1234":{"daily":{"2026-07-02":600},'
+      '"perVolume":{"1/book.epub":600}}}',
+    );
+    expect(merged, isTrue);
+
+    final activity = await store.load();
+    expect(activity.dailySeconds['2026-07-02'], 600);
+    expect(activity.dailySeconds['2026-07-03'], 300);
+    expect(activity.perVolumeSeconds['1/book.epub'], 900);
+    expect(
+      activity.currentStreak(now: today),
+      2,
+      reason: 'yesterday on the other device + today here = 2-day streak',
+    );
+
+    // The export carries every ledger; this device's own is included.
+    final blob = await store.exportSyncBlob();
+    expect(blob, contains('otherdevice1234'));
+    expect(blob, contains('2026-07-03'));
+
+    // Merging our own exported blob back must not double-count: our id is
+    // skipped, so totals stay identical.
+    await store.mergeSyncBlob(blob);
+    final again = await store.load();
+    expect(again.dailySeconds['2026-07-03'], 300);
+    expect(again.perVolumeSeconds['1/book.epub'], 900);
+    CloudSyncService().cancelPendingTimers();
+  });
 
   test('todaySeconds reads the local-day bucket', () async {
     final store = ReadingActivityStore();
