@@ -50,6 +50,11 @@ class NetworkTtsService implements TtsEngine {
   /// or in-flight request from a previous run can detect it should bail out.
   int _gen = 0;
 
+  /// How many paragraphs to keep synthesized ahead of the one playing — a
+  /// rolling buffer that hides per-paragraph generation latency on a serial
+  /// GPU without flooding it.
+  static const _prefetchWindow = 3;
+
   bool _sessionReady = false;
   Completer<void>? _clipDone;
   StreamSubscription<ProcessingState>? _stateSub;
@@ -247,11 +252,15 @@ class NetworkTtsService implements TtsEngine {
         _index++;
         continue;
       }
-      // Prefetch only ONE chunk ahead: the server synthesizes serially, so
-      // prefetching further just lengthens the queue the *next* play chunk
-      // has to wait behind (this was the whole-chapter flood that thrashed
-      // the GPU into 40s+ per request).
-      _prefetch(_index + 1);
+      // Keep a small ROLLING buffer ahead of the playhead. Dialogue-heavy
+      // chapters have many short paragraphs whose generation overhead exceeds
+      // their few seconds of audio, so a single chunk ahead still gaps; a
+      // handful builds a cushion during the longer paragraphs. Bounded (not
+      // the whole-chapter flood that thrashed the GPU) so the next play chunk
+      // never waits behind a deep queue.
+      for (var ahead = 1; ahead <= _prefetchWindow; ahead++) {
+        _prefetch(_index + ahead);
+      }
       await _playClip(_index, clip);
       if (gen != _gen || _state != TtsPlaybackState.playing) return;
       playedAny = true;
