@@ -48,6 +48,12 @@ abstract class TtsEngine {
   /// Called once the whole chapter has finished.
   set onChapterFinished(void Function()? cb);
 
+  /// Called when a chapter produced no playable audio at all — e.g. the voice
+  /// server is unreachable or misconfigured so every paragraph failed to
+  /// synthesize. Lets the reader stop and surface an error instead of
+  /// silently flipping forward through the whole book.
+  set onSynthesisFailed(void Function()? cb);
+
   /// Lists the voices this engine can use, sorted by name.
   Future<List<TtsVoice>> availableVoices();
 

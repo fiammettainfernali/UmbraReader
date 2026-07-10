@@ -65,6 +65,8 @@ class NetworkTtsService implements TtsEngine {
   void Function(int chunkIndex, int charStart, int charEnd)? onWord;
   @override
   void Function()? onChapterFinished;
+  @override
+  void Function()? onSynthesisFailed;
 
   @override
   TtsPlaybackState get state => _state;
@@ -220,6 +222,8 @@ class NetworkTtsService implements TtsEngine {
   }
 
   Future<void> _run(int gen) async {
+    var hadPlayableText = false;
+    var playedAny = false;
     while (_index < _chunks.length) {
       if (gen != _gen || _state != TtsPlaybackState.playing) return;
       final text = _chunks[_index].trim();
@@ -227,6 +231,7 @@ class NetworkTtsService implements TtsEngine {
         _index++;
         continue;
       }
+      hadPlayableText = true;
       final clip = await _ensureAudio(_index);
       if (gen != _gen || _state != TtsPlaybackState.playing) return;
       if (clip == null) {
@@ -239,10 +244,19 @@ class NetworkTtsService implements TtsEngine {
       _prefetch(_index + 2);
       await _playClip(_index, clip);
       if (gen != _gen || _state != TtsPlaybackState.playing) return;
+      playedAny = true;
       _index++;
     }
     _setState(TtsPlaybackState.stopped);
-    onChapterFinished?.call();
+    // A chapter that had text but produced no audio means the server is
+    // unreachable/misconfigured. Report it instead of firing
+    // onChapterFinished, which would advance — and, chapter after chapter,
+    // flip through the whole book on a dead server.
+    if (hadPlayableText && !playedAny) {
+      onSynthesisFailed?.call();
+    } else {
+      onChapterFinished?.call();
+    }
   }
 
   Future<void> _playClip(int chunkIndex, _Clip clip) async {

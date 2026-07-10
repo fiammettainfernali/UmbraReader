@@ -138,6 +138,22 @@ mixin ReaderTtsSession<T extends StatefulWidget> on State<T> {
     };
     ttsEngine.onWord = _onTtsWord;
     ttsEngine.onChapterFinished = _onTtsChapterFinished;
+    ttsEngine.onSynthesisFailed = _onTtsSynthesisFailed;
+  }
+
+  /// The voice server produced nothing for a whole chapter — stop cleanly and
+  /// tell the user, rather than flipping forward through the book.
+  void _onTtsSynthesisFailed() {
+    if (!mounted) return;
+    ttsEngine.stop();
+    setState(() {
+      speakingBlock = null;
+      resetFollow();
+    });
+    _showSnack(
+      "Couldn't reach the voice server. Check it's running and that the "
+      'address in Read-aloud settings is right.',
+    );
   }
 
   /// Rebuilds (or reconfigures) the read-aloud engine to match the settings.

@@ -20,6 +20,11 @@ class TtsService implements TtsEngine {
   /// Called when the whole chapter has finished being read.
   void Function()? onChapterFinished;
 
+  /// Unused by the on-device engine (local synthesis doesn't fail this way);
+  /// present to satisfy [TtsEngine].
+  @override
+  void Function()? onSynthesisFailed;
+
   /// Called with the chunk index as each chunk starts.
   void Function(int chunkIndex)? onChunkChanged;
 
