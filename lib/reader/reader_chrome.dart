@@ -434,6 +434,10 @@ class ReaderChapterBar extends StatelessWidget {
                         if (kReadAloudEnabled)
                           IconButton(
                             iconSize: 40,
+                            // Default IconButton padding (8) makes the icon a
+                            // 56px box that overflows the compact player bar;
+                            // zero padding keeps the standard 48px tap target.
+                            padding: EdgeInsets.zero,
                             color: preset.text,
                             tooltip: isPlaying ? 'Pause' : 'Play',
                             icon: Icon(

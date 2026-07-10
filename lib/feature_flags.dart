@@ -2,7 +2,7 @@
 ///
 /// [kReadAloudEnabled] gates the entire in-app read-aloud feature (the player
 /// controls, Listen mode, voice/pronunciation settings, and background audio
-/// pre-processing). It's turned off in favour of listening in Speechify via
-/// the "Share story" hand-off. Flip it back to `true` to restore the whole
-/// feature — the underlying code is left intact.
-const bool kReadAloudEnabled = false;
+/// pre-processing). Re-enabled to drive a self-hosted Chatterbox voice server
+/// (the "Natural" engine) — natural narration generated on the user's own
+/// desktop GPU, cached per paragraph, playable offline.
+const bool kReadAloudEnabled = true;

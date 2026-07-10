@@ -536,8 +536,9 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                   if (_settings.ttsEngine == TtsEngineKind.kokoro) ...[
                     const SizedBox(height: 6),
                     Text(
-                      'Streams natural neural voices from your own voice server '
-                      '(unmoderated, flat cost).',
+                      'Streams natural neural voices from your own desktop '
+                      'voice server over Tailscale. Include the http:// scheme '
+                      'and port, e.g. http://100.x.y.z:8080.',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.outline,
                       ),
@@ -549,7 +550,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                       autocorrect: false,
                       decoration: const InputDecoration(
                         labelText: 'Server address',
-                        hintText: 'https://your-voice-server',
+                        hintText: 'http://100.x.y.z:8080',
                         isDense: true,
                         border: OutlineInputBorder(),
                       ),
