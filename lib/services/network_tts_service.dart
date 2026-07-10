@@ -41,7 +41,7 @@ class NetworkTtsService implements TtsEngine {
   int _index = 0;
   TtsPlaybackState _state = TtsPlaybackState.stopped;
 
-  String _voice = 'af_heart';
+  String _voice = 'default';
   double _speed = 1.0;
   Map<String, String> _pron = const {};
   String _pronSig = '';
@@ -174,10 +174,11 @@ class NetworkTtsService implements TtsEngine {
     _speed = _rateToSpeed(rate);
     const sample =
         'The candle flickered as she opened the old book and began to read.';
-    final clip = await _resolveAudio(_cacheKey(_voice, _speed, sample), sample);
+    final clip = await _resolveAudio(_cacheKey(_voice, sample), sample);
     if (clip == null) return;
     try {
       await _player.setFilePath(clip.path);
+      await _player.setSpeed(_speed);
       await _player.play();
     } on Exception {
       // Preview is best-effort.
@@ -192,9 +193,16 @@ class NetworkTtsService implements TtsEngine {
   @override
   Future<void> setRate(double rate) async {
     _speed = _rateToSpeed(rate);
+    // Speed is a playback-rate change (pitch-preserving), applied live so a
+    // slider tweak takes effect on the current clip without re-synthesizing.
+    try {
+      await _player.setSpeed(_speed);
+    } on Exception {
+      // best-effort
+    }
   }
 
-  // flutter_tts rate (0.5 ≈ normal) -> Kokoro speed (1.0 ≈ normal), up to 3×.
+  // flutter_tts rate (0.5 ≈ normal) -> playback speed (1.0 ≈ normal), up to 3×.
   double _rateToSpeed(double rate) => (rate * 2.0).clamp(0.5, 3.0);
 
   @override
@@ -239,9 +247,11 @@ class NetworkTtsService implements TtsEngine {
         _index++;
         continue;
       }
-      // Prefetch the next two chunks while this one plays.
+      // Prefetch only ONE chunk ahead: the server synthesizes serially, so
+      // prefetching further just lengthens the queue the *next* play chunk
+      // has to wait behind (this was the whole-chapter flood that thrashed
+      // the GPU into 40s+ per request).
       _prefetch(_index + 1);
-      _prefetch(_index + 2);
       await _playClip(_index, clip);
       if (gen != _gen || _state != TtsPlaybackState.playing) return;
       playedAny = true;
@@ -269,6 +279,13 @@ class NetworkTtsService implements TtsEngine {
     final marks = clip.marks;
     try {
       await _player.setFilePath(clip.path);
+      // Apply speed as a pitch-preserving playback rate (see setRate) so the
+      // cached clip is speed-independent and the server never time-stretches.
+      try {
+        await _player.setSpeed(_speed);
+      } on Exception {
+        // best-effort
+      }
       // Word-exact resume: on the first clip after a resume, jump to the word
       // at/just before the saved character offset.
       if (_pendingSeekChar >= 0 && marks.isNotEmpty) {
@@ -329,7 +346,7 @@ class NetworkTtsService implements TtsEngine {
   Future<_Clip?> _ensureAudio(int i) => _ensureAudioForText(_chunks[i].trim());
 
   Future<_Clip?> _ensureAudioForText(String text) {
-    final key = _cacheKey(_voice, _speed, text);
+    final key = _cacheKey(_voice, text);
     final existing = _inflight[key];
     if (existing != null) return existing;
     final fut = _resolveAudio(key, text);
@@ -373,8 +390,10 @@ class NetworkTtsService implements TtsEngine {
       }
     }
 
-    // A few in flight at once keeps the box busy without saturating it.
-    const concurrency = 3;
+    // One at a time: a single GPU synthesizes serially, so extra workers just
+    // thrash it (and starve the live play path that shares the server). The
+    // server serializes anyway; matching that here keeps the queue honest.
+    const concurrency = 1;
     await Future.wait([for (var w = 0; w < concurrency; w++) worker()]);
   }
 
@@ -398,7 +417,11 @@ class NetworkTtsService implements TtsEngine {
               body: jsonEncode({
                 'text': text,
                 'voice': _voice,
-                'speed': _speed,
+                // Always request canonical 1.0 audio: speed is applied at
+                // playback (pitch-preserving), so one clip per paragraph is
+                // cached regardless of speed and the server never runs a
+                // CPU-bound time-stretch.
+                'speed': 1.0,
                 'lang': 'en-us',
                 if (_pron.isNotEmpty) 'pron': _pron,
               }),
@@ -457,13 +480,13 @@ class NetworkTtsService implements TtsEngine {
 
   // Bump to invalidate every cached clip — e.g. after a server-side change to
   // pronunciation/normalization, so old audio (mispronounced money, etc.) is
-  // re-synthesized instead of replayed from cache.
-  static const _cacheVersion = 2;
+  // re-synthesized instead of replayed from cache. v3: speed left the key
+  // (clips are now speed-independent, played back at the chosen rate).
+  static const _cacheVersion = 3;
 
   // Stable FNV-1a hash so cache filenames survive app restarts.
-  String _cacheKey(String voice, double speed, String text) {
-    final input =
-        'v$_cacheVersion|$_pronSig|$voice|${speed.toStringAsFixed(2)}|$text';
+  String _cacheKey(String voice, String text) {
+    final input = 'v$_cacheVersion|$_pronSig|$voice|$text';
     var hash = 0x811c9dc5;
     for (final unit in input.codeUnits) {
       hash ^= unit;
@@ -489,6 +512,7 @@ class NetworkTtsService implements TtsEngine {
     _speed = _rateToSpeed(rate);
     _setState(TtsPlaybackState.playing);
     try {
+      await _player.setSpeed(_speed);
       await _player.play();
     } on Exception {
       // ignore
