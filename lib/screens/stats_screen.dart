@@ -141,6 +141,8 @@ class _StatsScreenState extends State<StatsScreen> {
     final totalTime = _formatDuration(_activity.totalSeconds);
     final weekTime = _formatDuration(_activity.weekSeconds());
     final streak = _activity.currentStreak();
+    final totalWords = _activity.totalWords;
+    final wpm = _activity.wordsPerMinute;
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -200,6 +202,26 @@ class _StatsScreenState extends State<StatsScreen> {
                 icon: Icons.local_fire_department_outlined,
                 value: streak == 0 ? '—' : '$streak',
                 label: streak == 1 ? 'day streak' : 'days streak',
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _StatCard(
+                icon: Icons.text_fields,
+                value: totalWords == 0 ? '—' : _formatCount(totalWords),
+                label: 'Words read',
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _StatCard(
+                icon: Icons.speed,
+                value: wpm == 0 ? '—' : '$wpm',
+                label: 'words / min',
               ),
             ),
           ],
@@ -525,6 +547,17 @@ String _formatDate(DateTime? date) {
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
   ];
   return '${months[local.month - 1]} ${local.day}';
+}
+
+/// Formats a large count compactly: 1_240_000 → "1.2M", 34_500 → "34.5k".
+String _formatCount(int n) {
+  if (n < 1000) return '$n';
+  if (n < 1000000) {
+    final k = n / 1000;
+    return k >= 100 ? '${k.round()}k' : '${k.toStringAsFixed(1)}k';
+  }
+  final m = n / 1000000;
+  return '${m.toStringAsFixed(m >= 100 ? 0 : 1)}M';
 }
 
 /// Formats a duration in seconds as a short human string.

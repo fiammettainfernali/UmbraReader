@@ -78,19 +78,27 @@ class CollectionRows extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
-/// Reading seconds per local calendar day (`YYYY-MM-DD`).
+/// Reading seconds (and words read) per local calendar day (`YYYY-MM-DD`).
 class DailyActivityRows extends Table {
   TextColumn get day => text()();
   IntColumn get seconds => integer().withDefault(const Constant(0))();
+
+  /// New words read that day — forward progress only, so re-reading never
+  /// inflates the tally. Drives reading-pace and TTS-cost estimates.
+  IntColumn get words => integer().withDefault(const Constant(0))();
 
   @override
   Set<Column<Object>> get primaryKey => {day};
 }
 
-/// Reading seconds per volume (`seriesOpdsId/fileName`).
+/// Reading seconds (and words read) per volume (`seriesOpdsId/fileName`).
 class VolumeActivityRows extends Table {
   TextColumn get volumeKey => text()();
   IntColumn get seconds => integer().withDefault(const Constant(0))();
+
+  /// High-water mark of words read in this volume — the ceiling that keeps
+  /// re-reads from double-counting into the daily tally.
+  IntColumn get words => integer().withDefault(const Constant(0))();
 
   @override
   Set<Column<Object>> get primaryKey => {volumeKey};
@@ -149,7 +157,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -170,6 +178,11 @@ class AppDatabase extends _$AppDatabase {
           readingProgressRows,
           readingProgressRows.chapterPath,
         );
+      }
+      if (from < 4) {
+        // v4: words-read ledger alongside reading seconds.
+        await m.addColumn(dailyActivityRows, dailyActivityRows.words);
+        await m.addColumn(volumeActivityRows, volumeActivityRows.words);
       }
     },
   );

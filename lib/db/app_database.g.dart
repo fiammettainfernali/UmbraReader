@@ -1651,8 +1651,18 @@ class $DailyActivityRowsTable extends DailyActivityRows
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _wordsMeta = const VerificationMeta('words');
   @override
-  List<GeneratedColumn> get $columns => [day, seconds];
+  late final GeneratedColumn<int> words = GeneratedColumn<int>(
+    'words',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [day, seconds, words];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -1679,6 +1689,12 @@ class $DailyActivityRowsTable extends DailyActivityRows
         seconds.isAcceptableOrUnknown(data['seconds']!, _secondsMeta),
       );
     }
+    if (data.containsKey('words')) {
+      context.handle(
+        _wordsMeta,
+        words.isAcceptableOrUnknown(data['words']!, _wordsMeta),
+      );
+    }
     return context;
   }
 
@@ -1696,6 +1712,10 @@ class $DailyActivityRowsTable extends DailyActivityRows
         DriftSqlType.int,
         data['${effectivePrefix}seconds'],
       )!,
+      words: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}words'],
+      )!,
     );
   }
 
@@ -1709,17 +1729,30 @@ class DailyActivityRow extends DataClass
     implements Insertable<DailyActivityRow> {
   final String day;
   final int seconds;
-  const DailyActivityRow({required this.day, required this.seconds});
+
+  /// New words read that day — forward progress only, so re-reading never
+  /// inflates the tally. Drives reading-pace and TTS-cost estimates.
+  final int words;
+  const DailyActivityRow({
+    required this.day,
+    required this.seconds,
+    required this.words,
+  });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['day'] = Variable<String>(day);
     map['seconds'] = Variable<int>(seconds);
+    map['words'] = Variable<int>(words);
     return map;
   }
 
   DailyActivityRowsCompanion toCompanion(bool nullToAbsent) {
-    return DailyActivityRowsCompanion(day: Value(day), seconds: Value(seconds));
+    return DailyActivityRowsCompanion(
+      day: Value(day),
+      seconds: Value(seconds),
+      words: Value(words),
+    );
   }
 
   factory DailyActivityRow.fromJson(
@@ -1730,6 +1763,7 @@ class DailyActivityRow extends DataClass
     return DailyActivityRow(
       day: serializer.fromJson<String>(json['day']),
       seconds: serializer.fromJson<int>(json['seconds']),
+      words: serializer.fromJson<int>(json['words']),
     );
   }
   @override
@@ -1738,15 +1772,21 @@ class DailyActivityRow extends DataClass
     return <String, dynamic>{
       'day': serializer.toJson<String>(day),
       'seconds': serializer.toJson<int>(seconds),
+      'words': serializer.toJson<int>(words),
     };
   }
 
-  DailyActivityRow copyWith({String? day, int? seconds}) =>
-      DailyActivityRow(day: day ?? this.day, seconds: seconds ?? this.seconds);
+  DailyActivityRow copyWith({String? day, int? seconds, int? words}) =>
+      DailyActivityRow(
+        day: day ?? this.day,
+        seconds: seconds ?? this.seconds,
+        words: words ?? this.words,
+      );
   DailyActivityRow copyWithCompanion(DailyActivityRowsCompanion data) {
     return DailyActivityRow(
       day: data.day.present ? data.day.value : this.day,
       seconds: data.seconds.present ? data.seconds.value : this.seconds,
+      words: data.words.present ? data.words.value : this.words,
     );
   }
 
@@ -1754,43 +1794,50 @@ class DailyActivityRow extends DataClass
   String toString() {
     return (StringBuffer('DailyActivityRow(')
           ..write('day: $day, ')
-          ..write('seconds: $seconds')
+          ..write('seconds: $seconds, ')
+          ..write('words: $words')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(day, seconds);
+  int get hashCode => Object.hash(day, seconds, words);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is DailyActivityRow &&
           other.day == this.day &&
-          other.seconds == this.seconds);
+          other.seconds == this.seconds &&
+          other.words == this.words);
 }
 
 class DailyActivityRowsCompanion extends UpdateCompanion<DailyActivityRow> {
   final Value<String> day;
   final Value<int> seconds;
+  final Value<int> words;
   final Value<int> rowid;
   const DailyActivityRowsCompanion({
     this.day = const Value.absent(),
     this.seconds = const Value.absent(),
+    this.words = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   DailyActivityRowsCompanion.insert({
     required String day,
     this.seconds = const Value.absent(),
+    this.words = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : day = Value(day);
   static Insertable<DailyActivityRow> custom({
     Expression<String>? day,
     Expression<int>? seconds,
+    Expression<int>? words,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (day != null) 'day': day,
       if (seconds != null) 'seconds': seconds,
+      if (words != null) 'words': words,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1798,11 +1845,13 @@ class DailyActivityRowsCompanion extends UpdateCompanion<DailyActivityRow> {
   DailyActivityRowsCompanion copyWith({
     Value<String>? day,
     Value<int>? seconds,
+    Value<int>? words,
     Value<int>? rowid,
   }) {
     return DailyActivityRowsCompanion(
       day: day ?? this.day,
       seconds: seconds ?? this.seconds,
+      words: words ?? this.words,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1816,6 +1865,9 @@ class DailyActivityRowsCompanion extends UpdateCompanion<DailyActivityRow> {
     if (seconds.present) {
       map['seconds'] = Variable<int>(seconds.value);
     }
+    if (words.present) {
+      map['words'] = Variable<int>(words.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1827,6 +1879,7 @@ class DailyActivityRowsCompanion extends UpdateCompanion<DailyActivityRow> {
     return (StringBuffer('DailyActivityRowsCompanion(')
           ..write('day: $day, ')
           ..write('seconds: $seconds, ')
+          ..write('words: $words, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1862,8 +1915,18 @@ class $VolumeActivityRowsTable extends VolumeActivityRows
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _wordsMeta = const VerificationMeta('words');
   @override
-  List<GeneratedColumn> get $columns => [volumeKey, seconds];
+  late final GeneratedColumn<int> words = GeneratedColumn<int>(
+    'words',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [volumeKey, seconds, words];
   @override
   String get aliasedName => _alias ?? actualTableName;
   @override
@@ -1890,6 +1953,12 @@ class $VolumeActivityRowsTable extends VolumeActivityRows
         seconds.isAcceptableOrUnknown(data['seconds']!, _secondsMeta),
       );
     }
+    if (data.containsKey('words')) {
+      context.handle(
+        _wordsMeta,
+        words.isAcceptableOrUnknown(data['words']!, _wordsMeta),
+      );
+    }
     return context;
   }
 
@@ -1907,6 +1976,10 @@ class $VolumeActivityRowsTable extends VolumeActivityRows
         DriftSqlType.int,
         data['${effectivePrefix}seconds'],
       )!,
+      words: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}words'],
+      )!,
     );
   }
 
@@ -1920,12 +1993,21 @@ class VolumeActivityRow extends DataClass
     implements Insertable<VolumeActivityRow> {
   final String volumeKey;
   final int seconds;
-  const VolumeActivityRow({required this.volumeKey, required this.seconds});
+
+  /// High-water mark of words read in this volume — the ceiling that keeps
+  /// re-reads from double-counting into the daily tally.
+  final int words;
+  const VolumeActivityRow({
+    required this.volumeKey,
+    required this.seconds,
+    required this.words,
+  });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['volume_key'] = Variable<String>(volumeKey);
     map['seconds'] = Variable<int>(seconds);
+    map['words'] = Variable<int>(words);
     return map;
   }
 
@@ -1933,6 +2015,7 @@ class VolumeActivityRow extends DataClass
     return VolumeActivityRowsCompanion(
       volumeKey: Value(volumeKey),
       seconds: Value(seconds),
+      words: Value(words),
     );
   }
 
@@ -1944,6 +2027,7 @@ class VolumeActivityRow extends DataClass
     return VolumeActivityRow(
       volumeKey: serializer.fromJson<String>(json['volumeKey']),
       seconds: serializer.fromJson<int>(json['seconds']),
+      words: serializer.fromJson<int>(json['words']),
     );
   }
   @override
@@ -1952,18 +2036,21 @@ class VolumeActivityRow extends DataClass
     return <String, dynamic>{
       'volumeKey': serializer.toJson<String>(volumeKey),
       'seconds': serializer.toJson<int>(seconds),
+      'words': serializer.toJson<int>(words),
     };
   }
 
-  VolumeActivityRow copyWith({String? volumeKey, int? seconds}) =>
+  VolumeActivityRow copyWith({String? volumeKey, int? seconds, int? words}) =>
       VolumeActivityRow(
         volumeKey: volumeKey ?? this.volumeKey,
         seconds: seconds ?? this.seconds,
+        words: words ?? this.words,
       );
   VolumeActivityRow copyWithCompanion(VolumeActivityRowsCompanion data) {
     return VolumeActivityRow(
       volumeKey: data.volumeKey.present ? data.volumeKey.value : this.volumeKey,
       seconds: data.seconds.present ? data.seconds.value : this.seconds,
+      words: data.words.present ? data.words.value : this.words,
     );
   }
 
@@ -1971,43 +2058,50 @@ class VolumeActivityRow extends DataClass
   String toString() {
     return (StringBuffer('VolumeActivityRow(')
           ..write('volumeKey: $volumeKey, ')
-          ..write('seconds: $seconds')
+          ..write('seconds: $seconds, ')
+          ..write('words: $words')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode => Object.hash(volumeKey, seconds);
+  int get hashCode => Object.hash(volumeKey, seconds, words);
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       (other is VolumeActivityRow &&
           other.volumeKey == this.volumeKey &&
-          other.seconds == this.seconds);
+          other.seconds == this.seconds &&
+          other.words == this.words);
 }
 
 class VolumeActivityRowsCompanion extends UpdateCompanion<VolumeActivityRow> {
   final Value<String> volumeKey;
   final Value<int> seconds;
+  final Value<int> words;
   final Value<int> rowid;
   const VolumeActivityRowsCompanion({
     this.volumeKey = const Value.absent(),
     this.seconds = const Value.absent(),
+    this.words = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   VolumeActivityRowsCompanion.insert({
     required String volumeKey,
     this.seconds = const Value.absent(),
+    this.words = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : volumeKey = Value(volumeKey);
   static Insertable<VolumeActivityRow> custom({
     Expression<String>? volumeKey,
     Expression<int>? seconds,
+    Expression<int>? words,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
       if (volumeKey != null) 'volume_key': volumeKey,
       if (seconds != null) 'seconds': seconds,
+      if (words != null) 'words': words,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -2015,11 +2109,13 @@ class VolumeActivityRowsCompanion extends UpdateCompanion<VolumeActivityRow> {
   VolumeActivityRowsCompanion copyWith({
     Value<String>? volumeKey,
     Value<int>? seconds,
+    Value<int>? words,
     Value<int>? rowid,
   }) {
     return VolumeActivityRowsCompanion(
       volumeKey: volumeKey ?? this.volumeKey,
       seconds: seconds ?? this.seconds,
+      words: words ?? this.words,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -2033,6 +2129,9 @@ class VolumeActivityRowsCompanion extends UpdateCompanion<VolumeActivityRow> {
     if (seconds.present) {
       map['seconds'] = Variable<int>(seconds.value);
     }
+    if (words.present) {
+      map['words'] = Variable<int>(words.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -2044,6 +2143,7 @@ class VolumeActivityRowsCompanion extends UpdateCompanion<VolumeActivityRow> {
     return (StringBuffer('VolumeActivityRowsCompanion(')
           ..write('volumeKey: $volumeKey, ')
           ..write('seconds: $seconds, ')
+          ..write('words: $words, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3117,12 +3217,14 @@ typedef $$DailyActivityRowsTableCreateCompanionBuilder =
     DailyActivityRowsCompanion Function({
       required String day,
       Value<int> seconds,
+      Value<int> words,
       Value<int> rowid,
     });
 typedef $$DailyActivityRowsTableUpdateCompanionBuilder =
     DailyActivityRowsCompanion Function({
       Value<String> day,
       Value<int> seconds,
+      Value<int> words,
       Value<int> rowid,
     });
 
@@ -3142,6 +3244,11 @@ class $$DailyActivityRowsTableFilterComposer
 
   ColumnFilters<int> get seconds => $composableBuilder(
     column: $table.seconds,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get words => $composableBuilder(
+    column: $table.words,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -3164,6 +3271,11 @@ class $$DailyActivityRowsTableOrderingComposer
     column: $table.seconds,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get words => $composableBuilder(
+    column: $table.words,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$DailyActivityRowsTableAnnotationComposer
@@ -3180,6 +3292,9 @@ class $$DailyActivityRowsTableAnnotationComposer
 
   GeneratedColumn<int> get seconds =>
       $composableBuilder(column: $table.seconds, builder: (column) => column);
+
+  GeneratedColumn<int> get words =>
+      $composableBuilder(column: $table.words, builder: (column) => column);
 }
 
 class $$DailyActivityRowsTableTableManager
@@ -3224,20 +3339,24 @@ class $$DailyActivityRowsTableTableManager
               ({
                 Value<String> day = const Value.absent(),
                 Value<int> seconds = const Value.absent(),
+                Value<int> words = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => DailyActivityRowsCompanion(
                 day: day,
                 seconds: seconds,
+                words: words,
                 rowid: rowid,
               ),
           createCompanionCallback:
               ({
                 required String day,
                 Value<int> seconds = const Value.absent(),
+                Value<int> words = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => DailyActivityRowsCompanion.insert(
                 day: day,
                 seconds: seconds,
+                words: words,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -3273,12 +3392,14 @@ typedef $$VolumeActivityRowsTableCreateCompanionBuilder =
     VolumeActivityRowsCompanion Function({
       required String volumeKey,
       Value<int> seconds,
+      Value<int> words,
       Value<int> rowid,
     });
 typedef $$VolumeActivityRowsTableUpdateCompanionBuilder =
     VolumeActivityRowsCompanion Function({
       Value<String> volumeKey,
       Value<int> seconds,
+      Value<int> words,
       Value<int> rowid,
     });
 
@@ -3298,6 +3419,11 @@ class $$VolumeActivityRowsTableFilterComposer
 
   ColumnFilters<int> get seconds => $composableBuilder(
     column: $table.seconds,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get words => $composableBuilder(
+    column: $table.words,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -3320,6 +3446,11 @@ class $$VolumeActivityRowsTableOrderingComposer
     column: $table.seconds,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get words => $composableBuilder(
+    column: $table.words,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$VolumeActivityRowsTableAnnotationComposer
@@ -3336,6 +3467,9 @@ class $$VolumeActivityRowsTableAnnotationComposer
 
   GeneratedColumn<int> get seconds =>
       $composableBuilder(column: $table.seconds, builder: (column) => column);
+
+  GeneratedColumn<int> get words =>
+      $composableBuilder(column: $table.words, builder: (column) => column);
 }
 
 class $$VolumeActivityRowsTableTableManager
@@ -3380,20 +3514,24 @@ class $$VolumeActivityRowsTableTableManager
               ({
                 Value<String> volumeKey = const Value.absent(),
                 Value<int> seconds = const Value.absent(),
+                Value<int> words = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => VolumeActivityRowsCompanion(
                 volumeKey: volumeKey,
                 seconds: seconds,
+                words: words,
                 rowid: rowid,
               ),
           createCompanionCallback:
               ({
                 required String volumeKey,
                 Value<int> seconds = const Value.absent(),
+                Value<int> words = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => VolumeActivityRowsCompanion.insert(
                 volumeKey: volumeKey,
                 seconds: seconds,
+                words: words,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

@@ -17,6 +17,7 @@ import 'package:umbra_reader/screens/reader_screen.dart';
 import 'package:umbra_reader/reader/line_focus_overlay.dart';
 import 'package:umbra_reader/services/cloud_sync_service.dart';
 import 'package:umbra_reader/services/library_storage.dart';
+import 'package:umbra_reader/services/reading_activity_store.dart';
 import 'package:umbra_reader/services/reading_progress_store.dart';
 
 import 'helpers/test_db.dart';
@@ -211,6 +212,49 @@ void main() {
       find.textContaining('Second chapter', findRichText: true),
       findsOneWidget,
       reason: 'the spine path outranks the stale numeric index',
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    CloudSyncService().cancelPendingTimers();
+  });
+
+  testWidgets('reading forward records words into the activity ledger', (
+    tester,
+  ) async {
+    final volume = _volume();
+    await tester.pumpWidget(MaterialApp(home: ReaderScreen(volume: volume)));
+    await _settle(tester);
+
+    // Read deep into the giant first-chapter paragraph.
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -2000));
+    await tester.pump();
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -2000));
+    await tester.pump();
+
+    // The session must span at least a second — the flush ignores sub-second
+    // sessions (app-switch noise) for both time and words.
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 1100)),
+    );
+
+    // Flushing the session (app backgrounded) records the words read.
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+
+    final activity = await tester.runAsync(
+      () => ReadingActivityStore().load(),
+    );
+    expect(
+      activity!.totalWords,
+      greaterThan(0),
+      reason: 'forward reading must tally words for the TTS-cost ledger',
+    );
+    expect(
+      activity.perVolumeWords['${volume.seriesOpdsId}/${volume.fileName}'],
+      greaterThan(0),
     );
 
     await tester.pumpWidget(const SizedBox.shrink());

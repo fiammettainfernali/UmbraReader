@@ -147,6 +147,12 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// When the current foreground reading session started; null when paused.
   DateTime? _sessionStart;
 
+  /// Words read into this volume at or below which nothing new counts — the
+  /// high-water mark that keeps re-reading from re-billing words. Seeded on
+  /// open from the ledger and the restored position, so reading done before
+  /// this feature existed (or in a past session) isn't dumped into today.
+  int _wordsHighWater = 0;
+
   /// Progress through the current chapter (0..1) and its total word count —
   /// drive the reading-progress bar and the "time left" estimate.
   double _chapterFraction = 0;
@@ -190,9 +196,17 @@ class _ReaderScreenState extends State<ReaderScreen>
     _sessionStart = null;
     final delta = DateTime.now().difference(start);
     if (delta.inSeconds <= 0) return;
+    // New words this session = reading past the high-water mark. Re-reading
+    // already-seen text adds nothing (mirrors TTS audio caching), so the
+    // ledger measures genuine content consumed. The mark only advances when
+    // the session is actually recorded, so a sub-second gap defers rather
+    // than loses the words.
+    final current = _wordsReadInBook();
+    final newWords = current > _wordsHighWater ? current - _wordsHighWater : 0;
+    if (newWords > 0) _wordsHighWater = current;
     // Fire-and-forget — losing the last fractional second on an app kill is
     // acceptable.
-    _activityStore.record(widget.volume, delta);
+    _activityStore.record(widget.volume, delta, words: newWords);
   }
 
   @override
@@ -326,6 +340,10 @@ class _ReaderScreenState extends State<ReaderScreen>
         _blocks = blocks;
         _chapterWordCount = _countWords(blocks);
         _chapterWordCounts[_chapterIndex] = _chapterWordCount;
+        // Only forward progress past the restored position becomes "new
+        // words"; estimate the words already behind us (one chapter's worth
+        // per prior chapter) so resuming mid-book doesn't spike today's tally.
+        _wordsHighWater = _chapterWordCount * _chapterIndex;
         _settings = settings;
         _pendingRestoreBlock = blocks.isEmpty
             ? 0
@@ -357,6 +375,12 @@ class _ReaderScreenState extends State<ReaderScreen>
         // stuck on the Continue shelf" bug). Paged mode may still be
         // mid-jump this frame; its controller listener saves right after.
         if (mounted) _saveProgress();
+      });
+      // Lift the high-water mark to whatever this volume has already tallied,
+      // so re-opening a book never re-counts words recorded on a past device
+      // or session.
+      _activityStore.wordsForVolume(widget.volume).then((stored) {
+        if (mounted && stored > _wordsHighWater) _wordsHighWater = stored;
       });
       _refreshHighlights();
     } on EpubException catch (e) {
@@ -752,6 +776,19 @@ class _ReaderScreenState extends State<ReaderScreen>
     final max = _scrollController.position.maxScrollExtent;
     if (max <= 0) return 0;
     return (_scrollController.offset / max).clamp(0.0, 1.0);
+  }
+
+  /// Cumulative words from the book's start to the current reading position:
+  /// every measured chapter before this one, plus the read fraction of the
+  /// current chapter. The basis for the words-read ledger's forward-progress
+  /// deltas.
+  int _wordsReadInBook() {
+    var words = 0;
+    for (final entry in _chapterWordCounts.entries) {
+      if (entry.key < _chapterIndex) words += entry.value;
+    }
+    words += (_chapterWordCount * _chapterFraction).round();
+    return words;
   }
 
   /// Total word count of a chapter's blocks, for the time-left estimate.

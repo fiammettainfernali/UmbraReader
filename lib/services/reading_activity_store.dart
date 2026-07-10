@@ -15,6 +15,8 @@ class ReadingActivity {
   const ReadingActivity({
     required this.dailySeconds,
     required this.perVolumeSeconds,
+    this.dailyWords = const <String, int>{},
+    this.perVolumeWords = const <String, int>{},
   });
 
   /// Reading time per day. Keys are local-time `YYYY-MM-DD` strings.
@@ -23,9 +25,19 @@ class ReadingActivity {
   /// Reading time per downloaded volume. Keys are `seriesOpdsId/fileName`.
   final Map<String, int> perVolumeSeconds;
 
+  /// New words read per day (forward progress only). Same keys as
+  /// [dailySeconds]; drives reading pace and TTS-cost estimates.
+  final Map<String, int> dailyWords;
+
+  /// Words read per volume — the high-water mark used to keep re-reads from
+  /// double-counting. Same keys as [perVolumeSeconds].
+  final Map<String, int> perVolumeWords;
+
   static const empty = ReadingActivity(
     dailySeconds: <String, int>{},
     perVolumeSeconds: <String, int>{},
+    dailyWords: <String, int>{},
+    perVolumeWords: <String, int>{},
   );
 
   /// Total seconds across every day on record.
@@ -40,6 +52,36 @@ class ReadingActivity {
   /// Seconds read today (local time).
   int todaySeconds({DateTime? now}) =>
       dailySeconds[_dateKey(_today(now))] ?? 0;
+
+  /// Total words read across every day on record.
+  int get totalWords {
+    var total = 0;
+    for (final v in dailyWords.values) {
+      total += v;
+    }
+    return total;
+  }
+
+  /// Words read today (local time).
+  int todayWords({DateTime? now}) => dailyWords[_dateKey(_today(now))] ?? 0;
+
+  /// Words read across the last seven days, inclusive of today.
+  int weekWords({DateTime? now}) {
+    final today = _today(now);
+    var total = 0;
+    for (var i = 0; i < 7; i++) {
+      total += dailyWords[_dateKey(today.subtract(Duration(days: i)))] ?? 0;
+    }
+    return total;
+  }
+
+  /// Average reading pace in words per minute across all recorded time, or 0
+  /// when there is not yet any measured time.
+  int get wordsPerMinute {
+    final minutes = totalSeconds / 60.0;
+    if (minutes <= 0) return 0;
+    return (totalWords / minutes).round();
+  }
 
   /// Total seconds across the last seven days, inclusive of today.
   int weekSeconds({DateTime? now}) {
@@ -153,6 +195,8 @@ class ReadingActivityStore {
     final local = await _loadLocal();
     final daily = Map<String, int>.of(local.dailySeconds);
     final perVolume = Map<String, int>.of(local.perVolumeSeconds);
+    final dailyWords = Map<String, int>.of(local.dailyWords);
+    final perVolumeWords = Map<String, int>.of(local.perVolumeWords);
     // Fold in every other device's ledger.
     for (final ledger in (await _remoteLedgers()).values) {
       ledger.dailySeconds.forEach(
@@ -161,22 +205,42 @@ class ReadingActivityStore {
       ledger.perVolumeSeconds.forEach(
         (k, v) => perVolume[k] = (perVolume[k] ?? 0) + v,
       );
+      ledger.dailyWords.forEach(
+        (k, v) => dailyWords[k] = (dailyWords[k] ?? 0) + v,
+      );
+      ledger.perVolumeWords.forEach(
+        (k, v) => perVolumeWords[k] = (perVolumeWords[k] ?? 0) + v,
+      );
     }
-    return ReadingActivity(dailySeconds: daily, perVolumeSeconds: perVolume);
+    return ReadingActivity(
+      dailySeconds: daily,
+      perVolumeSeconds: perVolume,
+      dailyWords: dailyWords,
+      perVolumeWords: perVolumeWords,
+    );
   }
 
   /// This device's own ledger only.
   Future<ReadingActivity> _loadLocal() async {
     await _ensureMigrated();
-    final daily = <String, int>{
-      for (final row in await _db.select(_db.dailyActivityRows).get())
-        row.day: row.seconds,
-    };
-    final perVolume = <String, int>{
-      for (final row in await _db.select(_db.volumeActivityRows).get())
-        row.volumeKey: row.seconds,
-    };
-    return ReadingActivity(dailySeconds: daily, perVolumeSeconds: perVolume);
+    final daily = <String, int>{};
+    final dailyWords = <String, int>{};
+    for (final row in await _db.select(_db.dailyActivityRows).get()) {
+      daily[row.day] = row.seconds;
+      dailyWords[row.day] = row.words;
+    }
+    final perVolume = <String, int>{};
+    final perVolumeWords = <String, int>{};
+    for (final row in await _db.select(_db.volumeActivityRows).get()) {
+      perVolume[row.volumeKey] = row.seconds;
+      perVolumeWords[row.volumeKey] = row.words;
+    }
+    return ReadingActivity(
+      dailySeconds: daily,
+      perVolumeSeconds: perVolume,
+      dailyWords: dailyWords,
+      perVolumeWords: perVolumeWords,
+    );
   }
 
   /// A stable random id naming this install's ledger in the sync map.
@@ -213,26 +277,29 @@ class ReadingActivityStore {
   }
 
   ReadingActivity _ledgerFromJson(Map<dynamic, dynamic> json) {
-    final daily = <String, int>{};
-    final perVolume = <String, int>{};
-    final d = json['daily'];
-    if (d is Map) {
-      d.forEach((k, v) {
-        if (v is num) daily[k.toString()] = v.toInt();
-      });
+    Map<String, int> parseMap(Object? raw) {
+      final out = <String, int>{};
+      if (raw is Map) {
+        raw.forEach((k, v) {
+          if (v is num) out[k.toString()] = v.toInt();
+        });
+      }
+      return out;
     }
-    final p = json['perVolume'];
-    if (p is Map) {
-      p.forEach((k, v) {
-        if (v is num) perVolume[k.toString()] = v.toInt();
-      });
-    }
-    return ReadingActivity(dailySeconds: daily, perVolumeSeconds: perVolume);
+
+    return ReadingActivity(
+      dailySeconds: parseMap(json['daily']),
+      perVolumeSeconds: parseMap(json['perVolume']),
+      dailyWords: parseMap(json['dailyWords']),
+      perVolumeWords: parseMap(json['perVolumeWords']),
+    );
   }
 
   Map<String, dynamic> _ledgerToJson(ReadingActivity a) => {
     'daily': a.dailySeconds,
     'perVolume': a.perVolumeSeconds,
+    'dailyWords': a.dailyWords,
+    'perVolumeWords': a.perVolumeWords,
   };
 
   // ── iCloud sync (see CloudSyncService) ──────────────────────────────────
@@ -278,9 +345,20 @@ class ReadingActivityStore {
   /// Adds [delta] seconds to today's tally and to the per-volume tally for
   /// [volume]. Sessions shorter than a second are ignored so app-switch
   /// noise can't poison the streak.
-  Future<void> record(Volume volume, Duration delta, {DateTime? now}) async {
+  /// Adds [delta] seconds to today's tally and to the per-volume tally for
+  /// [volume], plus [words] newly-read words to both. Sessions shorter than a
+  /// second are ignored so app-switch noise can't poison the streak; [words]
+  /// is the caller's already-deduplicated forward progress (see the reader's
+  /// word high-water mark), so it is safe to add straight onto both tallies.
+  Future<void> record(
+    Volume volume,
+    Duration delta, {
+    int words = 0,
+    DateTime? now,
+  }) async {
     final seconds = delta.inSeconds;
     if (seconds <= 0) return;
+    final newWords = words < 0 ? 0 : words;
     await _ensureMigrated();
     final dateKey = _dateKey(_today(now));
     final volumeKey = '${volume.seriesOpdsId}/${volume.fileName}';
@@ -290,10 +368,12 @@ class ReadingActivityStore {
           DailyActivityRowsCompanion(
             day: Value(dateKey),
             seconds: Value(seconds),
+            words: Value(newWords),
           ),
           onConflict: DoUpdate(
             (old) => DailyActivityRowsCompanion.custom(
               seconds: old.seconds + Constant(seconds),
+              words: old.words + Constant(newWords),
             ),
           ),
         );
@@ -303,14 +383,23 @@ class ReadingActivityStore {
           VolumeActivityRowsCompanion(
             volumeKey: Value(volumeKey),
             seconds: Value(seconds),
+            words: Value(newWords),
           ),
           onConflict: DoUpdate(
             (old) => VolumeActivityRowsCompanion.custom(
               seconds: old.seconds + Constant(seconds),
+              words: old.words + Constant(newWords),
             ),
           ),
         );
     CloudSyncService().pushActivitySoon();
+  }
+
+  /// This device's recorded word count for [volume] — the reader seeds its
+  /// word high-water mark from this on open so re-reads don't re-count.
+  Future<int> wordsForVolume(Volume volume) async {
+    final key = '${volume.seriesOpdsId}/${volume.fileName}';
+    return (await _loadLocal()).perVolumeWords[key] ?? 0;
   }
 
   // ── one-time import from SharedPreferences ──────────────────────────────
@@ -330,6 +419,16 @@ class ReadingActivityStore {
         if (decoded is Map<String, dynamic>) {
           final dailyRaw = decoded['daily'];
           final volumeRaw = decoded['perVolume'];
+          final dailyWordsRaw = decoded['dailyWords'];
+          final volumeWordsRaw = decoded['perVolumeWords'];
+          int wordsFor(Object? raw, String key) {
+            if (raw is Map) {
+              final v = raw[key];
+              if (v is num) return v.toInt();
+            }
+            return 0;
+          }
+
           await _db.batch((b) {
             if (dailyRaw is Map) {
               b.insertAll(_db.dailyActivityRows, [
@@ -338,6 +437,7 @@ class ReadingActivityStore {
                     DailyActivityRowsCompanion(
                       day: Value(entry.key.toString()),
                       seconds: Value((entry.value as num).toInt()),
+                      words: Value(wordsFor(dailyWordsRaw, entry.key.toString())),
                     ),
               ], mode: InsertMode.insertOrIgnore);
             }
@@ -348,6 +448,9 @@ class ReadingActivityStore {
                     VolumeActivityRowsCompanion(
                       volumeKey: Value(entry.key.toString()),
                       seconds: Value((entry.value as num).toInt()),
+                      words: Value(
+                        wordsFor(volumeWordsRaw, entry.key.toString()),
+                      ),
                     ),
               ], mode: InsertMode.insertOrIgnore);
             }
@@ -372,6 +475,8 @@ class ReadingActivityStore {
       _key: jsonEncode({
         'daily': activity.dailySeconds,
         'perVolume': activity.perVolumeSeconds,
+        'dailyWords': activity.dailyWords,
+        'perVolumeWords': activity.perVolumeWords,
       }),
     };
   }

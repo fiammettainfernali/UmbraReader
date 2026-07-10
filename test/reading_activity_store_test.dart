@@ -101,6 +101,67 @@ void main() {
     expect((await store.load()).totalSeconds, 0);
   });
 
+  test('record tallies words per day and per volume', () async {
+    final store = ReadingActivityStore();
+    final v = _volume();
+    final t = DateTime(2026, 7, 3, 12);
+    await store.record(v, const Duration(minutes: 5), words: 400, now: t);
+    await store.record(v, const Duration(minutes: 5), words: 250, now: t);
+
+    final a = await store.load();
+    expect(a.totalWords, 650);
+    expect(a.todayWords(now: t), 650);
+    expect(a.perVolumeWords['${v.seriesOpdsId}/${v.fileName}'], 650);
+    // 10 minutes of reading, 650 words → 65 wpm.
+    expect(a.wordsPerMinute, 65);
+    // wordsForVolume reports this device's high-water mark for seeding.
+    expect(await store.wordsForVolume(v), 650);
+  });
+
+  test('record clamps negative word counts to zero', () async {
+    final store = ReadingActivityStore();
+    await store.record(_volume(), const Duration(minutes: 1), words: -50);
+    expect((await store.load()).totalWords, 0);
+  });
+
+  test('weekWords sums the last seven days of words', () async {
+    final store = ReadingActivityStore();
+    final t0 = DateTime(2026, 5, 20, 12);
+    for (var i = 0; i < 10; i++) {
+      await store.record(
+        _volume(),
+        const Duration(minutes: 1),
+        words: 100,
+        now: t0.subtract(Duration(days: i)),
+      );
+    }
+    expect((await store.load()).weekWords(now: t0), 700);
+  });
+
+  test('word ledgers merge across devices and survive a JSON round-trip',
+      () async {
+    final store = ReadingActivityStore();
+    final today = DateTime(2026, 7, 3, 9);
+    await store.record(_volume(), const Duration(minutes: 5),
+        words: 300, now: today);
+    // Another device read yesterday, on the same volume.
+    await store.mergeSyncBlob(
+      '{"otherdevice1234":{"daily":{"2026-07-02":600},'
+      '"perVolume":{"1/book.epub":600},'
+      '"dailyWords":{"2026-07-02":500},'
+      '"perVolumeWords":{"1/book.epub":500}}}',
+    );
+    final a = await store.load();
+    expect(a.totalWords, 800, reason: '300 here + 500 remote');
+    expect(a.perVolumeWords['1/book.epub'], 800);
+    // Re-merging our own exported blob must not double-count words.
+    final blob = await store.exportSyncBlob();
+    expect(blob, contains('dailyWords'));
+    await store.mergeSyncBlob(blob);
+    expect((await store.load()).totalWords, 800);
+    CloudSyncService().cancelPendingTimers();
+  });
+
   test('streak grace: today unread keeps the streak alive', () async {
     final store = ReadingActivityStore();
     final v = _volume();
