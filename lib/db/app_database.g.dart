@@ -2150,6 +2150,368 @@ class VolumeActivityRowsCompanion extends UpdateCompanion<VolumeActivityRow> {
   }
 }
 
+class $RecOutcomeRowsTable extends RecOutcomeRows
+    with TableInfo<$RecOutcomeRowsTable, RecOutcomeRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $RecOutcomeRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _seriesIdMeta = const VerificationMeta(
+    'seriesId',
+  );
+  @override
+  late final GeneratedColumn<int> seriesId = GeneratedColumn<int>(
+    'series_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _impressionsMeta = const VerificationMeta(
+    'impressions',
+  );
+  @override
+  late final GeneratedColumn<int> impressions = GeneratedColumn<int>(
+    'impressions',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _tapsMeta = const VerificationMeta('taps');
+  @override
+  late final GeneratedColumn<int> taps = GeneratedColumn<int>(
+    'taps',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _lastShownDayMeta = const VerificationMeta(
+    'lastShownDay',
+  );
+  @override
+  late final GeneratedColumn<String> lastShownDay = GeneratedColumn<String>(
+    'last_shown_day',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
+  static const VerificationMeta _lastTapAtMeta = const VerificationMeta(
+    'lastTapAt',
+  );
+  @override
+  late final GeneratedColumn<String> lastTapAt = GeneratedColumn<String>(
+    'last_tap_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    seriesId,
+    impressions,
+    taps,
+    lastShownDay,
+    lastTapAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'rec_outcome_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<RecOutcomeRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('series_id')) {
+      context.handle(
+        _seriesIdMeta,
+        seriesId.isAcceptableOrUnknown(data['series_id']!, _seriesIdMeta),
+      );
+    }
+    if (data.containsKey('impressions')) {
+      context.handle(
+        _impressionsMeta,
+        impressions.isAcceptableOrUnknown(
+          data['impressions']!,
+          _impressionsMeta,
+        ),
+      );
+    }
+    if (data.containsKey('taps')) {
+      context.handle(
+        _tapsMeta,
+        taps.isAcceptableOrUnknown(data['taps']!, _tapsMeta),
+      );
+    }
+    if (data.containsKey('last_shown_day')) {
+      context.handle(
+        _lastShownDayMeta,
+        lastShownDay.isAcceptableOrUnknown(
+          data['last_shown_day']!,
+          _lastShownDayMeta,
+        ),
+      );
+    }
+    if (data.containsKey('last_tap_at')) {
+      context.handle(
+        _lastTapAtMeta,
+        lastTapAt.isAcceptableOrUnknown(data['last_tap_at']!, _lastTapAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {seriesId};
+  @override
+  RecOutcomeRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return RecOutcomeRow(
+      seriesId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}series_id'],
+      )!,
+      impressions: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}impressions'],
+      )!,
+      taps: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}taps'],
+      )!,
+      lastShownDay: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_shown_day'],
+      )!,
+      lastTapAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_tap_at'],
+      ),
+    );
+  }
+
+  @override
+  $RecOutcomeRowsTable createAlias(String alias) {
+    return $RecOutcomeRowsTable(attachedDatabase, alias);
+  }
+}
+
+class RecOutcomeRow extends DataClass implements Insertable<RecOutcomeRow> {
+  final int seriesId;
+  final int impressions;
+  final int taps;
+
+  /// Local `YYYY-MM-DD` of the last counted impression — impressions count
+  /// at most once per series per day so one busy session can't spam the
+  /// counter.
+  final String lastShownDay;
+  final String? lastTapAt;
+  const RecOutcomeRow({
+    required this.seriesId,
+    required this.impressions,
+    required this.taps,
+    required this.lastShownDay,
+    this.lastTapAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['series_id'] = Variable<int>(seriesId);
+    map['impressions'] = Variable<int>(impressions);
+    map['taps'] = Variable<int>(taps);
+    map['last_shown_day'] = Variable<String>(lastShownDay);
+    if (!nullToAbsent || lastTapAt != null) {
+      map['last_tap_at'] = Variable<String>(lastTapAt);
+    }
+    return map;
+  }
+
+  RecOutcomeRowsCompanion toCompanion(bool nullToAbsent) {
+    return RecOutcomeRowsCompanion(
+      seriesId: Value(seriesId),
+      impressions: Value(impressions),
+      taps: Value(taps),
+      lastShownDay: Value(lastShownDay),
+      lastTapAt: lastTapAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastTapAt),
+    );
+  }
+
+  factory RecOutcomeRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return RecOutcomeRow(
+      seriesId: serializer.fromJson<int>(json['seriesId']),
+      impressions: serializer.fromJson<int>(json['impressions']),
+      taps: serializer.fromJson<int>(json['taps']),
+      lastShownDay: serializer.fromJson<String>(json['lastShownDay']),
+      lastTapAt: serializer.fromJson<String?>(json['lastTapAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'seriesId': serializer.toJson<int>(seriesId),
+      'impressions': serializer.toJson<int>(impressions),
+      'taps': serializer.toJson<int>(taps),
+      'lastShownDay': serializer.toJson<String>(lastShownDay),
+      'lastTapAt': serializer.toJson<String?>(lastTapAt),
+    };
+  }
+
+  RecOutcomeRow copyWith({
+    int? seriesId,
+    int? impressions,
+    int? taps,
+    String? lastShownDay,
+    Value<String?> lastTapAt = const Value.absent(),
+  }) => RecOutcomeRow(
+    seriesId: seriesId ?? this.seriesId,
+    impressions: impressions ?? this.impressions,
+    taps: taps ?? this.taps,
+    lastShownDay: lastShownDay ?? this.lastShownDay,
+    lastTapAt: lastTapAt.present ? lastTapAt.value : this.lastTapAt,
+  );
+  RecOutcomeRow copyWithCompanion(RecOutcomeRowsCompanion data) {
+    return RecOutcomeRow(
+      seriesId: data.seriesId.present ? data.seriesId.value : this.seriesId,
+      impressions: data.impressions.present
+          ? data.impressions.value
+          : this.impressions,
+      taps: data.taps.present ? data.taps.value : this.taps,
+      lastShownDay: data.lastShownDay.present
+          ? data.lastShownDay.value
+          : this.lastShownDay,
+      lastTapAt: data.lastTapAt.present ? data.lastTapAt.value : this.lastTapAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RecOutcomeRow(')
+          ..write('seriesId: $seriesId, ')
+          ..write('impressions: $impressions, ')
+          ..write('taps: $taps, ')
+          ..write('lastShownDay: $lastShownDay, ')
+          ..write('lastTapAt: $lastTapAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(seriesId, impressions, taps, lastShownDay, lastTapAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is RecOutcomeRow &&
+          other.seriesId == this.seriesId &&
+          other.impressions == this.impressions &&
+          other.taps == this.taps &&
+          other.lastShownDay == this.lastShownDay &&
+          other.lastTapAt == this.lastTapAt);
+}
+
+class RecOutcomeRowsCompanion extends UpdateCompanion<RecOutcomeRow> {
+  final Value<int> seriesId;
+  final Value<int> impressions;
+  final Value<int> taps;
+  final Value<String> lastShownDay;
+  final Value<String?> lastTapAt;
+  const RecOutcomeRowsCompanion({
+    this.seriesId = const Value.absent(),
+    this.impressions = const Value.absent(),
+    this.taps = const Value.absent(),
+    this.lastShownDay = const Value.absent(),
+    this.lastTapAt = const Value.absent(),
+  });
+  RecOutcomeRowsCompanion.insert({
+    this.seriesId = const Value.absent(),
+    this.impressions = const Value.absent(),
+    this.taps = const Value.absent(),
+    this.lastShownDay = const Value.absent(),
+    this.lastTapAt = const Value.absent(),
+  });
+  static Insertable<RecOutcomeRow> custom({
+    Expression<int>? seriesId,
+    Expression<int>? impressions,
+    Expression<int>? taps,
+    Expression<String>? lastShownDay,
+    Expression<String>? lastTapAt,
+  }) {
+    return RawValuesInsertable({
+      if (seriesId != null) 'series_id': seriesId,
+      if (impressions != null) 'impressions': impressions,
+      if (taps != null) 'taps': taps,
+      if (lastShownDay != null) 'last_shown_day': lastShownDay,
+      if (lastTapAt != null) 'last_tap_at': lastTapAt,
+    });
+  }
+
+  RecOutcomeRowsCompanion copyWith({
+    Value<int>? seriesId,
+    Value<int>? impressions,
+    Value<int>? taps,
+    Value<String>? lastShownDay,
+    Value<String?>? lastTapAt,
+  }) {
+    return RecOutcomeRowsCompanion(
+      seriesId: seriesId ?? this.seriesId,
+      impressions: impressions ?? this.impressions,
+      taps: taps ?? this.taps,
+      lastShownDay: lastShownDay ?? this.lastShownDay,
+      lastTapAt: lastTapAt ?? this.lastTapAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (seriesId.present) {
+      map['series_id'] = Variable<int>(seriesId.value);
+    }
+    if (impressions.present) {
+      map['impressions'] = Variable<int>(impressions.value);
+    }
+    if (taps.present) {
+      map['taps'] = Variable<int>(taps.value);
+    }
+    if (lastShownDay.present) {
+      map['last_shown_day'] = Variable<String>(lastShownDay.value);
+    }
+    if (lastTapAt.present) {
+      map['last_tap_at'] = Variable<String>(lastTapAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('RecOutcomeRowsCompanion(')
+          ..write('seriesId: $seriesId, ')
+          ..write('impressions: $impressions, ')
+          ..write('taps: $taps, ')
+          ..write('lastShownDay: $lastShownDay, ')
+          ..write('lastTapAt: $lastTapAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $KvRowsTable extends KvRows with TableInfo<$KvRowsTable, KvRow> {
   @override
   final GeneratedDatabase attachedDatabase;
@@ -2366,6 +2728,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $DailyActivityRowsTable(this);
   late final $VolumeActivityRowsTable volumeActivityRows =
       $VolumeActivityRowsTable(this);
+  late final $RecOutcomeRowsTable recOutcomeRows = $RecOutcomeRowsTable(this);
   late final $KvRowsTable kvRows = $KvRowsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
@@ -2377,6 +2740,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     collectionRows,
     dailyActivityRows,
     volumeActivityRows,
+    recOutcomeRows,
     kvRows,
   ];
 }
@@ -3563,6 +3927,206 @@ typedef $$VolumeActivityRowsTableProcessedTableManager =
       VolumeActivityRow,
       PrefetchHooks Function()
     >;
+typedef $$RecOutcomeRowsTableCreateCompanionBuilder =
+    RecOutcomeRowsCompanion Function({
+      Value<int> seriesId,
+      Value<int> impressions,
+      Value<int> taps,
+      Value<String> lastShownDay,
+      Value<String?> lastTapAt,
+    });
+typedef $$RecOutcomeRowsTableUpdateCompanionBuilder =
+    RecOutcomeRowsCompanion Function({
+      Value<int> seriesId,
+      Value<int> impressions,
+      Value<int> taps,
+      Value<String> lastShownDay,
+      Value<String?> lastTapAt,
+    });
+
+class $$RecOutcomeRowsTableFilterComposer
+    extends Composer<_$AppDatabase, $RecOutcomeRowsTable> {
+  $$RecOutcomeRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get seriesId => $composableBuilder(
+    column: $table.seriesId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get impressions => $composableBuilder(
+    column: $table.impressions,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get taps => $composableBuilder(
+    column: $table.taps,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastShownDay => $composableBuilder(
+    column: $table.lastShownDay,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastTapAt => $composableBuilder(
+    column: $table.lastTapAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$RecOutcomeRowsTableOrderingComposer
+    extends Composer<_$AppDatabase, $RecOutcomeRowsTable> {
+  $$RecOutcomeRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get seriesId => $composableBuilder(
+    column: $table.seriesId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get impressions => $composableBuilder(
+    column: $table.impressions,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get taps => $composableBuilder(
+    column: $table.taps,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastShownDay => $composableBuilder(
+    column: $table.lastShownDay,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastTapAt => $composableBuilder(
+    column: $table.lastTapAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$RecOutcomeRowsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $RecOutcomeRowsTable> {
+  $$RecOutcomeRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get seriesId =>
+      $composableBuilder(column: $table.seriesId, builder: (column) => column);
+
+  GeneratedColumn<int> get impressions => $composableBuilder(
+    column: $table.impressions,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get taps =>
+      $composableBuilder(column: $table.taps, builder: (column) => column);
+
+  GeneratedColumn<String> get lastShownDay => $composableBuilder(
+    column: $table.lastShownDay,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get lastTapAt =>
+      $composableBuilder(column: $table.lastTapAt, builder: (column) => column);
+}
+
+class $$RecOutcomeRowsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $RecOutcomeRowsTable,
+          RecOutcomeRow,
+          $$RecOutcomeRowsTableFilterComposer,
+          $$RecOutcomeRowsTableOrderingComposer,
+          $$RecOutcomeRowsTableAnnotationComposer,
+          $$RecOutcomeRowsTableCreateCompanionBuilder,
+          $$RecOutcomeRowsTableUpdateCompanionBuilder,
+          (
+            RecOutcomeRow,
+            BaseReferences<_$AppDatabase, $RecOutcomeRowsTable, RecOutcomeRow>,
+          ),
+          RecOutcomeRow,
+          PrefetchHooks Function()
+        > {
+  $$RecOutcomeRowsTableTableManager(
+    _$AppDatabase db,
+    $RecOutcomeRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$RecOutcomeRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$RecOutcomeRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$RecOutcomeRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> seriesId = const Value.absent(),
+                Value<int> impressions = const Value.absent(),
+                Value<int> taps = const Value.absent(),
+                Value<String> lastShownDay = const Value.absent(),
+                Value<String?> lastTapAt = const Value.absent(),
+              }) => RecOutcomeRowsCompanion(
+                seriesId: seriesId,
+                impressions: impressions,
+                taps: taps,
+                lastShownDay: lastShownDay,
+                lastTapAt: lastTapAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> seriesId = const Value.absent(),
+                Value<int> impressions = const Value.absent(),
+                Value<int> taps = const Value.absent(),
+                Value<String> lastShownDay = const Value.absent(),
+                Value<String?> lastTapAt = const Value.absent(),
+              }) => RecOutcomeRowsCompanion.insert(
+                seriesId: seriesId,
+                impressions: impressions,
+                taps: taps,
+                lastShownDay: lastShownDay,
+                lastTapAt: lastTapAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$RecOutcomeRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $RecOutcomeRowsTable,
+      RecOutcomeRow,
+      $$RecOutcomeRowsTableFilterComposer,
+      $$RecOutcomeRowsTableOrderingComposer,
+      $$RecOutcomeRowsTableAnnotationComposer,
+      $$RecOutcomeRowsTableCreateCompanionBuilder,
+      $$RecOutcomeRowsTableUpdateCompanionBuilder,
+      (
+        RecOutcomeRow,
+        BaseReferences<_$AppDatabase, $RecOutcomeRowsTable, RecOutcomeRow>,
+      ),
+      RecOutcomeRow,
+      PrefetchHooks Function()
+    >;
 typedef $$KvRowsTableCreateCompanionBuilder =
     KvRowsCompanion Function({
       required String key,
@@ -3707,6 +4271,8 @@ class $AppDatabaseManager {
       $$DailyActivityRowsTableTableManager(_db, _db.dailyActivityRows);
   $$VolumeActivityRowsTableTableManager get volumeActivityRows =>
       $$VolumeActivityRowsTableTableManager(_db, _db.volumeActivityRows);
+  $$RecOutcomeRowsTableTableManager get recOutcomeRows =>
+      $$RecOutcomeRowsTableTableManager(_db, _db.recOutcomeRows);
   $$KvRowsTableTableManager get kvRows =>
       $$KvRowsTableTableManager(_db, _db.kvRows);
 }

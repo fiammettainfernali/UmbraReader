@@ -104,6 +104,26 @@ class VolumeActivityRows extends Table {
   Set<Column<Object>> get primaryKey => {volumeKey};
 }
 
+/// Recommendation outcomes per series: how often a rec card was shown and
+/// whether it was ever tapped. Impressions-without-taps soften a candidate's
+/// score, and (with taps) they become the training labels for the learned
+/// per-user weights. Device-local — each device learns from what its user
+/// actually saw on that screen.
+class RecOutcomeRows extends Table {
+  IntColumn get seriesId => integer()();
+  IntColumn get impressions => integer().withDefault(const Constant(0))();
+  IntColumn get taps => integer().withDefault(const Constant(0))();
+
+  /// Local `YYYY-MM-DD` of the last counted impression — impressions count
+  /// at most once per series per day so one busy session can't spam the
+  /// counter.
+  TextColumn get lastShownDay => text().withDefault(const Constant(''))();
+  TextColumn get lastTapAt => text().nullable()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {seriesId};
+}
+
 /// Small scalars owned by database-backed stores (e.g. the collections
 /// last-modified timestamp that drives whole-set sync).
 class KvRows extends Table {
@@ -126,6 +146,7 @@ class KvRows extends Table {
     CollectionRows,
     DailyActivityRows,
     VolumeActivityRows,
+    RecOutcomeRows,
     KvRows,
   ],
 )
@@ -157,7 +178,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -184,6 +205,10 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(dailyActivityRows, dailyActivityRows.words);
         await m.addColumn(volumeActivityRows, volumeActivityRows.words);
       }
+      if (from < 5) {
+        // v5: recommendation outcome tracking (impressions/taps).
+        await m.createTable(recOutcomeRows);
+      }
     },
   );
 
@@ -197,6 +222,7 @@ class AppDatabase extends _$AppDatabase {
       b.deleteAll(collectionRows);
       b.deleteAll(dailyActivityRows);
       b.deleteAll(volumeActivityRows);
+      b.deleteAll(recOutcomeRows);
       b.deleteAll(kvRows);
     });
   }

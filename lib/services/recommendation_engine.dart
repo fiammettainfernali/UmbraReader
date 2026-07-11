@@ -3,6 +3,7 @@ import 'dart:math';
 import '../models/series.dart';
 import '../models/volume.dart';
 import 'reading_progress_store.dart';
+import 'rec_outcome_store.dart';
 import 'recommendation_feedback_store.dart';
 
 /// One recommended series with the score that produced it.
@@ -11,6 +12,43 @@ class Recommendation {
 
   final Series series;
   final double score;
+}
+
+/// Behavioural signals beyond chapter fractions — everything the app already
+/// knows about HOW the user read, folded into the affinity weights. All
+/// fields are optional; a missing signal contributes nothing, so the engine
+/// degrades gracefully to fraction-only scoring.
+class RecSignals {
+  const RecSignals({
+    this.volumeSeconds = const {},
+    this.volumeWords = const {},
+    this.highlightsPerSeries = const {},
+    this.hiddenVolumeKeys = const {},
+    this.collectionSeriesIds = const {},
+    this.outcomes = const {},
+  });
+
+  /// Reading seconds per volume (`seriesOpdsId/fileName`), from the
+  /// activity ledger. Time-in-book is the strongest implicit like there is.
+  final Map<String, int> volumeSeconds;
+
+  /// Words read per volume (same keys) — re-read-proof consumption.
+  final Map<String, int> volumeWords;
+
+  /// Saved highlight/bookmark count per series — highlight density is love.
+  final Map<int, int> highlightsPerSeries;
+
+  /// Volume keys hidden from the Continue shelf — a mild "enough of this".
+  final Set<String> hiddenVolumeKeys;
+
+  /// Series the user filed into a collection — explicit curation interest.
+  final Set<int> collectionSeriesIds;
+
+  /// Impression/tap outcomes per series: candidates that keep being shown
+  /// and ignored get softened so the shelf doesn't go stale.
+  final Map<int, RecOutcome> outcomes;
+
+  static const none = RecSignals();
 }
 
 /// Builds a ranked list of "you might also like" suggestions from the user's
@@ -55,6 +93,7 @@ class RecommendationEngine {
     required List<Series> allSeries,
     required List<ReadingEntry> readingEntries,
     Map<int, RecommendationFeedback>? feedback,
+    RecSignals signals = RecSignals.none,
     DateTime? now,
   }) {
     final clock = now ?? DateTime.now();
@@ -72,6 +111,11 @@ class RecommendationEngine {
           .add(entry);
     }
 
+    // The user's median seconds/words per touched volume — the yardstick
+    // that turns raw time-in-book into "more/less than usual for you".
+    final medianSeconds = _medianOver(readingEntries, signals.volumeSeconds);
+    final medianWords = _medianOver(readingEntries, signals.volumeWords);
+
     final engagedIds = <int>{...entriesBySeries.keys};
     final signedSeries = <int, double>{};
 
@@ -85,7 +129,13 @@ class RecommendationEngine {
         // binge doesn't drown out single-volume favourites.
         var aggregated = 0.0;
         for (final entry in entries) {
-          aggregated += _likeWeight(entry, clock);
+          aggregated += _likeWeight(
+            entry,
+            clock,
+            signals: signals,
+            medianSeconds: medianSeconds,
+            medianWords: medianWords,
+          );
         }
         if (entries.length > 1) {
           aggregated = aggregated * sqrt(entries.length) / entries.length;
@@ -97,19 +147,48 @@ class RecommendationEngine {
         }
         signed = aggregated;
       }
+      // Highlight density: saved passages are a strong love signal, worth up
+      // to +0.3 on top of whatever the read itself earned.
+      final highlights = signals.highlightsPerSeries[series.opdsId] ?? 0;
+      if (highlights > 0) {
+        signed = (signed ?? 0) + min(0.3, 0.1 * highlights);
+        engagedIds.add(series.opdsId);
+      }
+      // Curating a series into a collection is explicit interest.
+      if (signals.collectionSeriesIds.contains(series.opdsId)) {
+        signed = (signed ?? 0) + 0.25;
+        engagedIds.add(series.opdsId);
+      }
+      // Hiding from the Continue shelf is a mild "enough of this for now".
+      if (entries != null &&
+          entries.any(
+            (e) => signals.hiddenVolumeKeys.contains(_volumeKey(e.volume)),
+          )) {
+        signed = (signed ?? 0) - 0.15;
+      }
       if (status == 'dropped') {
         // User-marked dropped → flip to a negative signal.
         signed = -(((signed ?? 0).abs()).clamp(0.5, double.infinity));
         engagedIds.add(series.opdsId);
       }
-      // Explicit per-card feedback overrides everything else: reset is the
-      // strongest "no thanks", dismiss is a milder one.
-      if (userFeedback == RecommendationFeedback.reset) {
-        signed = -0.7;
-        engagedIds.add(series.opdsId);
-      } else if (userFeedback == RecommendationFeedback.dismissed) {
-        signed = -0.3;
-        engagedIds.add(series.opdsId);
+      // Explicit per-card feedback: reset is the strongest "no thanks",
+      // dismiss a milder one; a 👍 is a full extra like on top of the read
+      // history (an explicit like also supersedes an earlier negative);
+      // snoozed just leaves the engaged set to keep the series off shelves.
+      switch (userFeedback) {
+        case RecommendationFeedback.reset:
+          signed = -0.7;
+          engagedIds.add(series.opdsId);
+        case RecommendationFeedback.dismissed:
+          signed = -0.3;
+          engagedIds.add(series.opdsId);
+        case RecommendationFeedback.liked:
+          signed = max(signed ?? 0, 0) + 1.0;
+          engagedIds.add(series.opdsId);
+        case RecommendationFeedback.snoozed:
+          engagedIds.add(series.opdsId);
+        case null:
+          break;
       }
       if (signed != null && signed != 0) {
         signedSeries[series.opdsId] = signed;
@@ -150,6 +229,13 @@ class RecommendationEngine {
       var score = 0.0;
       for (final tag in _tagsFor(series, keywords[series.opdsId] ?? const [])) {
         score += tagScore[tag] ?? 0;
+      }
+      // Shown-and-ignored decay: a candidate that has sat on the shelf for
+      // several distinct days without ever being opened gets progressively
+      // softened (floor 35%), so the shelf rotates instead of going stale.
+      final ignored = signals.outcomes[series.opdsId]?.ignored ?? 0;
+      if (ignored > 2) {
+        score *= max(0.35, pow(0.85, ignored - 2).toDouble());
       }
       if (score > 0) scored.add(Recommendation(series, score));
     }
@@ -299,19 +385,55 @@ class RecommendationEngine {
         updatedAt: clock,
       ),
     );
+    // The SOURCE's own dropped-status or reset/dismiss feedback must not
+    // apply to the seed entry — it would flip the seed's tag contribution
+    // negative and turn "More like this" into anti-recommendations. Feed the
+    // engine a status-neutral copy of the source and strip its feedback.
+    final neutralSource = Series.fromJson({
+      ...source.toJson(),
+      'readingStatus': 'ongoing',
+    });
+    final seriesPool = [
+      for (final s in allSeries)
+        s.opdsId == source.opdsId ? neutralSource : s,
+    ];
+    final scopedFeedback = feedback == null
+        ? null
+        : (Map<int, RecommendationFeedback>.of(feedback)
+          ..remove(source.opdsId));
     final picks = recommend(
-      allSeries: allSeries,
+      allSeries: seriesPool,
       readingEntries: [fakeEntry],
-      feedback: feedback,
+      feedback: scopedFeedback,
       now: clock,
     );
     if (picks.length <= maxResults) return picks;
     return picks.sublist(0, maxResults);
   }
 
-  /// How strongly a single reading entry counts as a "like", time-decayed.
-  double _likeWeight(ReadingEntry entry, DateTime now) {
+  /// How strongly a single reading entry counts as a "like": the chapter
+  /// fraction sets the base, actual time/words spent scale it (a book you
+  /// lived in for 30 hours beats one you skimmed to the same fraction),
+  /// recency decays it — but finished reads keep a floor so an all-time
+  /// favourite never rots to zero — and a shallow start abandoned for months
+  /// tapers into a soft negative ("bounced off it").
+  double _likeWeight(
+    ReadingEntry entry,
+    DateTime now, {
+    RecSignals signals = RecSignals.none,
+    double medianSeconds = 0,
+    double medianWords = 0,
+  }) {
     final p = entry.progress;
+    final updated = p.updatedAt;
+    final ageDays = updated == null ? 0 : now.difference(updated).inDays;
+
+    // Stall taper: started shallow and untouched for 60+ days means the
+    // book failed to hold them — a soft negative, strengthening to -0.2.
+    if (!p.isFinished && p.isStarted && p.fraction < 0.3 && ageDays >= 60) {
+      return -min(0.2, 0.1 + (ageDays - 60) / 600);
+    }
+
     final double base;
     if (p.isFinished) {
       base = 1.0;
@@ -325,10 +447,49 @@ class RecommendationEngine {
       base = 0;
     }
     if (base == 0) return 0;
-    final updated = p.updatedAt;
-    if (updated == null) return base;
-    final ageDays = now.difference(updated).inDays;
-    if (ageDays <= 0) return base;
-    return base * pow(0.5, ageDays / halfLifeDays).toDouble();
+
+    // Engagement multiplier: time (and words) in THIS volume vs the user's
+    // own median volume. sqrt keeps it gentle; neutral (1.0) at the median
+    // or when the ledger has nothing for this volume.
+    final key = _volumeKey(entry.volume);
+    var ratioSum = 0.0;
+    var ratioCount = 0;
+    final secs = signals.volumeSeconds[key] ?? 0;
+    if (secs > 0 && medianSeconds > 0) {
+      ratioSum += secs / medianSeconds;
+      ratioCount++;
+    }
+    final words = signals.volumeWords[key] ?? 0;
+    if (words > 0 && medianWords > 0) {
+      ratioSum += words / medianWords;
+      ratioCount++;
+    }
+    final engagement = ratioCount == 0
+        ? 1.0
+        : sqrt(ratioSum / ratioCount).clamp(0.6, 1.5);
+
+    final weighted = base * engagement;
+    if (updated == null || ageDays <= 0) return weighted;
+    final decayed = weighted * pow(0.5, ageDays / halfLifeDays).toDouble();
+    // Finished favourites decay toward a floor, not to nothing: the canon
+    // should keep steering taste even when the read is a year old.
+    if (p.isFinished) return max(decayed, 0.15 * weighted);
+    return decayed;
   }
+
+  /// Median ledger value across the volumes the user has actually touched —
+  /// 0 when the ledger has no data for any of them.
+  double _medianOver(List<ReadingEntry> entries, Map<String, int> ledger) {
+    final values = <int>[
+      for (final e in entries)
+        if ((ledger[_volumeKey(e.volume)] ?? 0) > 0) ledger[_volumeKey(e.volume)]!,
+    ]..sort();
+    if (values.isEmpty) return 0;
+    final mid = values.length ~/ 2;
+    return values.length.isOdd
+        ? values[mid].toDouble()
+        : (values[mid - 1] + values[mid]) / 2.0;
+  }
+
+  static String _volumeKey(Volume v) => '${v.seriesOpdsId}/${v.fileName}';
 }

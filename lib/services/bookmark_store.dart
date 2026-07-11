@@ -69,6 +69,22 @@ class BookmarkStore {
     return marks;
   }
 
+  /// Bookmark/highlight counts grouped by series opdsId — the love-signal
+  /// feed for the recommendation engine (saving passages = caring).
+  Future<Map<int, int>> countBySeries() async {
+    await _ensureMigrated();
+    final rows = await _db.select(_table).get();
+    final out = <int, int>{};
+    for (final row in rows) {
+      final sep = row.volumeKey.indexOf('/');
+      if (sep <= 0) continue;
+      final id = int.tryParse(row.volumeKey.substring(0, sep));
+      if (id == null) continue;
+      out.update(id, (c) => c + 1, ifAbsent: () => 1);
+    }
+    return out;
+  }
+
   /// Adds [bookmark] to [volume] (idempotent on id — re-adding replaces).
   Future<void> add(Volume volume, Bookmark bookmark) async {
     await _ensureMigrated();

@@ -268,6 +268,66 @@ distraction-free immersive mode, line-precision resume.
       user causing it. Document it and keep it true (this is a design
       contract, not a feature).
 
+## Phase 7 — Recommendation system overhaul (audited 2026-07-10)
+
+**Audit verdict:** the content-based engine (signed tag affinity: genres,
+author ×2, length bucket, 8 TF-IDF keywords; 30-day half-life; √n damping;
+diversity caps) is a solid foundation with a hard ceiling. Findings:
+(1) it ignores the app's richest signals — per-volume seconds AND words from
+the activity ledger, highlight density, binge velocity, hidden-from-continue,
+hiatus status, collections membership, downloaded-but-unopened; (2) no
+outcome tracking — impressions are never recorded, so repeatedly-ignored recs
+never fade, and there is no positive feedback at all; (3) fixed hand weights
+(author ×2 forever) that can't adapt to whether THIS user is author-loyal or
+trope-driven; (4) scoring math: raw tag-sum (no normalization → many-genre
+series inflate), no IDF on genre/author tags (a genre shared by 80% of the
+library counts full weight), tokenizer drops <4-char words (war/god/sect) and
+all non-ASCII, unigrams only, `l:unknown` is matchable, decay zeroes all-time
+favourites (~0.02% after a year), stalled reads stay positive forever;
+(5) BUG: `similarTo` lets the source's own dropped-status/reset-feedback flip
+the fake entry negative → "More like this" returns anti-recommendations;
+(6) dismisses suppress forever and there is zero exploration.
+
+### Phase A — Signal foundation
+- [x] **Rec outcome store** (SQLite v5, RecOutcomeRows): impressions (max one
+      per series per day) + taps; 3+ ignored impressions soften a candidate
+      ×0.85 each (floor 35%); the training data for Phase B's learner.
+- [x] **Explicit 👍 "More like this"** on rec cards; feedback enum grew
+      liked/snoozed with timestamps ("kind|iso", legacy bare names still
+      parse); sync merge is newest-wins with strength tie-break; snoozes
+      expire after 30 days.
+- [x] **Rich like-weight:** engagement multiplier from time-in-book + words
+      read vs the user's own median volume (sqrt, clamped 0.6–1.5),
+      highlight density up to +0.3, stall taper (<30% and untouched 60+
+      days → up to −0.2), decay floor 0.15× for finished favourites,
+      hidden-from-continue −0.15, collections membership +0.25.
+- [x] Fixed the `similarTo` polarity bug (status-neutral source copy +
+      stripped feedback for the seed).
+
+### Phase B — Matching + per-user learning
+- [ ] Normalized cosine-style scoring; IDF-weight genre/author tags by
+      library frequency; drop `l:unknown`; tokenizer ≥3 chars + bigrams;
+      ~12 keywords.
+- [ ] **Per-user learned feature-group weights:** tiny online logistic
+      regression (pure Dart) over [author match, genre sim, keyword sim,
+      length match, binge affinity], trained on outcome labels
+      (rec → started & read past 20% = 1; dismissed or 5+ ignored
+      impressions = 0). Hand weights = cold-start prior; weights sync.
+
+### Phase C — Presentation & trust
+- [ ] "Because…" explanation line on every rec card (top contributing tags).
+- [ ] One "Something different" wildcard slot; its outcomes feed the learner.
+- [ ] Feedback aging (dismiss expires ~90 days), snooze vs never,
+      "Show me different" can resurface expired dismissals.
+
+### Phase D — Prove it
+- [ ] Offline replay test: recommend at time T from reconstructed history,
+      measure hit-rate against what was actually read after T.
+
+**Ceiling to remember:** the engine ranks only what's already in the Novel
+Grabber library; true discovery of new novels is a Novel Grabber server
+feature, not an Umbra change.
+
 ## Phase 5 — Differentiators (after it's a business)
 
 - [ ] **26.** Read-aloud resurrected properly (`kReadAloudEnabled` flag

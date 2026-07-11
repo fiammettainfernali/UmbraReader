@@ -11,7 +11,10 @@ import '../services/download_service.dart';
 import '../services/library_cache.dart';
 import '../services/library_storage.dart';
 import '../services/opds_client.dart';
+import '../services/bookmark_store.dart';
+import '../services/collection_store.dart';
 import '../services/reading_progress_store.dart';
+import '../services/rec_outcome_store.dart';
 import '../services/recommendation_engine.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/recommendation_feedback_store.dart';
@@ -233,10 +236,27 @@ class _LibraryScreenState extends State<LibraryScreen> {
         )
         .take(12)
         .toList();
+    // Everything the app knows about HOW the user reads, folded into the
+    // engine: time + words per volume, highlight density, hidden volumes,
+    // collection membership, and shown-and-ignored outcomes.
+    final highlights = await BookmarkStore().countBySeries();
+    final collections = await CollectionStore().list();
+    final outcomes = await RecOutcomeStore().load();
+    final signals = RecSignals(
+      volumeSeconds: activity.perVolumeSeconds,
+      volumeWords: activity.perVolumeWords,
+      highlightsPerSeries: highlights,
+      hiddenVolumeKeys: hidden,
+      collectionSeriesIds: {
+        for (final c in collections) ...c.seriesIds,
+      },
+      outcomes: outcomes,
+    );
     final recs = const RecommendationEngine(maxResults: 40).recommend(
       allSeries: _library ?? const <Series>[],
       readingEntries: entries,
       feedback: feedback,
+      signals: signals,
     );
     if (!mounted) return;
     setState(() {
@@ -248,6 +268,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _recommendations = recs;
       _recommendOffset = 0;
     });
+    _recordShelfImpressions();
   }
 
   /// Records a "not interested" on a recommendation and refreshes the shelf
@@ -255,6 +276,45 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Future<void> _dismissRecommendation(Series series) async {
     await RecommendationFeedbackStore().recordDismiss(series.opdsId);
     await _loadReading();
+  }
+
+  /// Records a 👍 "more like this" and refreshes so the shelf leans into it.
+  Future<void> _likeRecommendation(Series series) async {
+    final messenger = ScaffoldMessenger.of(context);
+    await RecommendationFeedbackStore().recordLike(series.opdsId);
+    messenger.showSnackBar(
+      SnackBar(content: Text('More picks like “${series.title}” coming up.')),
+    );
+    await _loadReading();
+  }
+
+  /// The recommendations currently visible in the shelf window.
+  List<Recommendation> _visibleRecommendations() {
+    final pool = _recommendations;
+    if (pool.length <= _recommendWindow) return pool;
+    final start = _recommendOffset % pool.length;
+    final take = pool.skip(start).take(_recommendWindow).toList();
+    if (take.length < _recommendWindow) {
+      take.addAll(pool.take(_recommendWindow - take.length));
+    }
+    return take;
+  }
+
+  /// Counts an impression (once per series per day) for the recs on screen —
+  /// the outcome data that lets repeatedly-ignored picks fade and, later,
+  /// trains the per-user weights.
+  void _recordShelfImpressions() {
+    final visible = _visibleRecommendations();
+    if (visible.isEmpty) return;
+    RecOutcomeStore().recordImpressions([
+      for (final rec in visible) rec.series.opdsId,
+    ]);
+  }
+
+  /// Opens a series from a recommendation card, recording the tap outcome.
+  void _openRecommended(Series series) {
+    RecOutcomeStore().recordTap(series.opdsId);
+    _openSeries(series);
   }
 
   /// Advances the visible recommendation window so "Show me different" gives
@@ -265,6 +325,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _recommendOffset =
           (_recommendOffset + _recommendWindow) % _recommendations.length;
     });
+    _recordShelfImpressions();
   }
 
   /// Reloads the download manifest so the "update available" badges reflect
@@ -1670,19 +1731,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
         : const <String, String>{};
     // Slice the pool into a visible window; wrap past the end so the shuffle
     // button can cycle.
-    final pool = _recommendations;
-    final List<Recommendation> visible;
-    if (pool.length <= _recommendWindow) {
-      visible = pool;
-    } else {
-      final start = _recommendOffset % pool.length;
-      final take = pool.skip(start).take(_recommendWindow).toList();
-      if (take.length < _recommendWindow) {
-        take.addAll(pool.take(_recommendWindow - take.length));
-      }
-      visible = take;
-    }
-    final canRotate = pool.length > _recommendWindow;
+    final visible = _visibleRecommendations();
+    final canRotate = _recommendations.length > _recommendWindow;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1709,8 +1759,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
               return _RecommendCard(
                 series: series,
                 imageHeaders: headers,
-                onTap: () => _openSeries(series),
+                onTap: () => _openRecommended(series),
                 onDismiss: () => _dismissRecommendation(series),
+                onLike: () => _likeRecommendation(series),
               );
             },
           ),
@@ -2091,12 +2142,16 @@ class _RecommendCard extends StatelessWidget {
     required this.imageHeaders,
     required this.onTap,
     this.onDismiss,
+    this.onLike,
   });
 
   final Series series;
   final Map<String, String> imageHeaders;
   final VoidCallback onTap;
   final VoidCallback? onDismiss;
+
+  /// 👍 "more like this" — the engine's explicit positive signal.
+  final VoidCallback? onLike;
 
   @override
   Widget build(BuildContext context) {
@@ -2142,6 +2197,12 @@ class _RecommendCard extends StatelessWidget {
                             top: 4,
                             right: 4,
                             child: _DismissChip(onPressed: onDismiss!),
+                          ),
+                        if (onLike != null)
+                          Positioned(
+                            bottom: 4,
+                            right: 4,
+                            child: _LikeChip(onPressed: onLike!),
                           ),
                       ],
                     ),
@@ -2303,6 +2364,33 @@ class _DismissChip extends StatelessWidget {
           child: const Padding(
             padding: EdgeInsets.all(4),
             child: Icon(Icons.close, size: 14, color: Colors.white),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The 👍 "more like this" chip on a recommendation card.
+class _LikeChip extends StatelessWidget {
+  const _LikeChip({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'More like this',
+      child: Material(
+        color: Colors.black.withValues(alpha: 0.55),
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onPressed,
+          child: const Padding(
+            padding: EdgeInsets.all(4),
+            child: Icon(Icons.thumb_up, size: 14, color: Colors.white),
           ),
         ),
       ),
