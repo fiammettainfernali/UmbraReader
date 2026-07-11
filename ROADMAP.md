@@ -188,12 +188,18 @@ distraction-free immersive mode, line-precision resume.
       (LineFocusOverlay — pure pointer-transparent overlay, theme-tinted
       scrims so dimmed text ghosts through); text scrolls/pages through
       the fixed band. Pairs naturally with auto-scroll.
-- [ ] **Focus-paragraph mode.** Render one paragraph at a time (chunking);
-      tap advances. Reuses the block model directly.
-- [ ] **Fixation anchors (Bionic-style).** Bold the first 2-3 letters of
-      each word. Evidence is mixed but many ADHD readers swear by it —
-      cheap toggle, rendered via TextRun splitting (measurement stays
-      consistent since we control both sides).
+- [x] **Focus-paragraph mode.** "Focus paragraph" toggle: renders one
+      paragraph at a time, vertically centred, with an "N / M" counter; tap
+      the page edges to step (reuses the _advance zones) and roll into the
+      adjacent chapter. Threaded through the position system (save/restore,
+      scrubber, bookmarks, Continue shelf); ruler/auto-scroll/auto-page
+      suppressed while active. (Word-lookup long-press disabled here for now.)
+- [x] **Fixation anchors (Bionic-style).** "Fixation anchors" toggle: bolds
+      the first 1-3 letters of each word (length-scaled). Pure fixationRuns()
+      transform preserves the exact text so every char offset stays valid;
+      applied through EVERY measure + render path (measureBlockHeight,
+      layoutParagraph, BlockView, _wordAt) so pagination and pixels agree
+      (proven by pagination-overflow variants). Joins the paged page key.
 - [x] **Streak grace.** currentStreak now forgives one missed day per
       rolling week (shown honestly: chip reads "(rest day used)"), and a
       not-yet-read today no longer zeroes the streak before the day is
