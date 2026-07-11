@@ -218,6 +218,102 @@ void main() {
     expect(a.score, closeTo(b.score, 0.0001));
   });
 
+  test('IDF: a rare shared genre outranks a ubiquitous one', () {
+    // 'Fantasy' is on every series (uninformative); 'Necromancy' is rare.
+    // The user read one book carrying both; the candidate sharing the RARE
+    // genre must outrank the one sharing only the ubiquitous genre.
+    final lib = [
+      _series(id: 1, title: 'Seed', genres: ['Fantasy', 'Necromancy']),
+      _series(id: 2, title: 'RareMatch', genres: ['Fantasy', 'Necromancy']),
+      _series(id: 3, title: 'CommonOnly', genres: ['Fantasy']),
+      _series(id: 4, title: 'Filler A', genres: ['Fantasy']),
+      _series(id: 5, title: 'Filler B', genres: ['Fantasy']),
+    ];
+    final recs = engine.recommend(
+      allSeries: lib,
+      readingEntries: [_entry(seriesId: 1, progress: halfRead(today))],
+      now: today,
+    );
+    expect(recs.first.series.opdsId, 2);
+  });
+
+  test('unknown length is not a matchable tag', () {
+    final lib = [
+      _series(id: 1, title: 'Seed', genres: ['Cultivation'],
+          totalChapters: 0),
+      // Shares ONLY the unknown length bucket with the seed — must not match.
+      _series(id: 2, title: 'AlsoUnknown', genres: ['Romance'],
+          totalChapters: 0),
+      _series(id: 3, title: 'GenreMatch', genres: ['Cultivation']),
+    ];
+    final recs = engine.recommend(
+      allSeries: lib,
+      readingEntries: [_entry(seriesId: 1, progress: halfRead(today))],
+      now: today,
+    );
+    final ids = [for (final r in recs) r.series.opdsId];
+    expect(ids, contains(3));
+    expect(ids, isNot(contains(2)),
+        reason: 'two series with missing metadata do not "match"');
+  });
+
+  test('bigram keywords carry two-word concepts', () {
+    Series withDesc(int id, String title, String desc) => Series(
+      opdsId: id, title: title, author: 'Author $id', description: desc,
+      genres: const [], readingStatus: 'ongoing', totalChapters: 200,
+      downloadedChapters: 0, coverUrl: null, updatedAt: null,
+      directEpubUrl: null, volumesFeedUrl: null,
+    );
+    // Both candidates mention the words; only one preserves the CONCEPT
+    // "martial arts" as an adjacent pair.
+    final lib = [
+      withDesc(1, 'Seed',
+          'A cripple rises through martial arts tournaments and sect wars.'),
+      withDesc(2, 'ConceptMatch',
+          'Martial arts cultivation in a ruthless sect tournament.'),
+      withDesc(3, 'WordSoup',
+          'Martial law and fine arts in a peaceful academy of painters.'),
+      withDesc(4, 'Unrelated',
+          'Corporate romance about spreadsheets and quarterly meetings.'),
+    ];
+    final recs = engine.recommend(
+      allSeries: lib,
+      readingEntries: [_entry(seriesId: 1, progress: halfRead(today))],
+      now: today,
+    );
+    expect(recs, isNotEmpty);
+    expect(recs.first.series.opdsId, 2,
+        reason: 'the adjacent-pair bigram must outrank scattered words');
+  });
+
+  test('learned weights change the ranking', () {
+    // Candidate 3 matches the seed's AUTHOR; candidate 4 matches its genre.
+    final lib = [
+      _series(id: 1, title: 'Seed', author: 'Shared Author',
+          genres: ['Cultivation']),
+      _series(id: 3, title: 'AuthorMatch', author: 'Shared Author',
+          genres: ['Romance']),
+      _series(id: 4, title: 'GenreMatch', genres: ['Cultivation']),
+    ];
+    final entries = [_entry(seriesId: 1, progress: halfRead(today))];
+    // Under the prior (author 2.0) the author match wins…
+    final withPrior = engine.recommend(
+      allSeries: lib, readingEntries: entries, now: today,
+    );
+    expect(withPrior.first.series.opdsId, 3);
+    // …but a learner that discovered this user ignores author matches
+    // flips the order.
+    final genreLover = engine.recommend(
+      allSeries: lib,
+      readingEntries: entries,
+      weights: const RecWeights(
+        author: 0.1, genre: 2.5, keyword: 1.0, length: 0.5,
+      ),
+      now: today,
+    );
+    expect(genreLover.first.series.opdsId, 4);
+  });
+
   test('similarTo on a dropped/reset series still finds similar picks', () {
     final source = _series(
       id: 1,

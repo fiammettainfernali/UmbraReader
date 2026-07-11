@@ -305,14 +305,22 @@ the fake entry negative → "More like this" returns anti-recommendations;
       stripped feedback for the seed).
 
 ### Phase B — Matching + per-user learning
-- [ ] Normalized cosine-style scoring; IDF-weight genre/author tags by
-      library frequency; drop `l:unknown`; tokenizer ≥3 chars + bigrams;
-      ~12 keywords.
-- [ ] **Per-user learned feature-group weights:** tiny online logistic
-      regression (pure Dart) over [author match, genre sim, keyword sim,
-      length match, binge affinity], trained on outcome labels
-      (rec → started & read past 20% = 1; dismissed or 5+ ignored
-      impressions = 0). Hand weights = cold-start prior; weights sync.
+- [x] Scoring reworked into per-group affinities (author/genre/keyword/
+      length), each √count-normalized and squashed to (-1,1); tag IDF
+      log(1+N/df) discounts ubiquitous genres; `l:unknown` no longer
+      matchable; tokenizer ≥3 chars + adjacent-pair bigrams; 12 keywords.
+      The author double-yield hack is gone — RecWeights owns group scale.
+- [x] **Per-user learned feature-group weights:** RecWeightLearner — batch
+      logistic regression (pure Dart, 4 features) L2-regularized toward the
+      hand-tuned prior, full deterministic refit per library refresh, floored
+      at 0. Labels: tapped & read past 20% or 👍 = 1; dismissed/reset or 5+
+      ignored impressions = 0. Training features come from a profile that
+      EXCLUDES each labeled series' own contribution (no label leakage);
+      serving and training share one feature extractor (buildProfile).
+      Weights are device-local by design (their training outcomes are; LWW
+      sync would let a barely-used device clobber the better-trained one) —
+      binge affinity folded into the engagement multiplier rather than a
+      fifth group.
 
 ### Phase C — Presentation & trust
 - [ ] "Because…" explanation line on every rec card (top contributing tags).

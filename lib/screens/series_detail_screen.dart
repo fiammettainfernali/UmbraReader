@@ -11,6 +11,7 @@ import '../services/library_storage.dart';
 import '../services/opds_client.dart';
 import '../services/epub_parser.dart';
 import '../services/reading_progress_store.dart';
+import '../services/rec_weight_learner.dart';
 import '../services/recommendation_engine.dart';
 import '../services/control_client.dart';
 import '../services/recommendation_feedback_store.dart';
@@ -87,10 +88,12 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     await cache.load();
     if (!mounted) return;
     final feedback = await RecommendationFeedbackStore().load();
+    final weights = await RecWeightsStore().load();
     final similar = const RecommendationEngine().similarTo(
       source: widget.series,
       allSeries: cache.series,
       feedback: feedback,
+      weights: weights,
     );
     final status = await _statusStore.statusFor(widget.series.opdsId);
     setState(() {

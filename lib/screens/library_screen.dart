@@ -15,6 +15,7 @@ import '../services/bookmark_store.dart';
 import '../services/collection_store.dart';
 import '../services/reading_progress_store.dart';
 import '../services/rec_outcome_store.dart';
+import '../services/rec_weight_learner.dart';
 import '../services/recommendation_engine.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/recommendation_feedback_store.dart';
@@ -252,11 +253,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
       },
       outcomes: outcomes,
     );
-    final recs = const RecommendationEngine(maxResults: 40).recommend(
+    // Learn this user's feature-group weights from recommendation outcomes
+    // (full refit from the prior each time — deterministic and cheap), then
+    // rank under them. Zero outcomes → the hand-tuned prior, exactly.
+    const recEngine = RecommendationEngine(maxResults: 40);
+    final examples = buildRecTrainingExamples(
+      engine: recEngine,
       allSeries: _library ?? const <Series>[],
       readingEntries: entries,
       feedback: feedback,
       signals: signals,
+    );
+    final learned = const RecWeightLearner().fit(examples);
+    await RecWeightsStore().save(learned);
+    final recs = recEngine.recommend(
+      allSeries: _library ?? const <Series>[],
+      readingEntries: entries,
+      feedback: feedback,
+      signals: signals,
+      weights: learned,
     );
     if (!mounted) return;
     setState(() {

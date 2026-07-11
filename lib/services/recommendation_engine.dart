@@ -51,6 +51,155 @@ class RecSignals {
   static const none = RecSignals();
 }
 
+/// Per-user weights over the engine's feature groups — how much an author
+/// match, genre similarity, keyword similarity or length match counts for
+/// THIS user. [prior] encodes the old hand-tuned behaviour (author ≈ double
+/// a genre) and is the cold-start default; the learner nudges them from
+/// recommendation outcomes.
+class RecWeights {
+  const RecWeights({
+    required this.author,
+    required this.genre,
+    required this.keyword,
+    required this.length,
+  });
+
+  final double author;
+  final double genre;
+  final double keyword;
+  final double length;
+
+  static const prior = RecWeights(
+    author: 2.0,
+    genre: 1.0,
+    keyword: 1.0,
+    length: 0.5,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'author': author,
+    'genre': genre,
+    'keyword': keyword,
+    'length': length,
+  };
+
+  factory RecWeights.fromJson(Map<String, dynamic> json) => RecWeights(
+    author: (json['author'] as num?)?.toDouble() ?? prior.author,
+    genre: (json['genre'] as num?)?.toDouble() ?? prior.genre,
+    keyword: (json['keyword'] as num?)?.toDouble() ?? prior.keyword,
+    length: (json['length'] as num?)?.toDouble() ?? prior.length,
+  );
+}
+
+/// A candidate's per-group affinity to the user's taste profile, each
+/// squashed to (-1, 1) so the learner sees bounded features and no single
+/// runaway tag dominates.
+class RecGroupScores {
+  const RecGroupScores({
+    required this.author,
+    required this.genre,
+    required this.keyword,
+    required this.length,
+  });
+
+  final double author;
+  final double genre;
+  final double keyword;
+  final double length;
+
+  /// The learner's feature vector, in a fixed order.
+  List<double> get features => [author, genre, keyword, length];
+
+  double weighted(RecWeights w) =>
+      author * w.author +
+      genre * w.genre +
+      keyword * w.keyword +
+      length * w.length;
+}
+
+/// The user's taste, distilled: signed affinity per content tag plus the
+/// library-wide IDF that discounts ubiquitous tags (a genre 80% of the
+/// library shares says almost nothing; a rare shared one says a lot).
+/// Built once per recommend() pass and reused by the weight learner as its
+/// feature extractor, so training and serving can never disagree.
+class RecTasteProfile {
+  const RecTasteProfile._({
+    required Map<String, double> tagScore,
+    required Map<String, double> tagIdf,
+    required Map<int, List<String>> keywords,
+    required this.engagedIds,
+    required this.hasHistory,
+  }) : _tagScore = tagScore,
+       _tagIdf = tagIdf,
+       _keywords = keywords;
+
+  final Map<String, double> _tagScore;
+  final Map<String, double> _tagIdf;
+  final Map<int, List<String>> _keywords;
+
+  /// Series the user has engaged with (read, filed, judged) — never
+  /// candidates.
+  final Set<int> engagedIds;
+
+  /// False when there is no reading history at all (cold start).
+  final bool hasHistory;
+
+  double _affinity(String tag) =>
+      (_tagScore[tag] ?? 0) * (_tagIdf[tag] ?? 1.0);
+
+  /// Squash to (-1, 1): monotonic, sign-preserving, bounded.
+  static double _squash(double x) => x / (1 + x.abs());
+
+  /// The per-group affinity of [series] to this profile.
+  RecGroupScores groupsFor(Series series) {
+    final author = series.author.trim().toLowerCase();
+    final authorScore = (author.isEmpty || author == 'unknown')
+        ? 0.0
+        : _affinity('a:$author');
+
+    var genreSum = 0.0;
+    var genreCount = 0;
+    for (final raw in series.genres) {
+      final key = raw.trim().toLowerCase();
+      if (key.isEmpty) continue;
+      genreSum += _affinity('g:$key');
+      genreCount++;
+    }
+
+    var keywordSum = 0.0;
+    var keywordCount = 0;
+    for (final kw in _keywords[series.opdsId] ?? const <String>[]) {
+      keywordSum += _affinity('k:$kw');
+      keywordCount++;
+    }
+
+    final bucket = lengthBucket(series.totalChapters);
+    final lengthScore = bucket == null ? 0.0 : _affinity('l:$bucket');
+
+    // √count normalization: a candidate listing six genres shouldn't out-sum
+    // a single-genre candidate on volume alone.
+    return RecGroupScores(
+      author: _squash(authorScore),
+      genre: _squash(genreCount == 0 ? 0 : genreSum / sqrt(genreCount)),
+      keyword: _squash(
+        keywordCount == 0 ? 0 : keywordSum / sqrt(keywordCount),
+      ),
+      length: _squash(lengthScore),
+    );
+  }
+}
+
+/// The length-affinity bucket for a chapter count, or null when the count is
+/// unknown — unknown must not be a matchable tag (two series with missing
+/// metadata don't "match").
+String? lengthBucket(int chapters) {
+  if (chapters <= 0) return null;
+  if (chapters < 100) return 'short';
+  if (chapters < 500) return 'medium';
+  if (chapters < 2000) return 'long';
+  return 'huge';
+}
+
 /// Builds a ranked list of "you might also like" suggestions from the user's
 /// reading history, the explicit reading status they've set per series, and
 /// content features (genre, author, length, description keywords).
@@ -68,7 +217,7 @@ class RecommendationEngine {
     this.maxResults = 12,
     this.maxPerAuthor = 2,
     this.maxPerGenre = 3,
-    this.keywordsPerSeries = 8,
+    this.keywordsPerSeries = 12,
   });
 
   /// Days for a like's weight to halve.
@@ -94,13 +243,114 @@ class RecommendationEngine {
     required List<ReadingEntry> readingEntries,
     Map<int, RecommendationFeedback>? feedback,
     RecSignals signals = RecSignals.none,
+    RecWeights? weights,
     DateTime? now,
   }) {
     final clock = now ?? DateTime.now();
     if (allSeries.isEmpty) return const [];
 
+    final profile = buildProfile(
+      allSeries: allSeries,
+      readingEntries: readingEntries,
+      feedback: feedback,
+      signals: signals,
+      now: clock,
+    );
+
+    // Cold start: nothing engaged → recommend recently-updated series so the
+    // shelf isn't blank on a fresh install.
+    if (!profile.hasHistory) {
+      final fallback = allSeries.toList()
+        ..sort((a, b) {
+          final at = a.updatedAt;
+          final bt = b.updatedAt;
+          if (at == null && bt == null) return 0;
+          if (at == null) return 1;
+          if (bt == null) return -1;
+          return bt.compareTo(at);
+        });
+      return [
+        for (final s in fallback.take(maxResults)) Recommendation(s, 0),
+      ];
+    }
+
+    final w = weights ?? RecWeights.prior;
+
+    // Score every series the user hasn't engaged with: per-group affinity
+    // to the taste profile, combined under the (possibly learned) weights.
+    final scored = <Recommendation>[];
+    for (final series in allSeries) {
+      if (profile.engagedIds.contains(series.opdsId)) continue;
+      var score = profile.groupsFor(series).weighted(w);
+      // Shown-and-ignored decay: a candidate that has sat on the shelf for
+      // several distinct days without ever being opened gets progressively
+      // softened (floor 35%), so the shelf rotates instead of going stale.
+      final ignored = signals.outcomes[series.opdsId]?.ignored ?? 0;
+      if (ignored > 2) {
+        score *= max(0.35, pow(0.85, ignored - 2).toDouble());
+      }
+      if (score > 0) scored.add(Recommendation(series, score));
+    }
+    scored.sort((a, b) => b.score.compareTo(a.score));
+
+    // Diversity guard: cap by author and by primary genre.
+    final authorTaken = <String, int>{};
+    final genreTaken = <String, int>{};
+    final result = <Recommendation>[];
+    for (final rec in scored) {
+      if (result.length >= maxResults) break;
+      final author = rec.series.author.trim().toLowerCase();
+      final primaryGenre = rec.series.genres.isNotEmpty
+          ? rec.series.genres.first.trim().toLowerCase()
+          : '';
+      if (author.isNotEmpty && (authorTaken[author] ?? 0) >= maxPerAuthor) {
+        continue;
+      }
+      if (primaryGenre.isNotEmpty &&
+          (genreTaken[primaryGenre] ?? 0) >= maxPerGenre) {
+        continue;
+      }
+      result.add(rec);
+      if (author.isNotEmpty) {
+        authorTaken.update(author, (c) => c + 1, ifAbsent: () => 1);
+      }
+      if (primaryGenre.isNotEmpty) {
+        genreTaken.update(primaryGenre, (c) => c + 1, ifAbsent: () => 1);
+      }
+    }
+    return result;
+  }
+
+  /// Distils the user's taste from history + signals into a [RecTasteProfile]
+  /// — the shared feature extractor for both serving (recommend/similarTo)
+  /// and training (RecWeightLearner), so the two can never disagree.
+  /// [excludeSeriesIds] omits those series' own contributions from the
+  /// profile — used when building TRAINING features, where a labeled series
+  /// must not see its own affinity reflected back (label leakage).
+  RecTasteProfile buildProfile({
+    required List<Series> allSeries,
+    required List<ReadingEntry> readingEntries,
+    Map<int, RecommendationFeedback>? feedback,
+    RecSignals signals = RecSignals.none,
+    Set<int> excludeSeriesIds = const {},
+    DateTime? now,
+  }) {
+    final clock = now ?? DateTime.now();
     final byId = {for (final s in allSeries) s.opdsId: s};
     final keywords = _computeKeywords(allSeries);
+
+    // Library-wide IDF per tag: log(1 + N/df). A tag every series carries is
+    // discounted (but never zeroed); a rare shared one counts extra.
+    final docFreq = <String, int>{};
+    for (final s in allSeries) {
+      for (final tag in _tagsFor(s, keywords[s.opdsId] ?? const []).toSet()) {
+        docFreq.update(tag, (c) => c + 1, ifAbsent: () => 1);
+      }
+    }
+    final n = max(allSeries.length, 1);
+    final tagIdf = <String, double>{
+      for (final e in docFreq.entries) e.key: log(1 + n / e.value),
+    };
 
     // Group reading entries by series so multiple volumes of one series fold
     // into a single signal.
@@ -120,6 +370,7 @@ class RecommendationEngine {
     final signedSeries = <int, double>{};
 
     for (final series in allSeries) {
+      if (excludeSeriesIds.contains(series.opdsId)) continue;
       final status = series.readingStatus.trim().toLowerCase();
       final entries = entriesBySeries[series.opdsId];
       final userFeedback = feedback?[series.opdsId];
@@ -195,23 +446,6 @@ class RecommendationEngine {
       }
     }
 
-    // Cold start: nothing engaged → recommend recently-updated series so the
-    // shelf isn't blank on a fresh install.
-    if (signedSeries.isEmpty) {
-      final fallback = allSeries.toList()
-        ..sort((a, b) {
-          final at = a.updatedAt;
-          final bt = b.updatedAt;
-          if (at == null && bt == null) return 0;
-          if (at == null) return 1;
-          if (bt == null) return -1;
-          return bt.compareTo(at);
-        });
-      return [
-        for (final s in fallback.take(maxResults)) Recommendation(s, 0),
-      ];
-    }
-
     // Accumulate signed affinity per content tag.
     final tagScore = <String, double>{};
     signedSeries.forEach((id, score) {
@@ -222,55 +456,18 @@ class RecommendationEngine {
       }
     });
 
-    // Score every series the user hasn't engaged with.
-    final scored = <Recommendation>[];
-    for (final series in allSeries) {
-      if (engagedIds.contains(series.opdsId)) continue;
-      var score = 0.0;
-      for (final tag in _tagsFor(series, keywords[series.opdsId] ?? const [])) {
-        score += tagScore[tag] ?? 0;
-      }
-      // Shown-and-ignored decay: a candidate that has sat on the shelf for
-      // several distinct days without ever being opened gets progressively
-      // softened (floor 35%), so the shelf rotates instead of going stale.
-      final ignored = signals.outcomes[series.opdsId]?.ignored ?? 0;
-      if (ignored > 2) {
-        score *= max(0.35, pow(0.85, ignored - 2).toDouble());
-      }
-      if (score > 0) scored.add(Recommendation(series, score));
-    }
-    scored.sort((a, b) => b.score.compareTo(a.score));
-
-    // Diversity guard: cap by author and by primary genre.
-    final authorTaken = <String, int>{};
-    final genreTaken = <String, int>{};
-    final result = <Recommendation>[];
-    for (final rec in scored) {
-      if (result.length >= maxResults) break;
-      final author = rec.series.author.trim().toLowerCase();
-      final primaryGenre = rec.series.genres.isNotEmpty
-          ? rec.series.genres.first.trim().toLowerCase()
-          : '';
-      if (author.isNotEmpty && (authorTaken[author] ?? 0) >= maxPerAuthor) {
-        continue;
-      }
-      if (primaryGenre.isNotEmpty &&
-          (genreTaken[primaryGenre] ?? 0) >= maxPerGenre) {
-        continue;
-      }
-      result.add(rec);
-      if (author.isNotEmpty) {
-        authorTaken.update(author, (c) => c + 1, ifAbsent: () => 1);
-      }
-      if (primaryGenre.isNotEmpty) {
-        genreTaken.update(primaryGenre, (c) => c + 1, ifAbsent: () => 1);
-      }
-    }
-    return result;
+    return RecTasteProfile._(
+      tagScore: tagScore,
+      tagIdf: tagIdf,
+      keywords: keywords,
+      engagedIds: engagedIds,
+      hasHistory: signedSeries.isNotEmpty,
+    );
   }
 
-  /// Iterates every affinity tag for a series. Author is yielded twice so
-  /// matching the author counts roughly double a single genre tag.
+  /// Iterates every affinity tag for a series. Group weighting is no longer
+  /// baked in here (the old author double-yield) — [RecWeights] owns how much
+  /// each group counts.
   Iterable<String> _tagsFor(Series series, List<String> keywords) sync* {
     for (final raw in series.genres) {
       final key = raw.trim().toLowerCase();
@@ -279,20 +476,12 @@ class RecommendationEngine {
     final author = series.author.trim().toLowerCase();
     if (author.isNotEmpty && author != 'unknown') {
       yield 'a:$author';
-      yield 'a:$author';
     }
-    yield 'l:${_lengthBucket(series.totalChapters)}';
+    final bucket = lengthBucket(series.totalChapters);
+    if (bucket != null) yield 'l:$bucket';
     for (final kw in keywords) {
       yield 'k:$kw';
     }
-  }
-
-  String _lengthBucket(int chapters) {
-    if (chapters <= 0) return 'unknown';
-    if (chapters < 100) return 'short';
-    if (chapters < 500) return 'medium';
-    if (chapters < 2000) return 'long';
-    return 'huge';
   }
 
   /// TF-IDF over series descriptions: each series gets the [keywordsPerSeries]
@@ -346,14 +535,27 @@ class RecommendationEngine {
     'over', 'under', 'more', 'most', 'some', 'any', 'all', 'only', 'very',
     'just', 'into', 'through', 'after', 'before', 'because', 'while',
     'during', 'novel', 'story', 'chapter', 'chapters', 'book', 'series',
+    // 3-letter function words admitted by the shorter minimum.
+    'get', 'got', 'now', 'off', 'own', 'per', 'too',
+    'via', 'yet', 'did', 'don', 'end', 'few', 'lot', 'new', 'old', 'once',
+    'said', 'say', 'see', 'set', 'use', 'way', 'even', 'ever',
   };
 
+  /// Splits [text] into keyword tokens: single words of 3+ letters (short
+  /// enough to keep webnovel staples like war/god/sect) plus bigrams of
+  /// adjacent kept words, so "martial arts" and "video game" survive as
+  /// concepts instead of dissolving into their halves.
   List<String> _tokenize(String text) {
     final tokens = <String>[];
+    String? prev;
     for (final raw in text.toLowerCase().split(RegExp(r'[^a-z]+'))) {
-      if (raw.length < 4) continue;
-      if (_stopwords.contains(raw)) continue;
+      if (raw.length < 3 || _stopwords.contains(raw)) {
+        prev = null; // a bigram must be two ADJACENT kept words
+        continue;
+      }
       tokens.add(raw);
+      if (prev != null) tokens.add('$prev $raw');
+      prev = raw;
     }
     return tokens;
   }
@@ -366,6 +568,7 @@ class RecommendationEngine {
     required List<Series> allSeries,
     int maxResults = 6,
     Map<int, RecommendationFeedback>? feedback,
+    RecWeights? weights,
     DateTime? now,
   }) {
     final clock = now ?? DateTime.now();
@@ -405,6 +608,7 @@ class RecommendationEngine {
       allSeries: seriesPool,
       readingEntries: [fakeEntry],
       feedback: scopedFeedback,
+      weights: weights,
       now: clock,
     );
     if (picks.length <= maxResults) return picks;
