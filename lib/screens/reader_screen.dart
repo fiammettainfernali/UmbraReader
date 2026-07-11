@@ -1712,6 +1712,15 @@ class _ReaderScreenState extends State<ReaderScreen>
       }
       return;
     }
+    // Reading ruler in SCROLL mode: the band is a fixed teleprompter, so an
+    // advance nudges the text up through it a band-height at a time (a few
+    // lines) instead of jumping ~85% of a page. A whole-page jump skips far
+    // past the ruler and defeats the point — this is what made a Bluetooth
+    // remote (which routes through here) "just turn the page".
+    if (_settings.lineFocus && _settings.mode == ReadingMode.scroll) {
+      _advanceRulerScroll(forward: forward);
+      return;
+    }
     // Stepping band: with the ruler on in paged mode, the page is static,
     // so the focus band moves instead of the text — each advance steps the
     // band one height down, rolling into a real page turn at the bottom
@@ -1735,6 +1744,40 @@ class _ReaderScreenState extends State<ReaderScreen>
       }
     }
     _advancePage(forward: forward);
+  }
+
+  /// Scroll-mode ruler advance: moves the text one ruler-band-height through
+  /// the fixed band, crossing chapters at the extremes. Keeps a hardware
+  /// remote (or a tap) reading line-by-line instead of page-by-page.
+  void _advanceRulerScroll({required bool forward}) {
+    if (!_scrollController.hasClients) {
+      _advancePage(forward: forward);
+      return;
+    }
+    final pos = _scrollController.position;
+    if (forward && pos.pixels >= pos.maxScrollExtent - 4) {
+      HapticFeedback.mediumImpact();
+      _goToChapter(_chapterIndex + 1);
+      return;
+    }
+    if (!forward && pos.pixels <= 4) {
+      HapticFeedback.mediumImpact();
+      _goToChapter(_chapterIndex - 1);
+      return;
+    }
+    HapticFeedback.selectionClick();
+    final step = _rulerBandHeight;
+    final target = (pos.pixels + (forward ? step : -step))
+        .clamp(0.0, pos.maxScrollExtent);
+    if (_reduceMotion) {
+      _scrollController.jumpTo(target);
+    } else {
+      _scrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
+    }
   }
 
   void _advancePage({required bool forward}) {
