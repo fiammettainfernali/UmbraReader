@@ -25,6 +25,23 @@ void main() {
       expect(copy.boldText, base.boldText);
       expect(copy.italicText, base.italicText);
       expect(copy.brightness, base.brightness);
+      expect(copy.letterSpacing, base.letterSpacing);
+      expect(copy.wordSpacing, base.wordSpacing);
+      expect(copy.paragraphSpacing, base.paragraphSpacing);
+    });
+
+    test('carries the spacing controls', () {
+      final copy = base.copyWith(
+        letterSpacing: 1.5,
+        wordSpacing: 3,
+        paragraphSpacing: 10,
+      );
+      expect(copy.letterSpacing, 1.5);
+      expect(copy.wordSpacing, 3);
+      expect(copy.paragraphSpacing, 10);
+      // Untouched neighbours.
+      expect(copy.lineHeight, base.lineHeight);
+      expect(copy.margin, base.margin);
     });
 
     test('changes only the named field', () {

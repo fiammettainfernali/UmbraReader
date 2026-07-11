@@ -40,7 +40,7 @@ class BlockView extends StatelessWidget {
     switch (block) {
       case ParagraphBlock paragraph:
         return Padding(
-          padding: EdgeInsets.only(bottom: isLast ? 0 : kParagraphGap),
+          padding: EdgeInsets.only(bottom: isLast ? 0 : paragraphGap(settings)),
           child: _maybeTint(
             child: Text.rich(
               TextSpan(
@@ -97,7 +97,7 @@ class BlockView extends StatelessWidget {
         );
       case ImageBlock image:
         return Padding(
-          padding: EdgeInsets.only(bottom: isLast ? 0 : kParagraphGap),
+          padding: EdgeInsets.only(bottom: isLast ? 0 : paragraphGap(settings)),
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxHeight: 900),
             child: Image.memory(

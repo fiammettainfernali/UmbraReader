@@ -1011,7 +1011,8 @@ class _ReaderScreenState extends State<ReaderScreen>
       final double inset;
       switch (block) {
         case ParagraphBlock p:
-          h = layoutParagraph(p.runs, width, _settings).height + kParagraphGap;
+          h = layoutParagraph(p.runs, width, _settings).height +
+              paragraphGap(_settings);
           inset = 0;
         case HeadingBlock _:
           h = measureBlockHeight(block, width, _settings);
@@ -2256,6 +2257,8 @@ class _ReaderScreenState extends State<ReaderScreen>
             ':${_settings.fontFamily}:$_fontToken'
             ':${_settings.boldText}:${_settings.italicText}'
             ':${_settings.fixationAnchors}'
+            ':${_settings.letterSpacing}:${_settings.wordSpacing}'
+            ':${_settings.paragraphSpacing}'
             ':$stride';
         if (key != _pageKey) {
           _pageKey = key;

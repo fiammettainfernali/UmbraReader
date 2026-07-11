@@ -21,6 +21,9 @@ class ReaderPreferences {
   static const _kFontFamily = 'reader_font';
   static const _kFontSize = 'reader_font_size';
   static const _kLineHeight = 'reader_line_height';
+  static const _kLetterSpacing = 'reader_letter_spacing';
+  static const _kWordSpacing = 'reader_word_spacing';
+  static const _kParagraphSpacing = 'reader_paragraph_spacing';
   static const _kMargin = 'reader_margin';
   static const _kSpeechRate = 'reader_speech_rate';
   static const _kVoiceName = 'reader_voice_name';
@@ -53,6 +56,7 @@ class ReaderPreferences {
   /// The global setting keys, in the order they serialise for sync.
   static const _globalKeys = [
     _kMode, _kThemeId, _kFontFamily, _kFontSize, _kLineHeight, _kMargin,
+    _kLetterSpacing, _kWordSpacing, _kParagraphSpacing,
     _kSpeechRate, _kVoiceName, _kVoiceLocale, _kBoldText, _kItalicText,
     _kBrightness, _kTextAlign, _kAutoScroll, _kLineFocus,
     _kFocusParagraph, _kFixationAnchors, _kOrientation,
@@ -100,6 +104,11 @@ class ReaderPreferences {
       fontFamily: prefs.getString('$p$_kFontFamily') ?? d.fontFamily,
       fontSize: prefs.getDouble('$p$_kFontSize') ?? d.fontSize,
       lineHeight: prefs.getDouble('$p$_kLineHeight') ?? d.lineHeight,
+      letterSpacing:
+          prefs.getDouble('$p$_kLetterSpacing') ?? d.letterSpacing,
+      wordSpacing: prefs.getDouble('$p$_kWordSpacing') ?? d.wordSpacing,
+      paragraphSpacing:
+          prefs.getDouble('$p$_kParagraphSpacing') ?? d.paragraphSpacing,
       margin: prefs.getDouble('$p$_kMargin') ?? d.margin,
       speechRate: prefs.getDouble('$p$_kSpeechRate') ?? d.speechRate,
       voiceName: prefs.getString('$p$_kVoiceName') ?? d.voiceName,
@@ -147,6 +156,12 @@ class ReaderPreferences {
     await prefs.setString('$p$_kFontFamily', settings.fontFamily);
     await prefs.setDouble('$p$_kFontSize', settings.fontSize);
     await prefs.setDouble('$p$_kLineHeight', settings.lineHeight);
+    await prefs.setDouble('$p$_kLetterSpacing', settings.letterSpacing);
+    await prefs.setDouble('$p$_kWordSpacing', settings.wordSpacing);
+    await prefs.setDouble(
+      '$p$_kParagraphSpacing',
+      settings.paragraphSpacing,
+    );
     await prefs.setDouble('$p$_kMargin', settings.margin);
     await prefs.setDouble('$p$_kSpeechRate', settings.speechRate);
     await prefs.setString('$p$_kVoiceName', settings.voiceName);

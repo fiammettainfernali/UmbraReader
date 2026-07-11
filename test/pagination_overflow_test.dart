@@ -68,36 +68,65 @@ void main() {
     (390.0, 750.0, 16.0, 1.4, false, true),
     (480.0, 700.0, 18.0, 1.6, false, true),
   ]) {
-    test(
-        'no page overflows at ${width}x$height f$fontSize lh$lineHeight '
-        'bold=$bold fixation=$fixation', () {
-      final settings = ReaderSettings.defaults.copyWith(
-        fontSize: fontSize,
-        lineHeight: lineHeight,
-        boldText: bold,
-        fixationAnchors: fixation,
-        textAlign: ReaderTextAlign.justify,
-      );
-      final pages = paginateBlocks(_chapter(), width, height, settings);
-      var worst = 0.0;
-      var worstPage = -1;
-      for (var i = 0; i < pages.length; i++) {
-        final rendered = _renderedHeight(pages[i], width, settings);
-        final overrun = rendered - height;
-        if (overrun > worst) {
-          worst = overrun;
-          worstPage = i;
-        }
-      }
-      // ignore: avoid_print
-      print('pages=${pages.length} worst overrun='
-          '${worst.toStringAsFixed(1)}px on page $worstPage');
-      expect(
-        worst,
-        lessThanOrEqualTo(0.5),
-        reason: 'page $worstPage renders ${worst.toStringAsFixed(1)}px '
-            'taller than the viewport',
-      );
-    });
+    _overflowCase(width, height, fontSize, lineHeight, bold, fixation,
+        0, 0, 0);
   }
+
+  // Letter/word/paragraph spacing also change wrapping and gaps — measure and
+  // render must stay locked together.
+  for (final (letter, word, para) in [
+    (2.0, 0.0, 0.0),
+    (0.0, 4.0, 0.0),
+    (0.0, 0.0, 16.0),
+    (1.5, 3.0, 12.0),
+  ]) {
+    _overflowCase(430.0, 720.0, 18.0, 1.55, false, false, letter, word, para);
+  }
+}
+
+void _overflowCase(
+  double width,
+  double height,
+  double fontSize,
+  double lineHeight,
+  bool bold,
+  bool fixation,
+  double letter,
+  double word,
+  double para,
+) {
+  test(
+      'no page overflows at ${width}x$height f$fontSize lh$lineHeight '
+      'bold=$bold fixation=$fixation ls$letter ws$word ps$para', () {
+    final settings = ReaderSettings.defaults.copyWith(
+      fontSize: fontSize,
+      lineHeight: lineHeight,
+      boldText: bold,
+      fixationAnchors: fixation,
+      letterSpacing: letter,
+      wordSpacing: word,
+      paragraphSpacing: para,
+      textAlign: ReaderTextAlign.justify,
+    );
+    final pages = paginateBlocks(_chapter(), width, height, settings);
+    var worst = 0.0;
+    var worstPage = -1;
+    for (var i = 0; i < pages.length; i++) {
+      final rendered = _renderedHeight(pages[i], width, settings);
+      final overrun = rendered - height;
+      if (overrun > worst) {
+        worst = overrun;
+        worstPage = i;
+      }
+    }
+    // ignore: avoid_print
+    print('pages=${pages.length} worst overrun='
+        '${worst.toStringAsFixed(1)}px on page $worstPage');
+    expect(
+      worst,
+      lessThanOrEqualTo(0.5),
+      reason: 'page $worstPage renders ${worst.toStringAsFixed(1)}px '
+          'taller than the viewport',
+    );
+  });
 }

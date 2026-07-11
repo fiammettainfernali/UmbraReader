@@ -424,6 +424,38 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                 ),
                 _slider(
                   theme,
+                  label: 'Letter spacing',
+                  value: _settings.letterSpacing.clamp(0.0, 4.0),
+                  min: 0,
+                  max: 4,
+                  divisions: 8,
+                  display: '${_settings.letterSpacing.toStringAsFixed(1)} px',
+                  onChanged: (v) =>
+                      _update(_settings.copyWith(letterSpacing: v)),
+                ),
+                _slider(
+                  theme,
+                  label: 'Word spacing',
+                  value: _settings.wordSpacing.clamp(0.0, 8.0),
+                  min: 0,
+                  max: 8,
+                  divisions: 8,
+                  display: '${_settings.wordSpacing.round()} px',
+                  onChanged: (v) => _update(_settings.copyWith(wordSpacing: v)),
+                ),
+                _slider(
+                  theme,
+                  label: 'Paragraph spacing',
+                  value: _settings.paragraphSpacing.clamp(0.0, 24.0),
+                  min: 0,
+                  max: 24,
+                  divisions: 12,
+                  display: '${_settings.paragraphSpacing.round()} px',
+                  onChanged: (v) =>
+                      _update(_settings.copyWith(paragraphSpacing: v)),
+                ),
+                _slider(
+                  theme,
                   label: 'Margins',
                   value: _settings.margin,
                   min: 8,

@@ -36,6 +36,9 @@ class ReaderSettings {
     required this.fontFamily,
     required this.fontSize,
     required this.lineHeight,
+    required this.letterSpacing,
+    required this.wordSpacing,
+    required this.paragraphSpacing,
     required this.margin,
     required this.speechRate,
     required this.voiceName,
@@ -72,6 +75,18 @@ class ReaderSettings {
 
   /// Line-height multiplier.
   final double lineHeight;
+
+  /// Extra spacing between letters, in logical px (0 = default). A crowding
+  /// aid — some dyslexic/low-vision readers track text far better with air
+  /// between glyphs.
+  final double letterSpacing;
+
+  /// Extra spacing between words, in logical px (0 = default).
+  final double wordSpacing;
+
+  /// Extra vertical space below each paragraph, in logical px, on top of
+  /// the fixed base gap (0 = default).
+  final double paragraphSpacing;
 
   /// Horizontal page margin in logical pixels.
   final double margin;
@@ -157,6 +172,9 @@ class ReaderSettings {
     fontFamily: '',
     fontSize: 18,
     lineHeight: 1.62,
+    letterSpacing: 0,
+    wordSpacing: 0,
+    paragraphSpacing: 0,
     margin: 20,
     speechRate: 0.5,
     voiceName: '',
@@ -188,6 +206,9 @@ class ReaderSettings {
     String? fontFamily,
     double? fontSize,
     double? lineHeight,
+    double? letterSpacing,
+    double? wordSpacing,
+    double? paragraphSpacing,
     double? margin,
     double? speechRate,
     String? voiceName,
@@ -216,6 +237,9 @@ class ReaderSettings {
       fontFamily: fontFamily ?? this.fontFamily,
       fontSize: fontSize ?? this.fontSize,
       lineHeight: lineHeight ?? this.lineHeight,
+      letterSpacing: letterSpacing ?? this.letterSpacing,
+      wordSpacing: wordSpacing ?? this.wordSpacing,
+      paragraphSpacing: paragraphSpacing ?? this.paragraphSpacing,
       margin: margin ?? this.margin,
       speechRate: speechRate ?? this.speechRate,
       voiceName: voiceName ?? this.voiceName,

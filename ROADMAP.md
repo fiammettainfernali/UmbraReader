@@ -204,9 +204,13 @@ distraction-free immersive mode, line-precision resume.
       rolling week (shown honestly: chip reads "(rest day used)"), and a
       not-yet-read today no longer zeroes the streak before the day is
       over. Two gaps in a week still end it.
-- [ ] **Letter/word/paragraph spacing controls.** We pinned spacing for
-      pagination correctness; expose it as a real setting threaded through
-      measurement (visual crowding is a genuine barrier).
+- [x] **Letter/word/paragraph spacing controls.** Three sliders in Text
+      size/style: letter (0-4px), word (0-8px), paragraph (0-24px extra).
+      Threaded through the shared paragraphStyle/headingStyle and a new
+      paragraphGap(settings) so measurement, page packing and render use one
+      set of values — the pinned-to-0 spacing is now the *default*, not a
+      hard constant. Synced taste; joins the paged page key. (Overflow test
+      gains letter/word/para variants proving measure==render.)
 - [ ] **OpenDyslexic font option** (bundled, OFL) — dyslexia co-occurs
       heavily with both communities.
 - [ ] **In-app animation kill-switch** (beyond honouring system Reduce

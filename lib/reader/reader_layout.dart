@@ -13,6 +13,11 @@ const double kContentVPad = 8;
 const double kTopBarHeight = 56;
 const double kBottomBarHeight = 88;
 const double kParagraphGap = 16;
+
+/// The vertical gap below a paragraph — the fixed base plus the reader's
+/// extra paragraph-spacing setting. Used identically by measurement, page
+/// packing and rendering so the three never disagree.
+double paragraphGap(ReaderSettings s) => kParagraphGap + s.paragraphSpacing;
 const double kHeadingTopGap = 12;
 const double kHeadingBottomGap = 16;
 const double kDividerHeight = 60;
@@ -36,8 +41,8 @@ TextStyle paragraphStyle(ReaderSettings s, Color color) {
   // mode spill past the bottom of the page.
   final base = TextStyle(
     inherit: false,
-    letterSpacing: 0,
-    wordSpacing: 0,
+    letterSpacing: s.letterSpacing,
+    wordSpacing: s.wordSpacing,
     fontSize: s.fontSize,
     height: s.lineHeight,
     color: color,
@@ -60,8 +65,8 @@ TextStyle headingStyle(ReaderSettings s, int level, Color color) {
       : 1.06;
   final base = TextStyle(
     inherit: false,
-    letterSpacing: 0,
-    wordSpacing: 0,
+    letterSpacing: s.letterSpacing,
+    wordSpacing: s.wordSpacing,
     fontSize: s.fontSize * scale,
     height: 1.3,
     fontWeight: FontWeight.w700,
@@ -159,7 +164,7 @@ double measureBlockHeight(ContentBlock block, double width, ReaderSettings s) {
         textDirection: TextDirection.ltr,
         textScaler: TextScaler.noScaling,
       )..layout(maxWidth: width);
-      return painter.height + kParagraphGap;
+      return painter.height + paragraphGap(s);
     case HeadingBlock heading:
       final painter = TextPainter(
         text: runSpan(
@@ -179,7 +184,7 @@ double measureBlockHeight(ContentBlock block, double width, ReaderSettings s) {
       final natural = image.width <= 0 ? 1 : image.width;
       final aspect = image.height / natural;
       final scaledHeight = (width * aspect).clamp(80.0, 900.0);
-      return scaledHeight + kParagraphGap;
+      return scaledHeight + paragraphGap(s);
   }
 }
 
@@ -304,7 +309,7 @@ List<List<PageBlock>> paginateBlocks(
       final totalText = painter.height;
       final remaining = budget - used;
 
-      if (totalText + kParagraphGap <= remaining) {
+      if (totalText + paragraphGap(settings) <= remaining) {
         current.add(
           PageBlock(
             block: ParagraphBlock(runs),
@@ -312,7 +317,7 @@ List<List<PageBlock>> paginateBlocks(
             charOffset: charBase,
           ),
         );
-        used += totalText + kParagraphGap;
+        used += totalText + paragraphGap(settings);
         break;
       }
 
@@ -362,7 +367,7 @@ List<List<PageBlock>> paginateBlocks(
               charOffset: charBase,
             ),
           );
-          used += totalText + kParagraphGap;
+          used += totalText + paragraphGap(settings);
           break;
         }
         flush();
