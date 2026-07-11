@@ -582,6 +582,29 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                   onChanged: (on) =>
                       _update(_settings.copyWith(hapticFeedback: on)),
                 ),
+                const SizedBox(height: 12),
+                _label(theme, 'Session timer'),
+                Text(
+                  'A quiet fill tracks your reading time; passing it offers a '
+                  'gentle break check-in between chapters — never an alarm.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final m in const [0, 15, 30, 45, 60])
+                      ChoiceChip(
+                        label: Text(m == 0 ? 'Off' : '$m min'),
+                        selected: _settings.sessionMinutes == m,
+                        onSelected: (_) =>
+                            _update(_settings.copyWith(sessionMinutes: m)),
+                      ),
+                  ],
+                ),
               ],
             ),
             if (kReadAloudEnabled)

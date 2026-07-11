@@ -28,6 +28,9 @@ void main() {
       expect(copy.letterSpacing, base.letterSpacing);
       expect(copy.wordSpacing, base.wordSpacing);
       expect(copy.paragraphSpacing, base.paragraphSpacing);
+      expect(copy.reduceAnimations, base.reduceAnimations);
+      expect(copy.hapticFeedback, base.hapticFeedback);
+      expect(copy.sessionMinutes, base.sessionMinutes);
     });
 
     test('carries the spacing controls', () {

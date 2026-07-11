@@ -233,10 +233,13 @@ distraction-free immersive mode, line-precision resume.
       ~3s) and floats a tappable "Where was I?" pill for ~6s. Tapping opens a
       recap sheet with the previous few paragraphs, dimmed on the way in and
       brightest at the current one. Tests cover gap-shows / immediate-hides.
-- [ ] **Gentle session timers.** Opt-in "read for N minutes" with a quiet
-      visual fill (no alarms); optional hyperfocus check-in ("you've been
-      reading 90 min — water?") that is dismissible and never modal
-      mid-sentence (shows between chapters only).
+- [x] **Gentle session timers.** Opt-in target (Off/15/30/45/60 min) with a
+      quiet fill creeping along the very bottom edge — no alarm. Once the
+      target is passed, a dismissible "good time for a break?" pill surfaces
+      only at the next chapter boundary (never mid-page), auto-hiding after
+      ~14s. Accumulates foreground reading time via the existing session
+      flush; synced. (Tests cover fill-presence, break-at-chapter, and
+      under-target-silence via a debug elapsed hook.)
 - [ ] **Exact-numbers mode.** Swap "~5 min left" style labels for precise
       counts (pages/paragraphs/percent to 1 decimal) app-wide — many
       autistic readers strongly prefer exact over vague.

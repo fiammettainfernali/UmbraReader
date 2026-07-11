@@ -57,6 +57,7 @@ class ReaderSettings {
     required this.keepAwake,
     required this.reduceAnimations,
     required this.hapticFeedback,
+    required this.sessionMinutes,
     required this.autoPageSeconds,
     required this.ttsEngine,
     required this.ttsServerUrl,
@@ -157,6 +158,11 @@ class ReaderSettings {
   /// a sensory-load control.
   final bool hapticFeedback;
 
+  /// Opt-in reading-session length in minutes (0 = off). A quiet progress
+  /// fill tracks toward it; passing it offers a gentle between-chapters
+  /// break check-in — never an alarm.
+  final int sessionMinutes;
+
   /// Seconds between automatic page turns in paged mode (the paged analogue
   /// of auto-scroll). 0 disables it.
   final int autoPageSeconds;
@@ -203,6 +209,7 @@ class ReaderSettings {
     keepAwake: false,
     reduceAnimations: false,
     hapticFeedback: true,
+    sessionMinutes: 0,
     autoPageSeconds: 0,
     ttsEngine: TtsEngineKind.system,
     ttsServerUrl: '',
@@ -239,6 +246,7 @@ class ReaderSettings {
     bool? keepAwake,
     bool? reduceAnimations,
     bool? hapticFeedback,
+    int? sessionMinutes,
     int? autoPageSeconds,
     TtsEngineKind? ttsEngine,
     String? ttsServerUrl,
@@ -272,6 +280,7 @@ class ReaderSettings {
       keepAwake: keepAwake ?? this.keepAwake,
       reduceAnimations: reduceAnimations ?? this.reduceAnimations,
       hapticFeedback: hapticFeedback ?? this.hapticFeedback,
+      sessionMinutes: sessionMinutes ?? this.sessionMinutes,
       autoPageSeconds: autoPageSeconds ?? this.autoPageSeconds,
       ttsEngine: ttsEngine ?? this.ttsEngine,
       ttsServerUrl: ttsServerUrl ?? this.ttsServerUrl,

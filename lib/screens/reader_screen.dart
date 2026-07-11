@@ -53,6 +53,11 @@ class ReaderScreen extends StatefulWidget {
   final int? initialChapterIndex;
   final int? initialBlockIndex;
 
+  /// Test-only: pins the gentle session timer's elapsed time so the
+  /// break-check-in flow can be exercised without waiting real minutes.
+  @visibleForTesting
+  static Duration? debugSessionElapsed;
+
   @override
   State<ReaderScreen> createState() => _ReaderScreenState();
 }
@@ -117,6 +122,19 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// unless this open was a genuine resume after time away.
   int? _reentryBlock;
   Timer? _reentryTimer;
+
+  /// Accumulated foreground reading time this open, for the gentle session
+  /// timer. The live figure adds the time since [_sessionStart] on top.
+  Duration _sessionElapsed = Duration.zero;
+  Timer? _sessionTicker;
+
+  /// The session target has been passed and a break check-in is waiting for
+  /// the next chapter boundary — never shown mid-page.
+  bool _sessionBreakPending = false;
+
+  /// The break check-in chip is currently on screen.
+  bool _sessionBreakChip = false;
+  Timer? _sessionBreakTimer;
 
   /// Content width (screen minus margins), cached each build so progress can
   /// be measured without a MediaQuery lookup (e.g. during dispose).
@@ -206,6 +224,8 @@ class _ReaderScreenState extends State<ReaderScreen>
     _sessionStart = null;
     final delta = DateTime.now().difference(start);
     if (delta.inSeconds <= 0) return;
+    // Fold the stretch into the gentle session-timer accumulator too.
+    _sessionElapsed += delta;
     // New words this session = reading past the high-water mark. Re-reading
     // already-seen text adds nothing (mirrors TTS audio caching), so the
     // ledger measures genuine content consumed. The mark only advances when
@@ -217,6 +237,50 @@ class _ReaderScreenState extends State<ReaderScreen>
     // Fire-and-forget — losing the last fractional second on an app kill is
     // acceptable.
     _activityStore.record(widget.volume, delta, words: newWords);
+  }
+
+  // ── gentle session timer ─────────────────────────────────────────────────
+
+  /// Live foreground reading time this open (accumulated + the current
+  /// in-progress stretch).
+  Duration get _sessionLive {
+    if (ReaderScreen.debugSessionElapsed != null) {
+      return ReaderScreen.debugSessionElapsed!;
+    }
+    final start = _sessionStart;
+    return start == null
+        ? _sessionElapsed
+        : _sessionElapsed + DateTime.now().difference(start);
+  }
+
+  /// Progress toward the session target (0..1); 0 when the timer is off.
+  double get _sessionFraction {
+    final target = _settings.sessionMinutes;
+    if (target <= 0) return 0;
+    return (_sessionLive.inSeconds / (target * 60)).clamp(0.0, 1.0);
+  }
+
+  /// A slow ticker so the quiet fill creeps forward and the target is noticed
+  /// even while sitting on one page. Only runs when the timer is on.
+  void _startSessionTicker() {
+    _sessionTicker?.cancel();
+    _sessionTicker = null;
+    if (_settings.sessionMinutes <= 0) return;
+    _sessionTicker = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (!mounted) return;
+      setState(() {}); // refresh the fill
+      _noteSessionTarget();
+    });
+  }
+
+  /// Marks the break check-in as due once the target is passed; the chip
+  /// itself waits for the next chapter boundary (see [_goToChapter]).
+  void _noteSessionTarget() {
+    if (_settings.sessionMinutes <= 0) return;
+    if (_sessionBreakChip || _sessionBreakPending) return;
+    if (_sessionLive.inMinutes >= _settings.sessionMinutes) {
+      _sessionBreakPending = true;
+    }
   }
 
   @override
@@ -232,6 +296,8 @@ class _ReaderScreenState extends State<ReaderScreen>
     _autoScrollTimer?.cancel();
     _autoPageTimer?.cancel();
     _reentryTimer?.cancel();
+    _sessionTicker?.cancel();
+    _sessionBreakTimer?.cancel();
     disposeTtsSession();
     _scrollController.dispose();
     _pageController.dispose();
@@ -392,6 +458,7 @@ class _ReaderScreenState extends State<ReaderScreen>
           if (mounted) setState(() => _reentryBlock = null);
         });
       }
+      _startSessionTicker();
       _applyOrientation(settings.orientation);
       _applyKeepAwake(settings.keepAwake);
       syncEngineToSettings();
@@ -503,6 +570,16 @@ class _ReaderScreenState extends State<ReaderScreen>
         _scrollController.jumpTo(0);
       }
     });
+    // A chapter boundary is the one moment the break check-in may surface —
+    // never mid-page. Show it here if the session target has been passed.
+    if (_sessionBreakPending && !_sessionBreakChip) {
+      _sessionBreakPending = false;
+      _sessionBreakChip = true;
+      _sessionBreakTimer?.cancel();
+      _sessionBreakTimer = Timer(const Duration(seconds: 14), () {
+        if (mounted) setState(() => _sessionBreakChip = false);
+      });
+    }
     _refreshHighlights();
   }
 
@@ -780,6 +857,9 @@ class _ReaderScreenState extends State<ReaderScreen>
   int _lastSavedBlock = -1;
 
   void _onPositionTick() {
+    // Cheap enough to re-check the session target on every settle, so the
+    // break check-in becomes due promptly (not only on the 20s ticker).
+    _noteSessionTarget();
     // A page change from any source (swipe, scrubber, follow) resets the
     // ruler band to the top of the new page.
     if (_settings.lineFocus &&
@@ -1114,6 +1194,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     // re-paginate.
     final centeredChanged = next.centeredColumn != _settings.centeredColumn;
     final focusChanged = next.focusParagraph != _settings.focusParagraph;
+    final sessionChanged = next.sessionMinutes != _settings.sessionMinutes;
     // Entering focus mode starts on the paragraph currently at the top;
     // leaving it restores the scroll/paged view to that same paragraph.
     // Read the position with the OLD settings, before setState swaps them.
@@ -1187,6 +1268,14 @@ class _ReaderScreenState extends State<ReaderScreen>
           _restoreScrollPosition();
         }
       });
+    }
+    // Changing the session target restarts the ticker and clears any pending
+    // break cue (turning it off stops everything).
+    if (sessionChanged) {
+      _sessionBreakPending = false;
+      _sessionBreakTimer?.cancel();
+      if (_sessionBreakChip) setState(() => _sessionBreakChip = false);
+      _startSessionTicker();
     }
   }
 
@@ -1723,6 +1812,9 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   void _advance({required bool forward}) {
+    // Evaluate the session target before a possible chapter cross, so a break
+    // check-in that just came due can surface on this very boundary.
+    _noteSessionTarget();
     // Focus-paragraph mode: each advance steps one paragraph, centred, rolling
     // into the adjacent chapter at the ends.
     if (_settings.focusParagraph) {
@@ -2201,6 +2293,39 @@ class _ReaderScreenState extends State<ReaderScreen>
                     bottom: bottomSpace + 12,
                     child: Center(child: _reentryChip(preset)),
                   ),
+                // Gentle session timer: a quiet fill along the very bottom
+                // edge creeping toward the target — no alarm, just presence.
+                if (_settings.sessionMinutes > 0)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: IgnorePointer(
+                      child: SizedBox(
+                        key: const ValueKey('session_fill'),
+                        height: 3,
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: FractionallySizedBox(
+                            widthFactor: _sessionFraction,
+                            child: ColoredBox(
+                              color: preset.secondary.withValues(
+                                alpha: _sessionFraction >= 1.0 ? 0.55 : 0.3,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                // The between-chapters break check-in (dismissible, no alarm).
+                if (_sessionBreakChip)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: bottomSpace + 12,
+                    child: Center(child: _sessionBreakChipWidget(preset)),
+                  ),
               ],
             ),
           ),
@@ -2253,6 +2378,44 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Shows the previous few paragraphs leading up to the current spot, dimmed
   /// on the way in and brightest at the current paragraph — a gentle recap of
   /// context after being away.
+  Widget _sessionBreakChipWidget(ReaderThemePreset preset) {
+    final mins = _settings.sessionMinutes;
+    return Material(
+      color: preset.background.withValues(alpha: 0.96),
+      elevation: 3,
+      shape: StadiumBorder(
+        side: BorderSide(color: preset.text.withValues(alpha: 0.15)),
+      ),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: () {
+          _sessionBreakTimer?.cancel();
+          setState(() => _sessionBreakChip = false);
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.self_improvement,
+                size: 16,
+                color: preset.text.withValues(alpha: 0.7),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  "You've been reading $mins min — a good time for a break?",
+                  style: TextStyle(color: preset.text, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   void _showRecap() {
     final blocks = _blocks ?? const <ContentBlock>[];
     if (blocks.isEmpty) return;
