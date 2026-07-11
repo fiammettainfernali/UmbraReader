@@ -893,7 +893,9 @@ class _ReaderScreenState extends State<ReaderScreen>
           )
         : paragraphStyle(_settings, _settings.theme.text);
     final painter = TextPainter(
-      text: runSpan(paragraph.runs, style),
+      // Fixation anchors widen line wrapping, so hit-test with the same runs
+      // that were rendered or the tapped word won't line up.
+      text: runSpan(effectiveRuns(paragraph.runs, _settings), style),
       textDirection: TextDirection.ltr,
       textScaler: TextScaler.noScaling,
     )..layout(maxWidth: width);
@@ -2062,6 +2064,7 @@ class _ReaderScreenState extends State<ReaderScreen>
             ':${_settings.fontSize}:${_settings.lineHeight}'
             ':${_settings.fontFamily}:$_fontToken'
             ':${_settings.boldText}:${_settings.italicText}'
+            ':${_settings.fixationAnchors}'
             ':$stride';
         if (key != _pageKey) {
           _pageKey = key;

@@ -462,6 +462,18 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                   onChanged: (on) =>
                       _update(_settings.copyWith(italicText: on)),
                 ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Fixation anchors'),
+                  subtitle: const Text(
+                    'Bold the first letters of each word as eye-anchors — a '
+                    'reading aid that can make text easier to track',
+                  ),
+                  value: _settings.fixationAnchors,
+                  onChanged: (on) =>
+                      _update(_settings.copyWith(fixationAnchors: on)),
+                ),
                 const SizedBox(height: 12),
                 SegmentedButton<ReaderTextAlign>(
                   segments: const [

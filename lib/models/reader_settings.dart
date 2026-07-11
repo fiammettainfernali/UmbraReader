@@ -46,6 +46,8 @@ class ReaderSettings {
     required this.textAlign,
     required this.autoScroll,
     required this.lineFocus,
+    required this.focusParagraph,
+    required this.fixationAnchors,
     required this.orientation,
     required this.tvMode,
     required this.centeredColumn,
@@ -103,6 +105,14 @@ class ReaderSettings {
   /// ADHD/visual-stress readers. Text scrolls/pages through the fixed band.
   final bool lineFocus;
 
+  /// Focus-paragraph mode: one paragraph at a time, centred; tap advances.
+  /// Chunking for readers a full page overwhelms.
+  final bool focusParagraph;
+
+  /// Fixation anchors (Bionic-style): bold the first letters of each word
+  /// as saccade targets.
+  final bool fixationAnchors;
+
   /// Locks the reader to a fixed orientation, or follows the system's
   /// auto-rotate setting when [ReaderOrientation.auto].
   final ReaderOrientation orientation;
@@ -157,6 +167,8 @@ class ReaderSettings {
     textAlign: ReaderTextAlign.left,
     autoScroll: false,
     lineFocus: false,
+    focusParagraph: false,
+    fixationAnchors: false,
     orientation: ReaderOrientation.auto,
     tvMode: false,
     centeredColumn: false,
@@ -186,6 +198,8 @@ class ReaderSettings {
     ReaderTextAlign? textAlign,
     bool? autoScroll,
     bool? lineFocus,
+    bool? focusParagraph,
+    bool? fixationAnchors,
     ReaderOrientation? orientation,
     bool? tvMode,
     bool? centeredColumn,
@@ -212,6 +226,8 @@ class ReaderSettings {
       textAlign: textAlign ?? this.textAlign,
       autoScroll: autoScroll ?? this.autoScroll,
       lineFocus: lineFocus ?? this.lineFocus,
+      focusParagraph: focusParagraph ?? this.focusParagraph,
+      fixationAnchors: fixationAnchors ?? this.fixationAnchors,
       orientation: orientation ?? this.orientation,
       tvMode: tvMode ?? this.tvMode,
       centeredColumn: centeredColumn ?? this.centeredColumn,

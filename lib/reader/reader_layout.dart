@@ -73,6 +73,64 @@ TextStyle headingStyle(ReaderSettings s, int level, Color color) {
       : base.copyWith(fontFamily: s.fontFamily);
 }
 
+/// Fixation anchors (Bionic-style): bolds the first 1-3 letters of each
+/// word so the eye has a saccade target. The concatenated TEXT is identical
+/// to the input — only run boundaries and bold flags change — so every
+/// character offset (positions, highlights, word lookup) stays valid.
+/// Footnote-marker runs and already-bold runs pass through untouched.
+List<TextRun> fixationRuns(List<TextRun> runs) {
+  bool isSpace(String c) => c == ' ' || c == '\n' || c == '\t';
+  final out = <TextRun>[];
+  for (final run in runs) {
+    if (run.footnoteBody != null || run.bold) {
+      out.add(run);
+      continue;
+    }
+    final text = run.text;
+    var plainStart = 0;
+    var i = 0;
+    void flushPlain(int end) {
+      if (end > plainStart) {
+        out.add(
+          TextRun(
+            text.substring(plainStart, end),
+            italic: run.italic,
+          ),
+        );
+      }
+    }
+
+    while (i < text.length) {
+      if (isSpace(text[i])) {
+        i++;
+        continue;
+      }
+      var j = i;
+      while (j < text.length && !isSpace(text[j])) {
+        j++;
+      }
+      final len = j - i;
+      final k = len >= 8
+          ? 3
+          : len >= 4
+          ? 2
+          : 1;
+      flushPlain(i);
+      out.add(TextRun(text.substring(i, i + k), bold: true, italic: run.italic));
+      plainStart = i + k;
+      i = j;
+    }
+    flushPlain(text.length);
+  }
+  return out;
+}
+
+/// The runs as they will actually render under [s] — fixation anchors
+/// applied when enabled. EVERY measurement and render path must go through
+/// this so pagination and pixels always agree.
+List<TextRun> effectiveRuns(List<TextRun> runs, ReaderSettings s) =>
+    s.fixationAnchors ? fixationRuns(runs) : runs;
+
 /// Builds a styled [TextSpan] for a run list, applying bold/italic per run.
 TextSpan runSpan(List<TextRun> runs, TextStyle base) {
   return TextSpan(
@@ -95,7 +153,7 @@ double measureBlockHeight(ContentBlock block, double width, ReaderSettings s) {
     case ParagraphBlock paragraph:
       final painter = TextPainter(
         text: runSpan(
-          paragraph.runs,
+          effectiveRuns(paragraph.runs, s),
           paragraphStyle(s, const Color(0xFF000000)),
         ),
         textDirection: TextDirection.ltr,
@@ -105,7 +163,7 @@ double measureBlockHeight(ContentBlock block, double width, ReaderSettings s) {
     case HeadingBlock heading:
       final painter = TextPainter(
         text: runSpan(
-          heading.runs,
+          effectiveRuns(heading.runs, s),
           headingStyle(s, heading.level, const Color(0xFF000000)),
         ),
         textDirection: TextDirection.ltr,
@@ -160,7 +218,10 @@ TextPainter layoutParagraph(
   ReaderSettings s,
 ) {
   return TextPainter(
-    text: runSpan(runs, paragraphStyle(s, const Color(0xFF000000))),
+    text: runSpan(
+      effectiveRuns(runs, s),
+      paragraphStyle(s, const Color(0xFF000000)),
+    ),
     textDirection: TextDirection.ltr,
     textScaler: TextScaler.noScaling,
   )..layout(maxWidth: width);

@@ -57,21 +57,25 @@ double _renderedHeight(List<PageBlock> page, double width, ReaderSettings s) {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  for (final (width, height, fontSize, lineHeight, bold) in [
-    (480.0, 700.0, 17.0, 1.5, false),
-    (250.0, 620.0, 18.0, 1.6, false),
-    (390.0, 750.0, 16.0, 1.4, false),
-    (465.0, 700.0, 19.0, 1.65, true), // ~iPad TV-mode column, bold
-    (465.0, 700.0, 21.0, 1.35, true),
-    (512.0, 660.0, 17.5, 1.55, false),
+  for (final (width, height, fontSize, lineHeight, bold, fixation) in [
+    (480.0, 700.0, 17.0, 1.5, false, false),
+    (250.0, 620.0, 18.0, 1.6, false, false),
+    (390.0, 750.0, 16.0, 1.4, false, false),
+    (465.0, 700.0, 19.0, 1.65, true, false), // ~iPad TV-mode column, bold
+    (465.0, 700.0, 21.0, 1.35, true, false),
+    (512.0, 660.0, 17.5, 1.55, false, false),
+    // Fixation anchors widen wrapping; measure must still match render.
+    (390.0, 750.0, 16.0, 1.4, false, true),
+    (480.0, 700.0, 18.0, 1.6, false, true),
   ]) {
     test(
         'no page overflows at ${width}x$height f$fontSize lh$lineHeight '
-        'bold=$bold', () {
+        'bold=$bold fixation=$fixation', () {
       final settings = ReaderSettings.defaults.copyWith(
         fontSize: fontSize,
         lineHeight: lineHeight,
         boldText: bold,
+        fixationAnchors: fixation,
         textAlign: ReaderTextAlign.justify,
       );
       final pages = paginateBlocks(_chapter(), width, height, settings);

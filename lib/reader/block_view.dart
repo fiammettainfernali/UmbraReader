@@ -46,7 +46,7 @@ class BlockView extends StatelessWidget {
               TextSpan(
                 children: _spansFor(
                   context,
-                  paragraph.runs,
+                  effectiveRuns(paragraph.runs, settings),
                   paragraphStyle(settings, preset.text),
                 ),
               ),
@@ -68,7 +68,7 @@ class BlockView extends StatelessWidget {
               TextSpan(
                 children: _spansFor(
                   context,
-                  heading.runs,
+                  effectiveRuns(heading.runs, settings),
                   headingStyle(settings, heading.level, preset.text),
                 ),
               ),

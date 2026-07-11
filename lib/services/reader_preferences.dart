@@ -31,6 +31,8 @@ class ReaderPreferences {
   static const _kTextAlign = 'reader_text_align';
   static const _kAutoScroll = 'reader_auto_scroll';
   static const _kLineFocus = 'reader_line_focus';
+  static const _kFocusParagraph = 'reader_focus_paragraph';
+  static const _kFixationAnchors = 'reader_fixation_anchors';
   static const _kOrientation = 'reader_orientation';
   static const _kTvMode = 'reader_tv_mode';
   static const _kCenteredColumn = 'reader_centered_column';
@@ -52,7 +54,8 @@ class ReaderPreferences {
   static const _globalKeys = [
     _kMode, _kThemeId, _kFontFamily, _kFontSize, _kLineHeight, _kMargin,
     _kSpeechRate, _kVoiceName, _kVoiceLocale, _kBoldText, _kItalicText,
-    _kBrightness, _kTextAlign, _kAutoScroll, _kLineFocus, _kOrientation,
+    _kBrightness, _kTextAlign, _kAutoScroll, _kLineFocus,
+    _kFocusParagraph, _kFixationAnchors, _kOrientation,
     _kTvMode,
     _kCenteredColumn, _kKeepAwake, _kAutoPageSeconds,
     _kTtsEngine, _kTtsServerUrl, _kTtsServerToken, _kTtsSkips,
@@ -110,6 +113,10 @@ class ReaderPreferences {
       ),
       autoScroll: prefs.getBool('$p$_kAutoScroll') ?? d.autoScroll,
       lineFocus: prefs.getBool('$p$_kLineFocus') ?? d.lineFocus,
+      focusParagraph:
+          prefs.getBool('$p$_kFocusParagraph') ?? d.focusParagraph,
+      fixationAnchors:
+          prefs.getBool('$p$_kFixationAnchors') ?? d.fixationAnchors,
       orientation: ReaderOrientation.values.firstWhere(
         (o) => o.name == prefs.getString('$p$_kOrientation'),
         orElse: () => d.orientation,
@@ -150,6 +157,11 @@ class ReaderPreferences {
     await prefs.setString('$p$_kTextAlign', settings.textAlign.name);
     await prefs.setBool('$p$_kAutoScroll', settings.autoScroll);
     await prefs.setBool('$p$_kLineFocus', settings.lineFocus);
+    await prefs.setBool('$p$_kFocusParagraph', settings.focusParagraph);
+    await prefs.setBool(
+      '$p$_kFixationAnchors',
+      settings.fixationAnchors,
+    );
     await prefs.setString('$p$_kOrientation', settings.orientation.name);
     await prefs.setBool('$p$_kTvMode', settings.tvMode);
     await prefs.setBool('$p$_kCenteredColumn', settings.centeredColumn);
