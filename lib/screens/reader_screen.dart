@@ -112,6 +112,12 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// to advance. Seeded from the saved position on open; stepped by _advance.
   int _focusBlock = 0;
 
+  /// The paragraph the reader was resumed onto after a real gap — briefly
+  /// washed in the highlight tint and offered a "Where was I?" recap. Null
+  /// unless this open was a genuine resume after time away.
+  int? _reentryBlock;
+  Timer? _reentryTimer;
+
   /// Content width (screen minus margins), cached each build so progress can
   /// be measured without a MediaQuery lookup (e.g. during dispose).
   double _lastContentWidth = 0;
@@ -225,6 +231,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     WidgetsBinding.instance.removeObserver(this);
     _autoScrollTimer?.cancel();
     _autoPageTimer?.cancel();
+    _reentryTimer?.cancel();
     disposeTtsSession();
     _scrollController.dispose();
     _pageController.dispose();
@@ -364,8 +371,27 @@ class _ReaderScreenState extends State<ReaderScreen>
         // Focus-paragraph mode reads the block directly (no scroll/page to
         // restore into), so seed it from the same saved position.
         _focusBlock = _pendingRestoreBlock ?? 0;
+        // "Where was I?" — after a real gap (not a fresh book, not a search /
+        // TOC jump), mark the restored paragraph for a brief re-entry cue.
+        final resuming = widget.initialBlockIndex == null &&
+            widget.initialChapterIndex == null;
+        final away = progress.updatedAt == null
+            ? Duration.zero
+            : DateTime.now().difference(progress.updatedAt!);
+        _reentryBlock = (resuming &&
+                away > const Duration(minutes: 20) &&
+                blocks.isNotEmpty &&
+                (progress.blockIndex > 0 || chapterIndex > 0))
+            ? (_pendingRestoreBlock ?? 0)
+            : null;
         _loading = false;
       });
+      if (_reentryBlock != null) {
+        _reentryTimer?.cancel();
+        _reentryTimer = Timer(const Duration(seconds: 6), () {
+          if (mounted) setState(() => _reentryBlock = null);
+        });
+      }
       _applyOrientation(settings.orientation);
       _applyKeepAwake(settings.keepAwake);
       syncEngineToSettings();
@@ -2166,8 +2192,143 @@ class _ReaderScreenState extends State<ReaderScreen>
                       ),
                     ),
                   ),
+                // "Where was I?" recap offer — sits above the bottom bar, on
+                // top of the dimming overlay so it stays tappable.
+                if (_reentryBlock != null)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: bottomSpace + 12,
+                    child: Center(child: _reentryChip(preset)),
+                  ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The tappable "Where was I?" pill shown briefly on resume after a gap.
+  Widget _reentryChip(ReaderThemePreset preset) {
+    return Material(
+      color: preset.background.withValues(alpha: 0.96),
+      elevation: 3,
+      shape: StadiumBorder(
+        side: BorderSide(color: preset.text.withValues(alpha: 0.15)),
+      ),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: () {
+          _reentryTimer?.cancel();
+          setState(() => _reentryBlock = null);
+          _showRecap();
+        },
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.history,
+                size: 16,
+                color: preset.text.withValues(alpha: 0.7),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Where was I?',
+                style: TextStyle(
+                  color: preset.text,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Shows the previous few paragraphs leading up to the current spot, dimmed
+  /// on the way in and brightest at the current paragraph — a gentle recap of
+  /// context after being away.
+  void _showRecap() {
+    final blocks = _blocks ?? const <ContentBlock>[];
+    if (blocks.isEmpty) return;
+    final end = currentTopBlockIndex().clamp(0, blocks.length - 1);
+    // Walk back to include up to three text blocks before the current one.
+    var start = end;
+    var count = 0;
+    for (var i = end - 1; i >= 0 && count < 3; i--) {
+      if (blocks[i] is ParagraphBlock || blocks[i] is HeadingBlock) count++;
+      start = i;
+    }
+    final preset = _settings.theme;
+    final span = (end - start).clamp(1, 1 << 30);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: preset.background,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetCtx) => SafeArea(
+        top: false,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(sheetCtx).size.height * 0.62,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: Text(
+                  'WHERE YOU LEFT OFF',
+                  style: TextStyle(
+                    color: preset.secondary,
+                    fontSize: 11,
+                    letterSpacing: 1,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var i = start; i <= end; i++)
+                        if (blocks[i] is ParagraphBlock ||
+                            blocks[i] is HeadingBlock)
+                          Opacity(
+                            opacity: i == end
+                                ? 1.0
+                                : (0.4 + 0.6 * ((i - start) / span))
+                                      .clamp(0.4, 1.0),
+                            child: BlockView(
+                              block: blocks[i],
+                              settings: _settings,
+                              preset: preset,
+                              isLast: i == end,
+                            ),
+                          ),
+                    ],
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: FilledButton.tonal(
+                    onPressed: () => Navigator.of(sheetCtx).pop(),
+                    child: const Text('Back to reading'),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -2210,6 +2371,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                     settings: _settings,
                     preset: preset,
                     isLast: true,
+                    reentry: _reentryBlock == idx,
                   ),
                   const SizedBox(height: 20),
                   Text(
@@ -2246,6 +2408,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         highlightStart: index == speakingBlock ? speakingStart : null,
         highlightEnd: index == speakingBlock ? speakingEnd : null,
         highlightColor: _highlightedBlocks[index],
+        reentry: _reentryBlock == index,
       ),
     );
   }
@@ -2376,6 +2539,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                   ? speakingEnd - pageBlocks[j].charOffset
                   : null,
               highlightColor: _highlightedBlocks[pageBlocks[j].originIndex],
+              reentry: _reentryBlock == pageBlocks[j].originIndex,
             ),
         ],
       ),

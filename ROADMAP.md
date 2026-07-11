@@ -227,9 +227,12 @@ distraction-free immersive mode, line-precision resume.
       fires zero HapticFeedback calls on a page turn.)
 
 ### Medium (a week-ish each)
-- [ ] **"Where was I?" re-entry aid.** On reopen, briefly highlight the
-      last-read line (we know it to the character now) and offer a
-      one-tap "recap" showing the previous few paragraphs dimmed-to-bright.
+- [x] **"Where was I?" re-entry aid.** Reopening a book after a gap (>20 min
+      since last read; skipped for search/TOC jumps and the very start)
+      briefly washes the restored paragraph in the highlight tint (fades over
+      ~3s) and floats a tappable "Where was I?" pill for ~6s. Tapping opens a
+      recap sheet with the previous few paragraphs, dimmed on the way in and
+      brightest at the current one. Tests cover gap-shows / immediate-hides.
 - [ ] **Gentle session timers.** Opt-in "read for N minutes" with a quiet
       visual fill (no alarms); optional hyperfocus check-in ("you've been
       reading 90 min — water?") that is dismissible and never modal

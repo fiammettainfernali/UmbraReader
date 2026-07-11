@@ -17,6 +17,7 @@ class BlockView extends StatelessWidget {
     this.highlightStart,
     this.highlightEnd,
     this.highlightColor,
+    this.reentry = false,
   });
 
   final ContentBlock block;
@@ -35,25 +36,32 @@ class BlockView extends StatelessWidget {
   /// the paragraph/heading body is painted with the matching tint.
   final HighlightColor? highlightColor;
 
+  /// When true this is the paragraph the reader was resumed onto after a gap
+  /// — briefly wash it in the highlight tint (fading out) so the eye lands on
+  /// "where was I?".
+  final bool reentry;
+
   @override
   Widget build(BuildContext context) {
     switch (block) {
       case ParagraphBlock paragraph:
         return Padding(
           padding: EdgeInsets.only(bottom: isLast ? 0 : paragraphGap(settings)),
-          child: _maybeTint(
-            child: Text.rich(
-              TextSpan(
-                children: _spansFor(
-                  context,
-                  effectiveRuns(paragraph.runs, settings),
-                  paragraphStyle(settings, preset.text),
+          child: _maybeReentry(
+            child: _maybeTint(
+              child: Text.rich(
+                TextSpan(
+                  children: _spansFor(
+                    context,
+                    effectiveRuns(paragraph.runs, settings),
+                    paragraphStyle(settings, preset.text),
+                  ),
                 ),
+                textAlign: settings.textAlign == ReaderTextAlign.justify
+                    ? TextAlign.justify
+                    : TextAlign.left,
+                textScaler: TextScaler.noScaling,
               ),
-              textAlign: settings.textAlign == ReaderTextAlign.justify
-                  ? TextAlign.justify
-                  : TextAlign.left,
-              textScaler: TextScaler.noScaling,
             ),
           ),
         );
@@ -63,16 +71,18 @@ class BlockView extends StatelessWidget {
             top: kHeadingTopGap,
             bottom: isLast ? 0 : kHeadingBottomGap,
           ),
-          child: _maybeTint(
-            child: Text.rich(
-              TextSpan(
-                children: _spansFor(
-                  context,
-                  effectiveRuns(heading.runs, settings),
-                  headingStyle(settings, heading.level, preset.text),
+          child: _maybeReentry(
+            child: _maybeTint(
+              child: Text.rich(
+                TextSpan(
+                  children: _spansFor(
+                    context,
+                    effectiveRuns(heading.runs, settings),
+                    headingStyle(settings, heading.level, preset.text),
+                  ),
                 ),
+                textScaler: TextScaler.noScaling,
               ),
-              textScaler: TextScaler.noScaling,
             ),
           ),
         );
@@ -120,6 +130,26 @@ class BlockView extends StatelessWidget {
           ),
         );
     }
+  }
+
+  /// Washes [child] in the highlight tint that fades to clear over a few
+  /// seconds — the "here's where you were" cue on resume. A no-op unless
+  /// [reentry] is set.
+  Widget _maybeReentry({required Widget child}) {
+    if (!reentry) return child;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 1.0, end: 0.0),
+      duration: const Duration(milliseconds: 2800),
+      curve: Curves.easeOut,
+      builder: (context, t, c) => DecoratedBox(
+        decoration: BoxDecoration(
+          color: preset.highlight.withValues(alpha: 0.55 * t),
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: c,
+      ),
+      child: child,
+    );
   }
 
   /// Wraps [child] in a soft tint matching the saved [highlightColor] when
