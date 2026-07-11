@@ -877,7 +877,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   void _onContentLongPress(LongPressStartDetails details) {
     final word = _wordAt(details.globalPosition);
     if (word == null) return;
-    HapticFeedback.selectionClick();
+    _hapticSelection();
     DictionaryService().define(word);
   }
 
@@ -1205,9 +1205,25 @@ class _ReaderScreenState extends State<ReaderScreen>
   };
 
 
-  /// True when the system asks for reduced motion (iOS Reduce Motion) —
-  /// page turns and follow-scrolls jump instead of animating.
-  bool get _reduceMotion => MediaQuery.of(context).disableAnimations;
+  /// True when motion should be suppressed — page turns and follow-scrolls
+  /// jump instead of animating. Honours the OS Reduce Motion setting AND the
+  /// reader's own in-app toggle (either one wins).
+  bool get _reduceMotion =>
+      MediaQuery.of(context).disableAnimations || _settings.reduceAnimations;
+
+  // Haptic taps, gated by the reader's haptic-feedback setting so the whole
+  // page-turn/advance feel can be silenced for sensory comfort.
+  void _hapticSelection() {
+    if (_settings.hapticFeedback) HapticFeedback.selectionClick();
+  }
+
+  void _hapticLight() {
+    if (_settings.hapticFeedback) HapticFeedback.lightImpact();
+  }
+
+  void _hapticMedium() {
+    if (_settings.hapticFeedback) HapticFeedback.mediumImpact();
+  }
 
   /// Scrolls/pages so the block being read stays visible — only when the
   /// block changes, so it doesn't fight the reader within a paragraph.
@@ -1688,26 +1704,26 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (blocks.isEmpty) return;
       if (forward) {
         if (_focusBlock < blocks.length - 1) {
-          HapticFeedback.selectionClick();
+          _hapticSelection();
           setState(() {
             _focusBlock++;
             _chapterFraction = _computeChapterFraction();
           });
           _saveProgress();
         } else {
-          HapticFeedback.mediumImpact();
+          _hapticMedium();
           _goToChapter(_chapterIndex + 1);
         }
       } else {
         if (_focusBlock > 0) {
-          HapticFeedback.selectionClick();
+          _hapticSelection();
           setState(() {
             _focusBlock--;
             _chapterFraction = _computeChapterFraction();
           });
           _saveProgress();
         } else {
-          HapticFeedback.mediumImpact();
+          _hapticMedium();
           _goToChapter(_chapterIndex - 1, landOnLastPage: true);
         }
       }
@@ -1729,14 +1745,14 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (_settings.lineFocus && _settings.mode == ReadingMode.paged) {
       if (forward) {
         if (_rulerBand < _rulerMaxBand) {
-          HapticFeedback.selectionClick();
+          _hapticSelection();
           setState(() => _rulerBand++);
           return;
         }
         _rulerBand = 0; // page turns below; new page starts at the top
       } else {
         if (_rulerBand > 0) {
-          HapticFeedback.selectionClick();
+          _hapticSelection();
           setState(() => _rulerBand--);
           return;
         }
@@ -1757,16 +1773,16 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
     final pos = _scrollController.position;
     if (forward && pos.pixels >= pos.maxScrollExtent - 4) {
-      HapticFeedback.mediumImpact();
+      _hapticMedium();
       _goToChapter(_chapterIndex + 1);
       return;
     }
     if (!forward && pos.pixels <= 4) {
-      HapticFeedback.mediumImpact();
+      _hapticMedium();
       _goToChapter(_chapterIndex - 1);
       return;
     }
-    HapticFeedback.selectionClick();
+    _hapticSelection();
     final step = _rulerBandHeight;
     final target = (pos.pixels + (forward ? step : -step))
         .clamp(0.0, pos.maxScrollExtent);
@@ -1788,7 +1804,7 @@ class _ReaderScreenState extends State<ReaderScreen>
           (_pageController.hasClients ? _pageController.page : 0)?.round() ?? 0;
       if (forward) {
         if (current < pages.length - 1) {
-          HapticFeedback.lightImpact();
+          _hapticLight();
           if (_reduceMotion) {
             _pageController.jumpToPage(current + 1);
           } else {
@@ -1798,12 +1814,12 @@ class _ReaderScreenState extends State<ReaderScreen>
             );
           }
         } else {
-          HapticFeedback.mediumImpact();
+          _hapticMedium();
           _goToChapter(_chapterIndex + 1);
         }
       } else {
         if (current > 0) {
-          HapticFeedback.lightImpact();
+          _hapticLight();
           if (_reduceMotion) {
             _pageController.jumpToPage(current - 1);
           } else {
@@ -1813,7 +1829,7 @@ class _ReaderScreenState extends State<ReaderScreen>
             );
           }
         } else {
-          HapticFeedback.mediumImpact();
+          _hapticMedium();
           _goToChapter(_chapterIndex - 1, landOnLastPage: true);
         }
       }
@@ -1824,10 +1840,10 @@ class _ReaderScreenState extends State<ReaderScreen>
     final step = pos.viewportDimension * 0.85;
     if (forward) {
       if (pos.pixels >= pos.maxScrollExtent - 4) {
-        HapticFeedback.mediumImpact();
+        _hapticMedium();
         _goToChapter(_chapterIndex + 1);
       } else {
-        HapticFeedback.lightImpact();
+        _hapticLight();
         final next = (pos.pixels + step).clamp(0.0, pos.maxScrollExtent);
         if (_reduceMotion) {
           _scrollController.jumpTo(next);
@@ -1841,10 +1857,10 @@ class _ReaderScreenState extends State<ReaderScreen>
       }
     } else {
       if (pos.pixels <= 4) {
-        HapticFeedback.mediumImpact();
+        _hapticMedium();
         _goToChapter(_chapterIndex - 1);
       } else {
-        HapticFeedback.lightImpact();
+        _hapticLight();
         final prev = (pos.pixels - step).clamp(0.0, pos.maxScrollExtent);
         if (_reduceMotion) {
           _scrollController.jumpTo(prev);
@@ -2161,7 +2177,9 @@ class _ReaderScreenState extends State<ReaderScreen>
   Widget _fadeChrome(Widget child) {
     return AnimatedOpacity(
       opacity: _chromeVisible ? 1 : 0,
-      duration: const Duration(milliseconds: 200),
+      duration: _reduceMotion
+          ? Duration.zero
+          : const Duration(milliseconds: 200),
       child: IgnorePointer(ignoring: !_chromeVisible, child: child),
     );
   }

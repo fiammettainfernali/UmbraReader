@@ -55,6 +55,8 @@ class ReaderSettings {
     required this.tvMode,
     required this.centeredColumn,
     required this.keepAwake,
+    required this.reduceAnimations,
+    required this.hapticFeedback,
     required this.autoPageSeconds,
     required this.ttsEngine,
     required this.ttsServerUrl,
@@ -147,6 +149,14 @@ class ReaderSettings {
   /// source display for XR glasses or auto-advance is running.
   final bool keepAwake;
 
+  /// When true, page turns and scrolls jump instead of animating — an
+  /// in-app Reduce Motion, independent of (and additive to) the OS setting.
+  final bool reduceAnimations;
+
+  /// When false, the reader fires no haptic taps on page turns / advances —
+  /// a sensory-load control.
+  final bool hapticFeedback;
+
   /// Seconds between automatic page turns in paged mode (the paged analogue
   /// of auto-scroll). 0 disables it.
   final int autoPageSeconds;
@@ -191,6 +201,8 @@ class ReaderSettings {
     tvMode: false,
     centeredColumn: false,
     keepAwake: false,
+    reduceAnimations: false,
+    hapticFeedback: true,
     autoPageSeconds: 0,
     ttsEngine: TtsEngineKind.system,
     ttsServerUrl: '',
@@ -225,6 +237,8 @@ class ReaderSettings {
     bool? tvMode,
     bool? centeredColumn,
     bool? keepAwake,
+    bool? reduceAnimations,
+    bool? hapticFeedback,
     int? autoPageSeconds,
     TtsEngineKind? ttsEngine,
     String? ttsServerUrl,
@@ -256,6 +270,8 @@ class ReaderSettings {
       tvMode: tvMode ?? this.tvMode,
       centeredColumn: centeredColumn ?? this.centeredColumn,
       keepAwake: keepAwake ?? this.keepAwake,
+      reduceAnimations: reduceAnimations ?? this.reduceAnimations,
+      hapticFeedback: hapticFeedback ?? this.hapticFeedback,
       autoPageSeconds: autoPageSeconds ?? this.autoPageSeconds,
       ttsEngine: ttsEngine ?? this.ttsEngine,
       ttsServerUrl: ttsServerUrl ?? this.ttsServerUrl,

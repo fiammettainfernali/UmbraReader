@@ -40,6 +40,8 @@ class ReaderPreferences {
   static const _kTvMode = 'reader_tv_mode';
   static const _kCenteredColumn = 'reader_centered_column';
   static const _kKeepAwake = 'reader_keep_awake';
+  static const _kReduceAnimations = 'reader_reduce_animations';
+  static const _kHapticFeedback = 'reader_haptic_feedback';
   static const _kAutoPageSeconds = 'reader_auto_page_seconds';
   static const _kTtsEngine = 'reader_tts_engine';
   static const _kTtsServerUrl = 'reader_tts_server_url';
@@ -61,7 +63,8 @@ class ReaderPreferences {
     _kBrightness, _kTextAlign, _kAutoScroll, _kLineFocus,
     _kFocusParagraph, _kFixationAnchors, _kOrientation,
     _kTvMode,
-    _kCenteredColumn, _kKeepAwake, _kAutoPageSeconds,
+    _kCenteredColumn, _kKeepAwake, _kReduceAnimations, _kHapticFeedback,
+    _kAutoPageSeconds,
     _kTtsEngine, _kTtsServerUrl, _kTtsServerToken, _kTtsSkips,
   ];
 
@@ -133,6 +136,10 @@ class ReaderPreferences {
       tvMode: prefs.getBool('$p$_kTvMode') ?? d.tvMode,
       centeredColumn: prefs.getBool('$p$_kCenteredColumn') ?? d.centeredColumn,
       keepAwake: prefs.getBool('$p$_kKeepAwake') ?? d.keepAwake,
+      reduceAnimations:
+          prefs.getBool('$p$_kReduceAnimations') ?? d.reduceAnimations,
+      hapticFeedback:
+          prefs.getBool('$p$_kHapticFeedback') ?? d.hapticFeedback,
       autoPageSeconds:
           prefs.getInt('$p$_kAutoPageSeconds') ?? d.autoPageSeconds,
       ttsEngine: TtsEngineKind.values.firstWhere(
@@ -181,6 +188,11 @@ class ReaderPreferences {
     await prefs.setBool('$p$_kTvMode', settings.tvMode);
     await prefs.setBool('$p$_kCenteredColumn', settings.centeredColumn);
     await prefs.setBool('$p$_kKeepAwake', settings.keepAwake);
+    await prefs.setBool(
+      '$p$_kReduceAnimations',
+      settings.reduceAnimations,
+    );
+    await prefs.setBool('$p$_kHapticFeedback', settings.hapticFeedback);
     await prefs.setInt('$p$_kAutoPageSeconds', settings.autoPageSeconds);
     await prefs.setString('$p$_kTtsEngine', settings.ttsEngine.name);
     await prefs.setString('$p$_kTtsServerUrl', settings.ttsServerUrl);

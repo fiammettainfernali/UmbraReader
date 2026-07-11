@@ -217,9 +217,14 @@ distraction-free immersive mode, line-precision resume.
       so it appears in the Font picker. A font-wiring guard test asserts every
       offered family is declared in pubspec and its face files exist on disk
       (a missing asset would silently fall back to the system font).
-- [ ] **In-app animation kill-switch** (beyond honouring system Reduce
+- [x] **In-app animation kill-switch** (beyond honouring system Reduce
       Motion) + haptics toggle — sensory control shouldn't require
-      changing system settings.
+      changing system settings. "Reduce animations" folds into the existing
+      _reduceMotion getter (OS Reduce Motion OR the in-app toggle) so every
+      page-turn/scroll and the chrome fade jump instantly; "Haptic feedback"
+      gates all reader taps via _hapticSelection/Light/Medium wrappers. Both
+      synced. (Test mocks the platform channel and asserts the kill-switch
+      fires zero HapticFeedback calls on a page turn.)
 
 ### Medium (a week-ish each)
 - [ ] **"Where was I?" re-entry aid.** On reopen, briefly highlight the

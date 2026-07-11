@@ -560,6 +560,28 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                   onChanged: (on) =>
                       _update(_settings.copyWith(autoScroll: on)),
                 ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Reduce animations'),
+                  subtitle: const Text(
+                    'Page turns and scrolls jump instantly instead of sliding',
+                  ),
+                  value: _settings.reduceAnimations,
+                  onChanged: (on) =>
+                      _update(_settings.copyWith(reduceAnimations: on)),
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Haptic feedback'),
+                  subtitle: const Text(
+                    'Small taps on page turns and advances',
+                  ),
+                  value: _settings.hapticFeedback,
+                  onChanged: (on) =>
+                      _update(_settings.copyWith(hapticFeedback: on)),
+                ),
               ],
             ),
             if (kReadAloudEnabled)
