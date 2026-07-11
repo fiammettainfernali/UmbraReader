@@ -15,6 +15,7 @@ const List<String> kReaderFonts = [
   'Literata',
   'Lora',
   'Atkinson Hyperlegible',
+  'OpenDyslexic',
 ];
 
 String _fontLabel(String family) => family.isEmpty ? 'System' : family;

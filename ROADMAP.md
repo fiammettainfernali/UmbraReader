@@ -211,8 +211,12 @@ distraction-free immersive mode, line-precision resume.
       set of values — the pinned-to-0 spacing is now the *default*, not a
       hard constant. Synced taste; joins the paged page key. (Overflow test
       gains letter/word/para variants proving measure==render.)
-- [ ] **OpenDyslexic font option** (bundled, OFL) — dyslexia co-occurs
-      heavily with both communities.
+- [x] **OpenDyslexic font option** (bundled, OFL) — dyslexia co-occurs
+      heavily with both communities. Four faces (Regular/Italic/Bold/
+      Bold-Italic .otf) bundled with the OFL licence; added to kReaderFonts
+      so it appears in the Font picker. A font-wiring guard test asserts every
+      offered family is declared in pubspec and its face files exist on disk
+      (a missing asset would silently fall back to the system font).
 - [ ] **In-app animation kill-switch** (beyond honouring system Reduce
       Motion) + haptics toggle — sensory control shouldn't require
       changing system settings.
