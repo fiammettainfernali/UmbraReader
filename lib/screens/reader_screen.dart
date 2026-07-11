@@ -108,6 +108,10 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Block index to restore to on open; consumed once the content lays out.
   int? _pendingRestoreBlock;
 
+  /// The block shown in focus-paragraph mode — one paragraph at a time, tap
+  /// to advance. Seeded from the saved position on open; stepped by _advance.
+  int _focusBlock = 0;
+
   /// Content width (screen minus margins), cached each build so progress can
   /// be measured without a MediaQuery lookup (e.g. during dispose).
   double _lastContentWidth = 0;
@@ -259,7 +263,9 @@ class _ReaderScreenState extends State<ReaderScreen>
   set chapterFraction(double value) => _chapterFraction = value;
 
   @override
-  int currentTopBlockIndex() => _settings.mode == ReadingMode.paged
+  int currentTopBlockIndex() => _settings.focusParagraph
+      ? _focusBlock
+      : _settings.mode == ReadingMode.paged
       ? _pagedTopBlockIndex()
       : _scrollTopBlockIndex();
 
@@ -355,6 +361,9 @@ class _ReaderScreenState extends State<ReaderScreen>
         _pendingRestoreChar = widget.initialBlockIndex != null
             ? 0
             : progress.blockChar;
+        // Focus-paragraph mode reads the block directly (no scroll/page to
+        // restore into), so seed it from the same saved position.
+        _focusBlock = _pendingRestoreBlock ?? 0;
         _loading = false;
       });
       _applyOrientation(settings.orientation);
@@ -414,7 +423,9 @@ class _ReaderScreenState extends State<ReaderScreen>
       // the Continue shelf even if no position save happened to catch the
       // scroll sitting at the very bottom.
       final blocks = _blocks ?? const <ContentBlock>[];
-      final block = _settings.mode == ReadingMode.paged
+      final block = _settings.focusParagraph
+          ? _focusBlock
+          : _settings.mode == ReadingMode.paged
           ? (_pageController.hasClients ? _pagedTopBlockIndex() : 0)
           : (_scrollController.hasClients ? _scrollTopBlockIndex() : 0);
       _progressStore.save(
@@ -448,6 +459,9 @@ class _ReaderScreenState extends State<ReaderScreen>
       _chapterFraction = 0;
       _pageKey = null;
       _pageJumpTarget = landOnLastPage ? kLastPage : 0;
+      // Focus mode lands on the last paragraph when paging back into a
+      // chapter, else the first.
+      _focusBlock = landOnLastPage && blocks.isNotEmpty ? blocks.length - 1 : 0;
     });
     _progressStore.save(
       widget.volume,
@@ -632,6 +646,11 @@ class _ReaderScreenState extends State<ReaderScreen>
       atEnd = blocks.isNotEmpty && block >= blocks.length - 1;
       // Record the word-level resume point (Kokoro can seek back to it).
       _progressStore.saveResumeOffset(widget.volume, block, speakingStart);
+    } else if (_settings.focusParagraph) {
+      // Focus mode: the shown paragraph IS the position; no controllers.
+      block = _focusBlock.clamp(0, blocks.isEmpty ? 0 : blocks.length - 1);
+      blockChar = 0;
+      atEnd = blocks.isNotEmpty && block >= blocks.length - 1;
     } else if (_settings.mode == ReadingMode.paged) {
       // Skip if the position can't be read (e.g. controllers already detached
       // during dispose) — saving a fallback 0 would clobber the real position.
@@ -765,6 +784,11 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   /// Fraction (0..1) of the current chapter that has been read.
   double _computeChapterFraction() {
+    if (_settings.focusParagraph) {
+      final n = _blocks?.length ?? 0;
+      if (n <= 1) return _focusBlock > 0 ? 1.0 : 0.0;
+      return (_focusBlock / (n - 1)).clamp(0.0, 1.0);
+    }
     if (_settings.mode == ReadingMode.paged) {
       final pages = _pages;
       if (pages == null || pages.length <= 1 || !_pageController.hasClients) {
@@ -861,6 +885,9 @@ class _ReaderScreenState extends State<ReaderScreen>
   String? _wordAt(Offset globalPosition) {
     final blocks = _blocks;
     if (blocks == null || blocks.isEmpty) return null;
+    // Focus mode centres a single paragraph outside the scroll/paged geometry
+    // this hit-test relies on — skip word lookup there for now.
+    if (_settings.focusParagraph) return null;
     final mq = MediaQuery.of(context);
     final areaWidth = _settings.centeredColumn && !_settings.tvMode
         ? math.min(mq.size.width, _centeredColumnWidth)
@@ -1059,6 +1086,20 @@ class _ReaderScreenState extends State<ReaderScreen>
     // Centred-column toggle changes the content width, so paged mode must
     // re-paginate.
     final centeredChanged = next.centeredColumn != _settings.centeredColumn;
+    final focusChanged = next.focusParagraph != _settings.focusParagraph;
+    // Entering focus mode starts on the paragraph currently at the top;
+    // leaving it restores the scroll/paged view to that same paragraph.
+    // Read the position with the OLD settings, before setState swaps them.
+    if (focusChanged) {
+      if (next.focusParagraph) {
+        final n = _blocks?.length ?? 0;
+        _focusBlock = n == 0 ? 0 : currentTopBlockIndex().clamp(0, n - 1);
+      } else {
+        _pendingRestoreBlock = _focusBlock;
+        _pendingRestoreChar = 0;
+        _pageKey = null; // force paged re-paginate + restore
+      }
+    }
     // TV mode is paged-only — auto-promote a scroll-mode user when they
     // flip it on so the 2-column layout has something to slice into pages.
     if (next.tvMode && next.mode != ReadingMode.paged) {
@@ -1108,6 +1149,17 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (tvModeChanged || centeredChanged) {
       _pageKey = null;
       _lastSavedBlock = -1;
+    }
+    // Leaving focus mode back into scroll: put the scroll view on the
+    // paragraph that was on screen (paged restore is handled when the pages
+    // recompute).
+    if (focusChanged && !next.focusParagraph) {
+      _lastSavedBlock = -1;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _settings.mode == ReadingMode.scroll) {
+          _restoreScrollPosition();
+        }
+      });
     }
   }
 
@@ -1218,6 +1270,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     _autoScrollTimer = null;
     if (!_settings.autoScroll) return;
     if (_settings.mode != ReadingMode.scroll) return;
+    if (_settings.focusParagraph) return; // no scroll view to drive
     _autoScrollTimer = Timer.periodic(
       const Duration(milliseconds: 50),
       (_) => _autoScrollTick(),
@@ -1236,6 +1289,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     _autoPageTimer = null;
     if (_settings.autoPageSeconds <= 0) return;
     if (_settings.mode != ReadingMode.paged) return;
+    if (_settings.focusParagraph) return; // paragraph stepping is manual
     _autoPageTimer = Timer.periodic(
       Duration(seconds: _settings.autoPageSeconds),
       (_) {
@@ -1499,6 +1553,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       _chapterFraction = 0;
       _pageKey = null;
       _pendingRestoreBlock = targetBlock;
+      _focusBlock = targetBlock;
       _pageJumpTarget = 0;
     });
     _progressStore.save(
@@ -1521,6 +1576,9 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Crosses into the adjacent chapter when the reader is swiped/scrolled
   /// firmly past its first or last page.
   bool _onScrollNotification(ScrollNotification notification) {
+    // Focus mode advances by tap, not by scrolling past an edge — a long
+    // paragraph's own scroll view must never cross chapters.
+    if (_settings.focusParagraph) return false;
     // Paged mode scrolls horizontally; scroll mode vertically. Ignore the
     // other axis (e.g. an over-tall page's own vertical scroll view).
     final wantAxis = _settings.mode == ReadingMode.paged
@@ -1573,6 +1631,16 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// scrubber overlay on the chapter bar.
   void _seekChapter(double fraction) {
     final clamped = fraction.clamp(0.0, 1.0);
+    if (_settings.focusParagraph) {
+      final n = _blocks?.length ?? 0;
+      if (n == 0) return;
+      setState(() {
+        _focusBlock = (clamped * (n - 1)).round().clamp(0, n - 1);
+        _chapterFraction = clamped;
+      });
+      _saveProgress();
+      return;
+    }
     if (_settings.mode == ReadingMode.paged) {
       final pages = _pages;
       if (pages == null || pages.isEmpty || !_pageController.hasClients) {
@@ -1612,6 +1680,38 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   void _advance({required bool forward}) {
+    // Focus-paragraph mode: each advance steps one paragraph, centred, rolling
+    // into the adjacent chapter at the ends.
+    if (_settings.focusParagraph) {
+      final blocks = _blocks ?? const <ContentBlock>[];
+      if (blocks.isEmpty) return;
+      if (forward) {
+        if (_focusBlock < blocks.length - 1) {
+          HapticFeedback.selectionClick();
+          setState(() {
+            _focusBlock++;
+            _chapterFraction = _computeChapterFraction();
+          });
+          _saveProgress();
+        } else {
+          HapticFeedback.mediumImpact();
+          _goToChapter(_chapterIndex + 1);
+        }
+      } else {
+        if (_focusBlock > 0) {
+          HapticFeedback.selectionClick();
+          setState(() {
+            _focusBlock--;
+            _chapterFraction = _computeChapterFraction();
+          });
+          _saveProgress();
+        } else {
+          HapticFeedback.mediumImpact();
+          _goToChapter(_chapterIndex - 1, landOnLastPage: true);
+        }
+      }
+      return;
+    }
     // Stepping band: with the ruler on in paged mode, the page is static,
     // so the focus band moves instead of the text — each advance steps the
     // band one height down, rolling into a real page turn at the bottom
@@ -1911,7 +2011,9 @@ class _ReaderScreenState extends State<ReaderScreen>
                         width: areaWidth,
                         child: NotificationListener<ScrollNotification>(
                           onNotification: _onScrollNotification,
-                          child: _settings.mode == ReadingMode.paged
+                          child: _settings.focusParagraph
+                              ? _buildFocusParagraph(preset)
+                              : _settings.mode == ReadingMode.paged
                               ? _buildPaged(preset)
                               : _buildScroll(preset),
                         ),
@@ -1919,7 +2021,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                     ),
                   ),
                 ),
-                if (_settings.lineFocus)
+                if (_settings.lineFocus && !_settings.focusParagraph)
                   Positioned.fill(
                     child: IgnorePointer(
                       child: Padding(
@@ -2017,6 +2119,52 @@ class _ReaderScreenState extends State<ReaderScreen>
       opacity: _chromeVisible ? 1 : 0,
       duration: const Duration(milliseconds: 200),
       child: IgnorePointer(ignoring: !_chromeVisible, child: child),
+    );
+  }
+
+  /// Focus-paragraph mode: one paragraph at a time, vertically centred, with
+  /// a "N / M" counter. Tapping the page edges steps between paragraphs
+  /// (see [_advance]); a long paragraph scrolls within the centred column.
+  Widget _buildFocusParagraph(ReaderThemePreset preset) {
+    final blocks = _blocks ?? const <ContentBlock>[];
+    if (blocks.isEmpty) return const SizedBox.shrink();
+    final idx = _focusBlock.clamp(0, blocks.length - 1);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Padding(
+              padding: EdgeInsets.symmetric(
+                horizontal: _settings.margin,
+                vertical: kContentVPad,
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  BlockView(
+                    block: blocks[idx],
+                    settings: _settings,
+                    preset: preset,
+                    isLast: true,
+                  ),
+                  const SizedBox(height: 20),
+                  Text(
+                    '${idx + 1} / ${blocks.length}',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: preset.secondary,
+                      fontSize: 12,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 

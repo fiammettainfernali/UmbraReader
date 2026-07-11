@@ -507,6 +507,18 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
                   dense: true,
+                  title: const Text('Focus paragraph'),
+                  subtitle: const Text(
+                    'Show one paragraph at a time, centred — tap the sides to '
+                    'move; a calmer view when a full page is overwhelming',
+                  ),
+                  value: _settings.focusParagraph,
+                  onChanged: (on) =>
+                      _update(_settings.copyWith(focusParagraph: on)),
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
                   title: const Text('Auto-scroll'),
                   subtitle: const Text(
                     'Slowly scrolls scroll-mode for hands-free reading',
