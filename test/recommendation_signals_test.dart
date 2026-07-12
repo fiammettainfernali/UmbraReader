@@ -314,6 +314,82 @@ void main() {
     expect(genreLover.first.series.opdsId, 4);
   });
 
+  test('recommendations carry a "Because…" reason naming the seed', () {
+    final lib = [
+      _series(id: 1, title: 'Reverend Insanity', author: 'Gu Zhen Ren',
+          genres: ['Cultivation']),
+      _series(id: 3, title: 'AuthorPick', author: 'Gu Zhen Ren',
+          genres: ['Romance']),
+      _series(id: 4, title: 'GenrePick', genres: ['Cultivation']),
+    ];
+    final recs = engine.recommend(
+      allSeries: lib,
+      readingEntries: [_entry(seriesId: 1, progress: halfRead(today))],
+      now: today,
+    );
+    final byId = {for (final r in recs) r.series.opdsId: r};
+    expect(byId[3]!.reason, contains('Reverend Insanity'),
+        reason: 'the author connection should name the read that drove it');
+    expect(byId[4]!.reason.toLowerCase(), contains('cultivation'));
+    expect(byId[4]!.reason, contains('Reverend Insanity'));
+  });
+
+  test('explore adds exactly one out-of-taste wildcard, rotated daily', () {
+    // The outsiders share nothing with the seeds — not even a length bucket
+    // (3000 chapters = 'huge'; the seeds are short/medium).
+    final lib = [
+      ...library(),
+      _series(id: 9, title: 'Outside A', genres: ['Slice of Life'],
+          totalChapters: 3000),
+      _series(id: 10, title: 'Outside B', genres: ['Horror'],
+          totalChapters: 3000),
+    ];
+    // Read both seeds so Cultivation AND Regression are in-taste — the only
+    // out-of-taste series left are 9 and 10.
+    final entries = [
+      _entry(seriesId: 1, progress: halfRead(today)),
+      _entry(seriesId: 2, progress: halfRead(today)),
+    ];
+    final recs = engine.recommend(
+      allSeries: lib,
+      readingEntries: entries,
+      explore: true,
+      now: today,
+    );
+    final wildcards = recs.where((r) => r.isWildcard).toList();
+    expect(wildcards, hasLength(1));
+    expect([9, 10], contains(wildcards.single.series.opdsId),
+        reason: 'the wildcard comes from outside the taste vector');
+    expect(wildcards.single.reason, 'Something different');
+    // Deterministic within a day, so the shelf doesn't flicker on refresh.
+    final again = engine.recommend(
+      allSeries: lib,
+      readingEntries: entries,
+      explore: true,
+      now: today.add(const Duration(hours: 3)),
+    );
+    expect(again.where((r) => r.isWildcard).single.series.opdsId,
+        wildcards.single.series.opdsId);
+    // Off by default.
+    final plain = engine.recommend(
+      allSeries: lib, readingEntries: entries, now: today,
+    );
+    expect(plain.any((r) => r.isWildcard), isFalse);
+  });
+
+  test('substantial reading since a dismiss outranks the dismissal', () {
+    // The user dismissed Seed A from the shelf once… then read half of it
+    // anyway. The read is the truer signal; its genre must score positive.
+    final recs = engine.recommend(
+      allSeries: library(),
+      readingEntries: [_entry(seriesId: 1, progress: halfRead(today))],
+      feedback: const {1: RecommendationFeedback.dismissed},
+      now: today,
+    );
+    expect(recs.map((r) => r.series.opdsId), contains(3),
+        reason: 'actually reading it beats a stale card dismissal');
+  });
+
   test('similarTo on a dropped/reset series still finds similar picks', () {
     final source = _series(
       id: 1,

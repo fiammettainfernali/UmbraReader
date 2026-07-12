@@ -272,6 +272,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       feedback: feedback,
       signals: signals,
       weights: learned,
+      explore: true,
     );
     if (!mounted) return;
     setState(() {
@@ -303,16 +304,79 @@ class _LibraryScreenState extends State<LibraryScreen> {
     await _loadReading();
   }
 
-  /// The recommendations currently visible in the shelf window.
-  List<Recommendation> _visibleRecommendations() {
-    final pool = _recommendations;
-    if (pool.length <= _recommendWindow) return pool;
-    final start = _recommendOffset % pool.length;
-    final take = pool.skip(start).take(_recommendWindow).toList();
-    if (take.length < _recommendWindow) {
-      take.addAll(pool.take(_recommendWindow - take.length));
+  /// Records a "not now" (30-day snooze) and refreshes the shelf.
+  Future<void> _snoozeRecommendation(Series series) async {
+    final messenger = ScaffoldMessenger.of(context);
+    await RecommendationFeedbackStore().recordSnooze(series.opdsId);
+    messenger.showSnackBar(
+      SnackBar(content: Text('“${series.title}” hidden for 30 days.')),
+    );
+    await _loadReading();
+  }
+
+  /// Long-press options for a recommendation card: the full feedback set.
+  Future<void> _showRecommendationOptions(Series series) async {
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.thumb_up_outlined),
+              title: const Text('More like this'),
+              onTap: () => Navigator.of(sheetCtx).pop('like'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.snooze),
+              title: const Text('Not now'),
+              subtitle: const Text('Hide for 30 days'),
+              onTap: () => Navigator.of(sheetCtx).pop('snooze'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.block),
+              title: const Text('Not interested'),
+              onTap: () => Navigator.of(sheetCtx).pop('dismiss'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted) return;
+    switch (action) {
+      case 'like':
+        await _likeRecommendation(series);
+      case 'snooze':
+        await _snoozeRecommendation(series);
+      case 'dismiss':
+        await _dismissRecommendation(series);
     }
-    return take;
+  }
+
+  /// The recommendations currently visible in the shelf window. The
+  /// exploration wildcard (if any) is pinned as the last visible card in
+  /// every window so it always gets its one slot.
+  List<Recommendation> _visibleRecommendations() {
+    final wildcard = _recommendations
+        .where((r) => r.isWildcard)
+        .toList();
+    final pool = [
+      for (final r in _recommendations)
+        if (!r.isWildcard) r,
+    ];
+    final List<Recommendation> window;
+    if (pool.length <= _recommendWindow) {
+      window = pool;
+    } else {
+      final start = _recommendOffset % pool.length;
+      final take = pool.skip(start).take(_recommendWindow).toList();
+      if (take.length < _recommendWindow) {
+        take.addAll(pool.take(_recommendWindow - take.length));
+      }
+      window = take;
+    }
+    return [...window, ...wildcard];
   }
 
   /// Counts an impression (once per series per day) for the recs on screen —
@@ -1763,20 +1827,24 @@ class _LibraryScreenState extends State<LibraryScreen> {
               : null,
         ),
         SizedBox(
-          height: 226,
+          height: 244,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
             itemCount: visible.length,
             separatorBuilder: (_, _) => const SizedBox(width: 14),
             itemBuilder: (context, index) {
-              final series = visible[index].series;
+              final rec = visible[index];
+              final series = rec.series;
               return _RecommendCard(
                 series: series,
                 imageHeaders: headers,
+                reason: rec.reason,
+                isWildcard: rec.isWildcard,
                 onTap: () => _openRecommended(series),
                 onDismiss: () => _dismissRecommendation(series),
                 onLike: () => _likeRecommendation(series),
+                onLongPress: () => _showRecommendationOptions(series),
               );
             },
           ),
@@ -2156,26 +2224,41 @@ class _RecommendCard extends StatelessWidget {
     required this.series,
     required this.imageHeaders,
     required this.onTap,
+    this.reason = '',
+    this.isWildcard = false,
     this.onDismiss,
     this.onLike,
+    this.onLongPress,
   });
 
   final Series series;
   final Map<String, String> imageHeaders;
   final VoidCallback onTap;
+
+  /// The engine's "Because…" line — why this pick is here.
+  final String reason;
+
+  /// True for the daily out-of-taste exploration pick.
+  final bool isWildcard;
+
   final VoidCallback? onDismiss;
 
   /// 👍 "more like this" — the engine's explicit positive signal.
   final VoidCallback? onLike;
+
+  /// Opens the full feedback options sheet (like / snooze / dismiss).
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Semantics(
       button: true,
-      label: '${series.title} by ${series.author}',
+      label: '${series.title} by ${series.author}'
+          '${reason.isEmpty ? '' : '. $reason'}',
       child: GestureDetector(
         onTap: onTap,
+        onLongPress: onLongPress,
         behavior: HitTestBehavior.opaque,
         child: SizedBox(
           width: 124,
@@ -2246,6 +2329,22 @@ class _RecommendCard extends StatelessWidget {
                   color: theme.colorScheme.outline,
                 ),
               ),
+              if (reason.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  reason,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    fontSize: 10,
+                    // The wildcard's "Something different" reads as a badge.
+                    color: isWildcard
+                        ? theme.colorScheme.primary
+                        : theme.colorScheme.outline.withValues(alpha: 0.85),
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ],
             ],
           ),
         ),

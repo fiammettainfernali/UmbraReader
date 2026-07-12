@@ -34,21 +34,51 @@ class RecommendationFeedbackStore {
   /// How long a snooze keeps a series out of recommendation surfaces.
   static const snoozeDays = 30;
 
+  /// How long a dismiss keeps suppressing a series. Tastes shift — "not
+  /// interested" in March shouldn't still gag a series in July. Resets stay
+  /// until re-engagement (they're a statement about the book, not the mood).
+  static const dismissDays = 90;
+
   /// Reads the effective feedback map (series-opdsId -> feedback kind).
-  /// Expired snoozes are dropped. Never throws — a missing or corrupt store
-  /// yields an empty map.
+  /// Expired snoozes and aged-out dismisses are dropped. Never throws — a
+  /// missing or corrupt store yields an empty map.
   Future<Map<int, RecommendationFeedback>> load({DateTime? now}) async {
     final clock = now ?? DateTime.now();
-    final full = await _loadRaw();
+    final full = await _upgradeLegacyTimestamps(await _loadRaw(), clock);
     final result = <int, RecommendationFeedback>{};
     full.forEach((id, entry) {
-      if (entry.kind == RecommendationFeedback.snoozed &&
-          clock.difference(entry.at).inDays >= snoozeDays) {
+      final age = clock.difference(entry.at).inDays;
+      if (entry.kind == RecommendationFeedback.snoozed && age >= snoozeDays) {
         return; // snooze has lapsed
+      }
+      if (entry.kind == RecommendationFeedback.dismissed &&
+          age >= dismissDays) {
+        return; // dismissal has aged out
       }
       result[id] = entry.kind;
     });
     return result;
+  }
+
+  /// Legacy entries carry no timestamp (they parse as the epoch); with
+  /// expiry they'd all age out instantly, resurfacing everything the user
+  /// ever dismissed at once. Start their clock now instead — a one-time,
+  /// silent upgrade (no sync push; the merged winner still syncs later).
+  Future<Map<int, _Entry>> _upgradeLegacyTimestamps(
+    Map<int, _Entry> raw,
+    DateTime clock,
+  ) async {
+    final epochThreshold = DateTime.fromMillisecondsSinceEpoch(1);
+    if (raw.values.every((e) => e.at.isAfter(epochThreshold))) return raw;
+    final upgraded = <int, _Entry>{
+      for (final e in raw.entries)
+        e.key: e.value.at.isAfter(epochThreshold)
+            ? e.value
+            : _Entry(e.value.kind, clock),
+    };
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_key, _encode(upgraded));
+    return upgraded;
   }
 
   /// Records a 👍 on [seriesOpdsId]. An explicit like supersedes any earlier

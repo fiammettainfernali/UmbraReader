@@ -8,10 +8,22 @@ import 'recommendation_feedback_store.dart';
 
 /// One recommended series with the score that produced it.
 class Recommendation {
-  const Recommendation(this.series, this.score);
+  const Recommendation(
+    this.series,
+    this.score, {
+    this.reason = '',
+    this.isWildcard = false,
+  });
 
   final Series series;
   final double score;
+
+  /// Human-readable "Because…" line: the dominant thing connecting this pick
+  /// to something the user actually read. Empty when there's nothing to say.
+  final String reason;
+
+  /// True for the deliberate out-of-taste exploration pick.
+  final bool isWildcard;
 }
 
 /// Behavioural signals beyond chapter fractions — everything the app already
@@ -127,15 +139,24 @@ class RecTasteProfile {
     required Map<String, double> tagScore,
     required Map<String, double> tagIdf,
     required Map<int, List<String>> keywords,
+    required Map<String, int> tagTopSeed,
+    required Map<int, String> seedTitles,
     required this.engagedIds,
     required this.hasHistory,
   }) : _tagScore = tagScore,
        _tagIdf = tagIdf,
-       _keywords = keywords;
+       _keywords = keywords,
+       _tagTopSeed = tagTopSeed,
+       _seedTitles = seedTitles;
 
   final Map<String, double> _tagScore;
   final Map<String, double> _tagIdf;
   final Map<int, List<String>> _keywords;
+
+  /// For each tag, the positively-contributing seed series that carries it
+  /// hardest — the "like X" part of a reason line.
+  final Map<String, int> _tagTopSeed;
+  final Map<int, String> _seedTitles;
 
   /// Series the user has engaged with (read, filed, judged) — never
   /// candidates.
@@ -186,6 +207,65 @@ class RecTasteProfile {
       ),
       length: _squash(lengthScore),
     );
+  }
+
+  String? _seedTitleFor(String tag) {
+    final id = _tagTopSeed[tag];
+    if (id == null) return null;
+    return _seedTitles[id];
+  }
+
+  /// A human "Because…" line for [series]: names the dominant positive
+  /// connection under [w] — same author, a shared genre, or shared themes —
+  /// and the read that drove it. Empty when nothing positive connects.
+  String reasonFor(Series series, RecWeights w) {
+    final g = groupsFor(series);
+
+    // Author connection.
+    final author = series.author.trim();
+    final authorTag = 'a:${author.toLowerCase()}';
+    final authorPart = g.author > 0 ? g.author * w.author : 0.0;
+
+    // Strongest positively-shared genre.
+    String? topGenre;
+    var topGenreAffinity = 0.0;
+    for (final raw in series.genres) {
+      final key = raw.trim();
+      if (key.isEmpty) continue;
+      final affinity = _affinity('g:${key.toLowerCase()}');
+      if (affinity > topGenreAffinity) {
+        topGenreAffinity = affinity;
+        topGenre = key;
+      }
+    }
+    final genrePart = g.genre > 0 ? g.genre * w.genre : 0.0;
+    final keywordPart = g.keyword > 0 ? g.keyword * w.keyword : 0.0;
+
+    // Strongest positively-shared keyword (for the seed attribution).
+    String? topKeywordTag;
+    var topKeywordAffinity = 0.0;
+    for (final kw in _keywords[series.opdsId] ?? const <String>[]) {
+      final affinity = _affinity('k:$kw');
+      if (affinity > topKeywordAffinity) {
+        topKeywordAffinity = affinity;
+        topKeywordTag = 'k:$kw';
+      }
+    }
+
+    final best = [authorPart, genrePart, keywordPart].reduce(max);
+    if (best <= 0) return '';
+    if (best == authorPart) {
+      final seed = _seedTitleFor(authorTag);
+      return seed == null
+          ? 'By $author, an author you read'
+          : 'By the author of “$seed”';
+    }
+    if (best == genrePart && topGenre != null) {
+      final seed = _seedTitleFor('g:${topGenre.toLowerCase()}');
+      return seed == null ? topGenre : '$topGenre, like “$seed”';
+    }
+    final seed = topKeywordTag == null ? null : _seedTitleFor(topKeywordTag);
+    return seed == null ? 'Similar themes to your reads' : 'Echoes “$seed”';
   }
 }
 
@@ -238,12 +318,16 @@ class RecommendationEngine {
   /// Returns the top-scored series the user hasn't engaged with, best first.
   /// [feedback] folds in explicit "no thanks" signals (dismissed cards, reset
   /// reading progress) as negative weight. [now] is overridable for tests.
+  /// [explore] appends one daily-rotating out-of-taste wildcard pick — the
+  /// library shelf's exploration slot. Off by default so "similar to X" and
+  /// other callers stay purely taste-driven.
   List<Recommendation> recommend({
     required List<Series> allSeries,
     required List<ReadingEntry> readingEntries,
     Map<int, RecommendationFeedback>? feedback,
     RecSignals signals = RecSignals.none,
     RecWeights? weights,
+    bool explore = false,
     DateTime? now,
   }) {
     final clock = now ?? DateTime.now();
@@ -289,7 +373,11 @@ class RecommendationEngine {
       if (ignored > 2) {
         score *= max(0.35, pow(0.85, ignored - 2).toDouble());
       }
-      if (score > 0) scored.add(Recommendation(series, score));
+      if (score > 0) {
+        scored.add(
+          Recommendation(series, score, reason: profile.reasonFor(series, w)),
+        );
+      }
     }
     scored.sort((a, b) => b.score.compareTo(a.score));
 
@@ -316,6 +404,35 @@ class RecommendationEngine {
       }
       if (primaryGenre.isNotEmpty) {
         genreTaken.update(primaryGenre, (c) => c + 1, ifAbsent: () => 1);
+      }
+    }
+
+    // Exploration wildcard: one pick from OUTSIDE the taste vector (zero or
+    // negative affinity), rotated daily, so the shelf occasionally stretches
+    // taste instead of only converging on it. Its outcome (read/liked vs
+    // dismissed/ignored) feeds the same feedback + learning loops, which
+    // makes exploration cheap and informative.
+    if (explore && result.isNotEmpty) {
+      final inResult = {for (final r in result) r.series.opdsId};
+      final outside = [
+        for (final series in allSeries)
+          if (!profile.engagedIds.contains(series.opdsId) &&
+              !inResult.contains(series.opdsId) &&
+              profile.groupsFor(series).weighted(w) <= 0)
+            series,
+      ];
+      if (outside.isNotEmpty) {
+        final daySeed =
+            clock.year * 10000 + clock.month * 100 + clock.day;
+        final pick = outside[Random(daySeed).nextInt(outside.length)];
+        result.add(
+          Recommendation(
+            pick,
+            0,
+            reason: 'Something different',
+            isWildcard: true,
+          ),
+        );
       }
     }
     return result;
@@ -431,7 +548,9 @@ class RecommendationEngine {
           signed = -0.7;
           engagedIds.add(series.opdsId);
         case RecommendationFeedback.dismissed:
-          signed = -0.3;
+          // Genuine re-engagement outranks a card-level "not interested":
+          // if they've substantially READ it since, the read wins.
+          if ((signed ?? 0) < 0.5) signed = -0.3;
           engagedIds.add(series.opdsId);
         case RecommendationFeedback.liked:
           signed = max(signed ?? 0, 0) + 1.0;
@@ -446,13 +565,22 @@ class RecommendationEngine {
       }
     }
 
-    // Accumulate signed affinity per content tag.
+    // Accumulate signed affinity per content tag, remembering which positive
+    // seed carries each tag hardest (for "like X" reason lines).
     final tagScore = <String, double>{};
+    final tagTopSeed = <String, int>{};
+    final tagTopContribution = <String, double>{};
+    final seedTitles = <int, String>{};
     signedSeries.forEach((id, score) {
       final series = byId[id];
       if (series == null) return;
+      if (score > 0) seedTitles[id] = series.title;
       for (final tag in _tagsFor(series, keywords[id] ?? const [])) {
         tagScore.update(tag, (s) => s + score, ifAbsent: () => score);
+        if (score > (tagTopContribution[tag] ?? 0)) {
+          tagTopContribution[tag] = score;
+          tagTopSeed[tag] = id;
+        }
       }
     });
 
@@ -460,6 +588,8 @@ class RecommendationEngine {
       tagScore: tagScore,
       tagIdf: tagIdf,
       keywords: keywords,
+      tagTopSeed: tagTopSeed,
+      seedTitles: seedTitles,
       engagedIds: engagedIds,
       hasHistory: signedSeries.isNotEmpty,
     );
@@ -610,7 +740,11 @@ class RecommendationEngine {
       feedback: scopedFeedback,
       weights: weights,
       now: clock,
-    );
+    )
+        // "More like this" means LIKE this — the exploration wildcard
+        // belongs on the library shelf only.
+        .where((r) => !r.isWildcard)
+        .toList();
     if (picks.length <= maxResults) return picks;
     return picks.sublist(0, maxResults);
   }

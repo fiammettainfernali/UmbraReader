@@ -86,12 +86,42 @@ void main() {
   test('sync merge: legacy un-timestamped entries still parse and merge',
       () async {
     final store = RecommendationFeedbackStore();
-    // Legacy blob format was a bare kind name.
+    // Legacy blob format was a bare kind name. Merge both BEFORE any load():
+    // loading upgrades legacy epochs to "now", which would end the tie.
     final changed = await store.mergeSyncBlob('{"8":"dismissed"}');
     expect(changed, isTrue);
-    expect((await store.load())[8], RecommendationFeedback.dismissed);
     // Legacy tie (both epoch): the stronger reset wins.
     await store.mergeSyncBlob('{"8":"reset"}');
     expect((await store.load())[8], RecommendationFeedback.reset);
+  });
+
+  test('a dismiss ages out after 90 days; a reset does not', () async {
+    final store = RecommendationFeedbackStore();
+    final t0 = DateTime(2026, 7, 1);
+    await store.recordDismiss(1, now: t0);
+    await store.recordReset(2, now: t0);
+    final later = t0.add(const Duration(days: 91));
+    final state = await store.load(now: later);
+    expect(state.containsKey(1), isFalse,
+        reason: '"not interested" in March should not gag a series in July');
+    expect(state[2], RecommendationFeedback.reset);
+  });
+
+  test('legacy entries get their expiry clock started on first load',
+      () async {
+    // Simulate a pre-timestamp store: bare kind names.
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'recommendation_feedback': '{"5":"dismissed"}',
+    });
+    final store = RecommendationFeedbackStore();
+    final now = DateTime(2026, 7, 10);
+    // Without the upgrade this would age out instantly (epoch + 90 days).
+    expect((await store.load(now: now))[5], RecommendationFeedback.dismissed);
+    // And it still expires 90 days from the upgrade, not never.
+    expect(
+      (await store.load(now: now.add(const Duration(days: 91))))
+          .containsKey(5),
+      isFalse,
+    );
   });
 }

@@ -323,10 +323,20 @@ the fake entry negative → "More like this" returns anti-recommendations;
       fifth group.
 
 ### Phase C — Presentation & trust
-- [ ] "Because…" explanation line on every rec card (top contributing tags).
-- [ ] One "Something different" wildcard slot; its outcomes feed the learner.
-- [ ] Feedback aging (dismiss expires ~90 days), snooze vs never,
-      "Show me different" can resurface expired dismissals.
+- [x] "Because…" explanation line on every rec card: the profile tracks
+      which positive seed carries each tag hardest, and reasonFor() names
+      the dominant connection ("By the author of X" / "Cultivation, like X"
+      / "Echoes X") under the learned weights.
+- [x] "Something different" wildcard: recommend(explore: true) appends one
+      zero/negative-affinity pick, rotated daily (seeded by date — stable
+      within a day), pinned as the window's last card; its outcomes feed the
+      same feedback/learning loops. Opt-in so similarTo stays taste-pure.
+- [x] Feedback aging: dismisses expire after 90 days (resets persist);
+      legacy un-timestamped entries get their clock started on first load
+      so nothing resurfaces all at once; long-press on a rec card opens the
+      full options sheet (More like this / Not now 30d / Not interested).
+      Bonus: substantially reading a series since dismissing it outranks
+      the stale dismissal.
 
 ### Phase D — Prove it
 - [ ] Offline replay test: recommend at time T from reconstructed history,
