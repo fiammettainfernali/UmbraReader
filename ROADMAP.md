@@ -339,8 +339,16 @@ the fake entry negative → "More like this" returns anti-recommendations;
       the stale dismissal.
 
 ### Phase D — Prove it
-- [ ] Offline replay test: recommend at time T from reconstructed history,
-      measure hit-rate against what was actually read after T.
+- [x] Offline replay evaluation (recommendation_replay_test.dart): a
+      synthetic-but-realistic library (favourite author spanning genres,
+      cultivation cluster, fresher romance/sci-fi distractors) with a
+      Jan–May reading history. Proven at T: (1) both actually-read-after-T
+      series appear in the top 10; (2) the engine beats the recently-updated
+      baseline, which scores 0 against the freshness trap; (3) the FULL loop
+      — outcomes (tapped+read the author match, dismissed/ignored genre
+      picks) → learner raises author / lowers genre → the next shelf ranks
+      the author-only match above every genre match. Engine changes are now
+      validated against reading patterns, not vibes.
 
 **Ceiling to remember:** the engine ranks only what's already in the Novel
 Grabber library; true discovery of new novels is a Novel Grabber server
