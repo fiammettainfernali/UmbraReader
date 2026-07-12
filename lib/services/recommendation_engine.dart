@@ -38,6 +38,7 @@ class RecSignals {
     this.hiddenVolumeKeys = const {},
     this.collectionSeriesIds = const {},
     this.outcomes = const {},
+    this.statusOverrides = const {},
   });
 
   /// Reading seconds per volume (`seriesOpdsId/fileName`), from the
@@ -59,6 +60,13 @@ class RecSignals {
   /// Impression/tap outcomes per series: candidates that keep being shown
   /// and ignored get softened so the shelf doesn't go stale.
   final Map<int, RecOutcome> outcomes;
+
+  /// The user's own in-app reading status per series, overriding the
+  /// server-side `Series.readingStatus`. Engine vocabulary: 'completed'
+  /// (a full like, even with zero in-app reading — e.g. a series listened
+  /// to entirely in an external reader and marked caught-up), 'dropped'
+  /// (strong negative), 'ongoing' (neutral).
+  final Map<int, String> statusOverrides;
 
   static const none = RecSignals();
 }
@@ -488,7 +496,11 @@ class RecommendationEngine {
 
     for (final series in allSeries) {
       if (excludeSeriesIds.contains(series.opdsId)) continue;
-      final status = series.readingStatus.trim().toLowerCase();
+      // The user's own in-app status outranks the server-side one.
+      final status = (signals.statusOverrides[series.opdsId] ??
+              series.readingStatus)
+          .trim()
+          .toLowerCase();
       final entries = entriesBySeries[series.opdsId];
       final userFeedback = feedback?[series.opdsId];
       double? signed;
@@ -514,6 +526,14 @@ class RecommendationEngine {
           if (aggregated < 1.0) aggregated = 1.0;
         }
         signed = aggregated;
+      } else if (status == 'completed') {
+        // Marked caught-up with ZERO in-app reading entries — the
+        // listened-elsewhere binge (e.g. Share-story → an external reader).
+        // Consuming everything available is a full like; without a read
+        // timestamp it doesn't decay, matching the finished-favourite floor
+        // in spirit.
+        signed = 1.0;
+        engagedIds.add(series.opdsId);
       }
       // Highlight density: saved passages are a strong love signal, worth up
       // to +0.3 on top of whatever the read itself earned.
@@ -698,6 +718,7 @@ class RecommendationEngine {
     required List<Series> allSeries,
     int maxResults = 6,
     Map<int, RecommendationFeedback>? feedback,
+    RecSignals signals = RecSignals.none,
     RecWeights? weights,
     DateTime? now,
   }) {
@@ -734,6 +755,16 @@ class RecommendationEngine {
         ? null
         : (Map<int, RecommendationFeedback>.of(feedback)
           ..remove(source.opdsId));
+    // Status overrides are used for candidate EXCLUSION only — a dropped or
+    // already-caught-up series doesn't belong on "More like this". They are
+    // deliberately NOT fed into the profile: the similarity seed must stay
+    // the source alone, not the user's whole taste.
+    final excluded = {
+      for (final e in signals.statusOverrides.entries)
+        if (e.key != source.opdsId &&
+            (e.value == 'dropped' || e.value == 'completed'))
+          e.key,
+    };
     final picks = recommend(
       allSeries: seriesPool,
       readingEntries: [fakeEntry],
@@ -743,7 +774,7 @@ class RecommendationEngine {
     )
         // "More like this" means LIKE this — the exploration wildcard
         // belongs on the library shelf only.
-        .where((r) => !r.isWildcard)
+        .where((r) => !r.isWildcard && !excluded.contains(r.series.opdsId))
         .toList();
     if (picks.length <= maxResults) return picks;
     return picks.sublist(0, maxResults);

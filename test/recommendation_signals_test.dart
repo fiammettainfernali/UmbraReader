@@ -390,6 +390,81 @@ void main() {
         reason: 'actually reading it beats a stale card dismissal');
   });
 
+  test('caught-up with zero in-app entries is a full like (external binge)',
+      () {
+    // The Natural-Reader workflow: the user listened to Seed A entirely
+    // outside the app (no reading entries, no time/words) and marked it
+    // caught-up in the status picker. That alone must seed taste.
+    final recs = engine.recommend(
+      allSeries: library(),
+      readingEntries: const [], // nothing read in-app at all
+      signals: const RecSignals(statusOverrides: {1: 'completed'}),
+      now: today,
+    );
+    final ids = [for (final r in recs) r.series.opdsId];
+    expect(ids, contains(3),
+        reason: "the binge-listened series' genre must drive picks");
+    expect(ids, isNot(contains(1)), reason: 'the caught-up series is engaged');
+    expect(recs.first.series.opdsId, 3);
+  });
+
+  test('an in-app dropped status suppresses without any reading entries', () {
+    final recs = engine.recommend(
+      allSeries: library(),
+      readingEntries: [_entry(seriesId: 2, progress: halfRead(today))],
+      signals: const RecSignals(statusOverrides: {1: 'dropped'}),
+      now: today,
+    );
+    final ids = [for (final r in recs) r.series.opdsId];
+    expect(ids, isNot(contains(1)));
+    expect(ids, isNot(contains(3)),
+        reason: "the dropped series' genre must score negative");
+    expect(ids, contains(4));
+  });
+
+  test('the in-app status override beats the server-side status', () {
+    // Server says dropped; the user's own picker says caught-up. The user
+    // wins: the series seeds positively.
+    final lib = [
+      _series(id: 1, title: 'Seed A', genres: ['Cultivation'],
+          totalChapters: 50, readingStatus: 'dropped'),
+      ...library().skip(1),
+    ];
+    final recs = engine.recommend(
+      allSeries: lib,
+      readingEntries: const [],
+      signals: const RecSignals(statusOverrides: {1: 'completed'}),
+      now: today,
+    );
+    expect(recs.map((r) => r.series.opdsId), contains(3));
+  });
+
+  test('similarTo excludes dropped and caught-up candidates without '
+      'polluting the similarity seed', () {
+    final source = _series(id: 1, title: 'Source', genres: ['Cultivation'],
+        totalChapters: 50);
+    final lib = [
+      source,
+      _series(id: 3, title: 'Pick A', genres: ['Cultivation'],
+          totalChapters: 50),
+      _series(id: 7, title: 'AlsoSimilar', genres: ['Cultivation'],
+          totalChapters: 50),
+      _series(id: 4, title: 'Unrelated', genres: ['Regression']),
+    ];
+    final recs = engine.similarTo(
+      source: source,
+      allSeries: lib,
+      signals: const RecSignals(
+        statusOverrides: {3: 'dropped', 7: 'completed'},
+      ),
+      now: today,
+    );
+    final ids = [for (final r in recs) r.series.opdsId];
+    expect(ids, isNot(contains(3)), reason: 'dropped never resurfaces here');
+    expect(ids, isNot(contains(7)),
+        reason: "already caught up — nothing to recommend");
+  });
+
   test('similarTo on a dropped/reset series still finds similar picks', () {
     final source = _series(
       id: 1,

@@ -252,6 +252,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
         for (final c in collections) ...c.seriesIds,
       },
       outcomes: outcomes,
+      // The user's own status picker, translated to engine vocabulary —
+      // "caught up" on a series listened to entirely outside the app is a
+      // full like even with zero in-app reading entries.
+      statusOverrides: {
+        for (final e in status.entries)
+          if (e.value == SeriesStatus.caughtUp)
+            e.key: 'completed'
+          else if (e.value == SeriesStatus.dropped)
+            e.key: 'dropped'
+          else if (e.value == SeriesStatus.reading)
+            e.key: 'ongoing',
+      },
     );
     // Learn this user's feature-group weights from recommendation outcomes
     // (full refit from the prior each time — deterministic and cheap), then

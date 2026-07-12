@@ -89,10 +89,20 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     if (!mounted) return;
     final feedback = await RecommendationFeedbackStore().load();
     final weights = await RecWeightsStore().load();
+    final statuses = await _statusStore.load();
     final similar = const RecommendationEngine().similarTo(
       source: widget.series,
       allSeries: cache.series,
       feedback: feedback,
+      signals: RecSignals(
+        statusOverrides: {
+          for (final e in statuses.entries)
+            if (e.value == SeriesStatus.caughtUp)
+              e.key: 'completed'
+            else if (e.value == SeriesStatus.dropped)
+              e.key: 'dropped',
+        },
+      ),
       weights: weights,
     );
     final status = await _statusStore.statusFor(widget.series.opdsId);

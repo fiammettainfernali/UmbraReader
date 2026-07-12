@@ -350,6 +350,17 @@ the fake entry negative → "More like this" returns anti-recommendations;
       the author-only match above every genre match. Engine changes are now
       validated against reading patterns, not vibes.
 
+**Post-ship fix (external-binge workflow):** the in-app status picker
+(SeriesStatusStore) was UI-only — never fed to the engine, which read only
+the server-side readingStatus; and "completed" required at least one in-app
+reading entry to count. Both fixed: RecSignals.statusOverrides carries the
+user's own statuses (caughtUp→completed, dropped, reading→ongoing) and
+outranks the server value; caught-up with ZERO in-app entries is a full
+like — so "listened in Natural Reader, marked caught-up in Umbra" is a
+first-class taste signal. similarTo uses the overrides for candidate
+exclusion only (dropped/caught-up don't appear) without polluting the
+source-similarity seed.
+
 **Ceiling to remember:** the engine ranks only what's already in the Novel
 Grabber library; true discovery of new novels is a Novel Grabber server
 feature, not an Umbra change.
