@@ -28,6 +28,7 @@ import '../services/network_tts_service.dart';
 import '../services/reader_preferences.dart';
 import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
+import '../services/recommendation_feedback_store.dart';
 import '../services/tts_engine.dart';
 import '../services/tts_service.dart';
 import '../services/tts_skip.dart';
@@ -57,6 +58,12 @@ class ReaderScreen extends StatefulWidget {
   /// break-check-in flow can be exercised without waiting real minutes.
   @visibleForTesting
   static Duration? debugSessionElapsed;
+
+  /// Test-only: pins the duration a session flush reports, so behaviours
+  /// keyed on real reading time (activity recording, feedback healing) can
+  /// be exercised without waiting.
+  @visibleForTesting
+  static Duration? debugSessionDelta;
 
   @override
   State<ReaderScreen> createState() => _ReaderScreenState();
@@ -222,8 +229,16 @@ class _ReaderScreenState extends State<ReaderScreen>
     final start = _sessionStart;
     if (start == null) return;
     _sessionStart = null;
-    final delta = DateTime.now().difference(start);
+    final delta =
+        ReaderScreen.debugSessionDelta ?? DateTime.now().difference(start);
     if (delta.inSeconds <= 0) return;
+    // A real reading session in this series is re-engagement: clear any
+    // stale "no thanks" recommendation feedback (dismiss/reset) so the
+    // series can participate in taste again. Fire-and-forget; forget() is
+    // a no-op when there's nothing stored.
+    if (delta.inMinutes >= 5) {
+      RecommendationFeedbackStore().forget(widget.volume.seriesOpdsId);
+    }
     // Fold the stretch into the gentle session-timer accumulator too.
     _sessionElapsed += delta;
     // New words this session = reading past the high-water mark. Re-reading
