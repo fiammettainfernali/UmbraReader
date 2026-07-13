@@ -475,6 +475,18 @@ class _ManageScreenState extends State<ManageScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           IconButton(
+            icon: const Icon(Icons.vertical_align_top, size: 20),
+            tooltip: 'Move to top',
+            // The server's move is remove-and-insert, so a delta of -index
+            // lands this item at the front and keeps the rest of the order.
+            onPressed: _busy || index == 0
+                ? null
+                : () => _run(
+                    () => _client.move(index, -index),
+                    'Moved to top — it downloads next',
+                  ),
+          ),
+          IconButton(
             icon: const Icon(Icons.arrow_upward, size: 20),
             tooltip: 'Move up',
             onPressed: _busy || index == 0

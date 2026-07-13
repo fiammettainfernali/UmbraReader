@@ -365,6 +365,14 @@ source-similarity seed.
 Grabber library; true discovery of new novels is a Novel Grabber server
 feature, not an Umbra change.
 
+**Source discovery — tried and removed (2026-07-13):** an app-side
+"Discover from your sources" shelf (taste-driven queries through
+/api/search, one-tap add) was built, shipped and REMOVED by user decision —
+they didn't like it (commit 32de277, reverted). Don't rebuild an in-app
+source-discovery surface unless asked; if discovery comes back, it should
+be the Novel Grabber-side options (harvest "readers also liked" during
+scrapes, or a server /api/discover feed).
+
 ## Phase 5 — Differentiators (after it's a business)
 
 - [ ] **26.** Read-aloud resurrected properly (`kReadAloudEnabled` flag
