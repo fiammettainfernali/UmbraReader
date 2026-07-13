@@ -275,6 +275,83 @@ class RecTasteProfile {
     final seed = topKeywordTag == null ? null : _seedTitleFor(topKeywordTag);
     return seed == null ? 'Similar themes to your reads' : 'Echoes “$seed”';
   }
+
+  /// The strongest positive taste signals as literal source-search queries,
+  /// capped per kind (authors search most precisely, then concrete keyword
+  /// phrases, then a genre) and ranked by affinity. The feed for
+  /// "Discover from your sources".
+  List<TasteQuery> topQueries({int max = 4}) {
+    final authors = <(double, TasteQuery)>[];
+    final genres = <(double, TasteQuery)>[];
+    final keywords = <(double, TasteQuery)>[];
+    for (final tag in _tagScore.keys) {
+      final affinity = _affinity(tag);
+      if (affinity <= 0) continue;
+      final value = tag.substring(2);
+      final seed = _seedTitleFor(tag);
+      if (tag.startsWith('a:')) {
+        if (value == 'unknown') continue;
+        authors.add((
+          affinity,
+          TasteQuery(
+            query: value,
+            kind: 'author',
+            reason: seed == null
+                ? 'More by this author'
+                : 'More by the author of “$seed”',
+          ),
+        ));
+      } else if (tag.startsWith('g:')) {
+        genres.add((
+          affinity,
+          TasteQuery(
+            query: value,
+            kind: 'genre',
+            reason: seed == null ? value : '$value, like “$seed”',
+          ),
+        ));
+      } else if (tag.startsWith('k:')) {
+        // Short single words ("sect", "dao") are too generic to be search
+        // queries; bigrams and longer words carry real intent.
+        if (!value.contains(' ') && value.length < 5) continue;
+        keywords.add((
+          affinity,
+          TasteQuery(
+            query: value,
+            kind: 'keyword',
+            reason: seed == null ? 'Matches “$value”' : 'Echoes “$seed”',
+          ),
+        ));
+      }
+    }
+    int byAffinity((double, TasteQuery) a, (double, TasteQuery) b) =>
+        b.$1.compareTo(a.$1);
+    authors.sort(byAffinity);
+    genres.sort(byAffinity);
+    keywords.sort(byAffinity);
+    final pool = [...authors.take(2), ...keywords.take(2), ...genres.take(1)]
+      ..sort(byAffinity);
+    return [for (final e in pool.take(max)) e.$2];
+  }
+}
+
+/// One source-search query derived from the taste profile — the bridge from
+/// learned taste to discovering novels that aren't in the library yet.
+class TasteQuery {
+  const TasteQuery({
+    required this.query,
+    required this.kind,
+    required this.reason,
+  });
+
+  /// The literal text to feed a source site's search box.
+  final String query;
+
+  /// 'author' | 'keyword' | 'genre'.
+  final String kind;
+
+  /// Human line shown on the discovery card ("More by the author of X").
+  final String reason;
 }
 
 /// The length-affinity bucket for a chapter count, or null when the count is

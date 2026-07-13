@@ -13,6 +13,8 @@ import '../services/library_storage.dart';
 import '../services/opds_client.dart';
 import '../services/bookmark_store.dart';
 import '../services/collection_store.dart';
+import '../services/control_client.dart';
+import '../services/discovery_service.dart';
 import '../services/reading_progress_store.dart';
 import '../services/rec_outcome_store.dart';
 import '../services/rec_weight_learner.dart';
@@ -135,6 +137,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   /// Window offset into [_recommendations] for the displayed shelf.
   int _recommendOffset = 0;
+
+  /// The taste profile behind the current shelf — feeds "Discover from
+  /// your sources" queries. Null until the first _loadReading.
+  RecTasteProfile? _tasteProfile;
+
+  /// Taste-driven source-search results; null = not run yet this session.
+  List<DiscoveryPick>? _discoveries;
+  bool _discovering = false;
+  String? _discoverError;
+
+  /// URLs already queued for download from the discover shelf.
+  final Set<String> _discoverAdded = {};
 
   /// Number of recommendations on screen at one time.
   static const int _recommendWindow = 10;
@@ -278,6 +292,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
     final learned = const RecWeightLearner().fit(examples);
     await RecWeightsStore().save(learned);
+    final profile = recEngine.buildProfile(
+      allSeries: _library ?? const <Series>[],
+      readingEntries: entries,
+      feedback: feedback,
+      signals: signals,
+    );
     final recs = recEngine.recommend(
       allSeries: _library ?? const <Series>[],
       readingEntries: entries,
@@ -295,8 +315,64 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _reading = inProgress;
       _recommendations = recs;
       _recommendOffset = 0;
+      _tasteProfile = profile;
     });
     _recordShelfImpressions();
+  }
+
+  /// Runs the taste-driven source search: the profile's top queries against
+  /// the server's search sites, deduped against the library. On-demand only
+  /// (a tap), never ambient — source sites sit behind anti-bot layers.
+  Future<void> _runDiscovery() async {
+    final profile = _tasteProfile;
+    final settings = _settings;
+    if (profile == null || settings == null || !settings.isConfigured) return;
+    setState(() {
+      _discovering = true;
+      _discoverError = null;
+    });
+    try {
+      final client = ControlClient(settings);
+      final status = await client.status();
+      final picks = await const DiscoveryService().discover(
+        queries: profile.topQueries(max: 3),
+        sites: status.searchSites,
+        search: (q, site) => client.search(q, site: site),
+        libraryTitles: [for (final s in _library ?? const <Series>[]) s.title],
+      );
+      if (!mounted) return;
+      setState(() {
+        _discoveries = picks;
+        _discovering = false;
+      });
+    } on Exception catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _discovering = false;
+        _discoverError = e.toString();
+      });
+    }
+  }
+
+  /// Queues [pick] for download in Novel Grabber; once scraped it lands in
+  /// the library and the recommendation engine takes it from there.
+  Future<void> _addDiscovery(DiscoveryPick pick) async {
+    final settings = _settings;
+    if (settings == null || !settings.isConfigured) return;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _discoverAdded.add(pick.hit.url));
+    try {
+      await ControlClient(settings).addNovel(pick.hit.url);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('“${pick.hit.title}” queued — it will appear in '
+              'your library once scraped.'),
+        ),
+      );
+    } on Exception catch (e) {
+      if (mounted) setState(() => _discoverAdded.remove(pick.hit.url));
+      messenger.showSnackBar(SnackBar(content: Text('Couldn’t queue: $e')));
+    }
   }
 
   /// Records a "not interested" on a recommendation and refreshes the shelf
@@ -1399,6 +1475,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
           SliverToBoxAdapter(child: _buildRecentShelf()),
         if (showShelves && _recommendations.isNotEmpty)
           SliverToBoxAdapter(child: _buildRecommendedShelf()),
+        if (showShelves &&
+            (_tasteProfile?.hasHistory ?? false) &&
+            (_settings?.isConfigured ?? false))
+          SliverToBoxAdapter(child: _buildDiscoverShelf()),
         // Distinct header so the full grid doesn't blend into the shelf above.
         if (showShelves && visible.isNotEmpty)
           SliverToBoxAdapter(child: _sectionHeader('All books')),
@@ -1861,6 +1941,87 @@ class _LibraryScreenState extends State<LibraryScreen> {
             },
           ),
         ),
+        const SizedBox(height: 12),
+      ],
+    );
+  }
+
+  /// "Discover from your sources": taste-driven live search of the scrape
+  /// sources through Novel Grabber, with one-tap add-to-library. Runs only
+  /// on demand.
+  Widget _buildDiscoverShelf() {
+    final theme = Theme.of(context);
+    final Widget body;
+    if (_discovering) {
+      body = const SizedBox(
+        height: 96,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    } else if (_discoverError != null) {
+      body = Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Text(
+          'Search failed: $_discoverError',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.error,
+          ),
+        ),
+      );
+    } else if (_discoveries == null) {
+      // Not run yet: an explicit invitation, never an ambient scrape.
+      body = Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: OutlinedButton.icon(
+          onPressed: _runDiscovery,
+          icon: const Icon(Icons.travel_explore),
+          label: const Text('Search your sources for novels like your reads'),
+        ),
+      );
+    } else if (_discoveries!.isEmpty) {
+      body = Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Text(
+          'Nothing new right now — everything found is already in your '
+          'library.',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.outline,
+          ),
+        ),
+      );
+    } else {
+      body = SizedBox(
+        height: 150,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          itemCount: _discoveries!.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 12),
+          itemBuilder: (context, index) {
+            final pick = _discoveries![index];
+            return _DiscoveryCard(
+              pick: pick,
+              added: _discoverAdded.contains(pick.hit.url),
+              onAdd: () => _addDiscovery(pick),
+            );
+          },
+        ),
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionHeader(
+          'Discover from your sources',
+          trailing: (_discoveries != null && !_discovering)
+              ? IconButton(
+                  icon: const Icon(Icons.refresh),
+                  tooltip: 'Search again',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: _runDiscovery,
+                )
+              : null,
+        ),
+        body,
         const SizedBox(height: 12),
       ],
     );
@@ -2490,6 +2651,98 @@ class _DismissChip extends StatelessWidget {
           child: const Padding(
             padding: EdgeInsets.all(4),
             child: Icon(Icons.close, size: 14, color: Colors.white),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One taste-driven source-search result: title, source, the taste line
+/// that surfaced it, and a one-tap add-to-library.
+class _DiscoveryCard extends StatelessWidget {
+  const _DiscoveryCard({
+    required this.pick,
+    required this.added,
+    required this.onAdd,
+  });
+
+  final DiscoveryPick pick;
+  final bool added;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final hit = pick.hit;
+    return SizedBox(
+      width: 200,
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                hit.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  height: 1.25,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                hit.author.isEmpty
+                    ? hit.site
+                    : '${hit.author} · ${hit.site}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                pick.reason,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontSize: 10,
+                  fontStyle: FontStyle.italic,
+                  color: theme.colorScheme.outline.withValues(alpha: 0.85),
+                ),
+              ),
+              const Spacer(),
+              Align(
+                alignment: Alignment.centerRight,
+                child: added
+                    ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.check,
+                              size: 16, color: theme.colorScheme.primary),
+                          const SizedBox(width: 4),
+                          Text('Queued',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.primary,
+                              )),
+                        ],
+                      )
+                    : FilledButton.tonalIcon(
+                        onPressed: onAdd,
+                        style: FilledButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          padding:
+                              const EdgeInsets.symmetric(horizontal: 12),
+                        ),
+                        icon: const Icon(Icons.add, size: 16),
+                        label: const Text('Add'),
+                      ),
+              ),
+            ],
           ),
         ),
       ),
