@@ -361,30 +361,9 @@ first-class taste signal. similarTo uses the overrides for candidate
 exclusion only (dropped/caught-up don't appear) without polluting the
 source-similarity seed.
 
-### Phase E — Source discovery (breaking the library ceiling)
-- [x] **Option 1 — taste-driven source search (app-side).** The profile
-      exports its strongest signals as literal search queries
-      (RecTasteProfile.topQueries: top-affinity authors / bigram keywords /
-      genre, short generic words filtered) and a pure DiscoveryService fans
-      them out through Novel Grabber's existing /api/search (injected search
-      fn, sequential, early-stop budget, one failing source tolerated),
-      dedupes against the library by normalized title, and interleaves per
-      query. Library screen: "Discover from your sources" shelf — strictly
-      on-demand (a tap, never ambient — anti-bot respect), cards show the
-      taste line + one-tap Add → POST /api/novels → scraped → lands in the
-      library → the engine ranks it.
-- [ ] **Option 3 — harvest "readers also liked" during scrapes** (Novel
-      Grabber side): source novel pages carry site-curated similars; collect
-      during normal chapter fetches, expose via control API/OPDS, blend into
-      "More like this" with one-tap add. Best signal per request spent.
-- [ ] **Option 2 — server-side /api/discover feed** (Novel Grabber side):
-      generalize age_regression_discover into a taste-vector-driven
-      cross-source feed with server-side caching/pacing and browse/ranking
-      page support.
-
-**Ceiling (revised):** app-side discovery is only as good as each source
-site's search box. Options 3/2 (server-side) are where discovery quality
-really comes from — they are Novel Grabber work.
+**Ceiling to remember:** the engine ranks only what's already in the Novel
+Grabber library; true discovery of new novels is a Novel Grabber server
+feature, not an Umbra change.
 
 ## Phase 5 — Differentiators (after it's a business)
 
