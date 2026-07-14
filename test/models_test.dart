@@ -31,6 +31,7 @@ void main() {
       expect(copy.reduceAnimations, base.reduceAnimations);
       expect(copy.hapticFeedback, base.hapticFeedback);
       expect(copy.sessionMinutes, base.sessionMinutes);
+      expect(copy.exactNumbers, base.exactNumbers);
     });
 
     test('carries the spacing controls', () {

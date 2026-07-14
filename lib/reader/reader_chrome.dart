@@ -268,6 +268,9 @@ class ReaderChapterBar extends StatelessWidget {
     required this.progress,
     required this.minutesLeft,
     required this.bookMinutesLeft,
+    this.exactNumbers = false,
+    this.pageOfSpread,
+    this.spreadCount,
     required this.onPrevious,
     required this.onNext,
     required this.onSeek,
@@ -305,6 +308,15 @@ class ReaderChapterBar extends StatelessWidget {
   /// when no chapter word counts have been measured yet.
   final double? bookMinutesLeft;
 
+  /// Exact-numbers mode: page N of M, one-decimal percent and minutes,
+  /// no "~" — precise counts instead of approximations.
+  final bool exactNumbers;
+
+  /// Current page (1-based) and page count within the chapter — only known
+  /// in paged mode; shown in exact-numbers mode.
+  final int? pageOfSpread;
+  final int? spreadCount;
+
   final VoidCallback onPrevious;
   final VoidCallback onNext;
 
@@ -318,8 +330,21 @@ class ReaderChapterBar extends StatelessWidget {
   final ValueChanged<int> onJump;
 
   /// A short human label for the time left in the chapter and (when known)
-  /// the rest of the book — e.g. "~5 min in chapter · ~2h left in book".
+  /// the rest of the book — approximate by default ("~5 min in chapter ·
+  /// ~2h left in book"), precise in exact-numbers mode ("page 3 of 12 ·
+  /// 41.7% · 12.5 min · 182.4 min in book").
   String get _timeLabel {
+    if (exactNumbers) {
+      final parts = <String>[
+        if (pageOfSpread != null && spreadCount != null)
+          'page $pageOfSpread of $spreadCount',
+        '${(progress.clamp(0.0, 1.0) * 100).toStringAsFixed(1)}%',
+        '${minutesLeft.toStringAsFixed(1)} min',
+        if (bookMinutesLeft != null)
+          '${bookMinutesLeft!.toStringAsFixed(1)} min in book',
+      ];
+      return parts.join(' · ');
+    }
     final chapter = minutesLeft < 0.5
         ? 'Almost done'
         : minutesLeft < 1.5

@@ -58,6 +58,7 @@ class ReaderSettings {
     required this.reduceAnimations,
     required this.hapticFeedback,
     required this.sessionMinutes,
+    required this.exactNumbers,
     required this.autoPageSeconds,
     required this.ttsEngine,
     required this.ttsServerUrl,
@@ -163,6 +164,11 @@ class ReaderSettings {
   /// break check-in — never an alarm.
   final int sessionMinutes;
 
+  /// Precise counts instead of approximations: page N of M, percentages
+  /// and minutes to one decimal, no "~" — many autistic readers strongly
+  /// prefer exact over vague.
+  final bool exactNumbers;
+
   /// Seconds between automatic page turns in paged mode (the paged analogue
   /// of auto-scroll). 0 disables it.
   final int autoPageSeconds;
@@ -210,6 +216,7 @@ class ReaderSettings {
     reduceAnimations: false,
     hapticFeedback: true,
     sessionMinutes: 0,
+    exactNumbers: false,
     autoPageSeconds: 0,
     ttsEngine: TtsEngineKind.system,
     ttsServerUrl: '',
@@ -247,6 +254,7 @@ class ReaderSettings {
     bool? reduceAnimations,
     bool? hapticFeedback,
     int? sessionMinutes,
+    bool? exactNumbers,
     int? autoPageSeconds,
     TtsEngineKind? ttsEngine,
     String? ttsServerUrl,
@@ -281,6 +289,7 @@ class ReaderSettings {
       reduceAnimations: reduceAnimations ?? this.reduceAnimations,
       hapticFeedback: hapticFeedback ?? this.hapticFeedback,
       sessionMinutes: sessionMinutes ?? this.sessionMinutes,
+      exactNumbers: exactNumbers ?? this.exactNumbers,
       autoPageSeconds: autoPageSeconds ?? this.autoPageSeconds,
       ttsEngine: ttsEngine ?? this.ttsEngine,
       ttsServerUrl: ttsServerUrl ?? this.ttsServerUrl,

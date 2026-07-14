@@ -247,9 +247,14 @@ distraction-free immersive mode, line-precision resume.
       ~14s. Accumulates foreground reading time via the existing session
       flush; synced. (Tests cover fill-presence, break-at-chapter, and
       under-target-silence via a debug elapsed hook.)
-- [ ] **Exact-numbers mode.** Swap "~5 min left" style labels for precise
-      counts (pages/paragraphs/percent to 1 decimal) app-wide — many
-      autistic readers strongly prefer exact over vague.
+- [x] **Exact-numbers mode.** "Exact numbers" toggle: the reader's position
+      label becomes "page 5 of 12 · 41.7% · 12.5 min · 182.4 min in book" —
+      no tildes, one decimal, real page counts in paged mode. Bonus for all
+      modes: time-left estimates now use the user's own measured words/min
+      from the activity ledger (clamped 80–800, fallback 220) instead of a
+      hardcoded 220 — the estimate is calibrated to the actual reader.
+      (Focus mode already shows its exact "N / M" paragraph counter; stats
+      screen numbers were already unpadded.)
 - [ ] **Quick thought capture.** One gesture drops a note at the current
       position without opening a dialog flow (voice-note optional later)
       — protects reading flow from "I must write this down" derailment.

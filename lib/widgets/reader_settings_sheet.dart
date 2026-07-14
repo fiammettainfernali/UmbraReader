@@ -582,6 +582,18 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                   onChanged: (on) =>
                       _update(_settings.copyWith(hapticFeedback: on)),
                 ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Exact numbers'),
+                  subtitle: const Text(
+                    'Page counts, percentages and minutes shown precisely '
+                    'instead of "~5 min" approximations',
+                  ),
+                  value: _settings.exactNumbers,
+                  onChanged: (on) =>
+                      _update(_settings.copyWith(exactNumbers: on)),
+                ),
                 const SizedBox(height: 12),
                 _label(theme, 'Session timer'),
                 Text(

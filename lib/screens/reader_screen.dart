@@ -191,6 +191,17 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// When the current foreground reading session started; null when paused.
   DateTime? _sessionStart;
 
+  /// The user's own measured reading pace from the activity ledger, or 0
+  /// until loaded / when there's no history. Time-left estimates prefer it
+  /// over the generic 220 wpm — an estimate calibrated to the actual reader.
+  int _userWpm = 0;
+
+  /// Reading pace for time-left estimates: the user's measured pace when
+  /// plausible, else the classic 220. Clamped so a few noisy early ledger
+  /// entries can't produce absurd estimates.
+  double get _wpm =>
+      _userWpm >= 80 && _userWpm <= 800 ? _userWpm.toDouble() : 220.0;
+
   /// Words read into this volume at or below which nothing new counts — the
   /// high-water mark that keeps re-reading from re-billing words. Seeded on
   /// open from the ledger and the restored position, so reading done before
@@ -529,6 +540,10 @@ class _ReaderScreenState extends State<ReaderScreen>
       // or session.
       _activityStore.wordsForVolume(widget.volume).then((stored) {
         if (mounted && stored > _wordsHighWater) _wordsHighWater = stored;
+      });
+      // Calibrate time-left estimates to how fast this user actually reads.
+      _activityStore.load().then((activity) {
+        if (mounted) _userWpm = activity.wordsPerMinute;
       });
       _refreshHighlights();
     } on EpubException catch (e) {
@@ -999,7 +1014,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     final remainingChapters = book.chapters.length - _chapterIndex - 1;
     final currentLeft = _chapterWordCount * (1 - _chapterFraction);
     final unreadWords = currentLeft + (remainingChapters * avg);
-    return unreadWords / 220.0;
+    return unreadWords / _wpm;
   }
 
   /// Restores the saved scroll-mode position once the list has laid out.
@@ -2310,8 +2325,21 @@ class _ReaderScreenState extends State<ReaderScreen>
                       total: book.chapters.length,
                       progress: _chapterFraction,
                       minutesLeft:
-                          _chapterWordCount * (1 - _chapterFraction) / 220.0,
+                          _chapterWordCount * (1 - _chapterFraction) / _wpm,
                       bookMinutesLeft: _estimateBookMinutesLeft(book),
+                      exactNumbers: _settings.exactNumbers,
+                      pageOfSpread: (_settings.mode == ReadingMode.paged &&
+                              !_settings.focusParagraph &&
+                              _pages != null &&
+                              _pageController.hasClients)
+                          ? (_pageController.page?.round() ?? 0) + 1
+                          : null,
+                      spreadCount: (_settings.mode == ReadingMode.paged &&
+                              !_settings.focusParagraph &&
+                              _pages != null)
+                          ? ((_pages!.length / _pageStride).ceil())
+                                .clamp(1, 1 << 30)
+                          : null,
                       onPrevious: () => _goToChapter(_chapterIndex - 1),
                       onNext: () => _goToChapter(_chapterIndex + 1),
                       onSeek: _seekChapter,

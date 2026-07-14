@@ -43,6 +43,7 @@ class ReaderPreferences {
   static const _kReduceAnimations = 'reader_reduce_animations';
   static const _kHapticFeedback = 'reader_haptic_feedback';
   static const _kSessionMinutes = 'reader_session_minutes';
+  static const _kExactNumbers = 'reader_exact_numbers';
   static const _kAutoPageSeconds = 'reader_auto_page_seconds';
   static const _kTtsEngine = 'reader_tts_engine';
   static const _kTtsServerUrl = 'reader_tts_server_url';
@@ -65,7 +66,7 @@ class ReaderPreferences {
     _kFocusParagraph, _kFixationAnchors, _kOrientation,
     _kTvMode,
     _kCenteredColumn, _kKeepAwake, _kReduceAnimations, _kHapticFeedback,
-    _kSessionMinutes,
+    _kSessionMinutes, _kExactNumbers,
     _kAutoPageSeconds,
     _kTtsEngine, _kTtsServerUrl, _kTtsServerToken, _kTtsSkips,
   ];
@@ -144,6 +145,7 @@ class ReaderPreferences {
           prefs.getBool('$p$_kHapticFeedback') ?? d.hapticFeedback,
       sessionMinutes:
           prefs.getInt('$p$_kSessionMinutes') ?? d.sessionMinutes,
+      exactNumbers: prefs.getBool('$p$_kExactNumbers') ?? d.exactNumbers,
       autoPageSeconds:
           prefs.getInt('$p$_kAutoPageSeconds') ?? d.autoPageSeconds,
       ttsEngine: TtsEngineKind.values.firstWhere(
@@ -198,6 +200,7 @@ class ReaderPreferences {
     );
     await prefs.setBool('$p$_kHapticFeedback', settings.hapticFeedback);
     await prefs.setInt('$p$_kSessionMinutes', settings.sessionMinutes);
+    await prefs.setBool('$p$_kExactNumbers', settings.exactNumbers);
     await prefs.setInt('$p$_kAutoPageSeconds', settings.autoPageSeconds);
     await prefs.setString('$p$_kTtsEngine', settings.ttsEngine.name);
     await prefs.setString('$p$_kTtsServerUrl', settings.ttsServerUrl);
