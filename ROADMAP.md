@@ -77,9 +77,16 @@ non-starter, so the personal pipeline never ships as part of the product.
       a `SENTRY_DSN` --dart-define is provided; codemagic.yaml passes it
       from an env var. *User setup: free sentry.io account → Flutter
       project → copy DSN → add `SENTRY_DSN` env var in Codemagic.*
-- [ ] **9. iPad + orientation.** Two-page spread in landscape, wider
-      margins, keyboard page-turn, pointer support. Gets "Designed for iPad"
-      on Apple Silicon Macs free.
+- [x] **9. iPad + orientation.** Two-page spread ships: paged mode on a
+      tablet-sized landscape viewport (shortestSide ≥ 700dp — iPad mini up;
+      big phones stay single-page) renders facing pages via _pageStride = 2,
+      riding the proven TV-mode column layout (gutter, per-column margins,
+      centred-column cap bypassed for spreads). Rotation now preserves the
+      reading position: didChangeMetrics captures block+char on a width
+      change BEFORE repagination, so the new layout restores the spread
+      containing it (was: jump to a stale spread index). Keyboard page-turn
+      already existed (arrows/space/page keys). Remaining nicety: pointer/
+      scroll-wheel paging — backlog.
 - [x] **10. Error-state UX audit.** Much already existed (offline banner +
       cached-library fallback, 401 auth messages, sync-failed retry state,
       reader corrupt-EPUB screen, skippable onboarding). Added for Path A:

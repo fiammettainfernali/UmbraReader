@@ -147,6 +147,15 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// be measured without a MediaQuery lookup (e.g. during dispose).
   double _lastContentWidth = 0;
 
+  /// True when the viewport is tablet-sized and landscape — paged mode then
+  /// renders a two-page spread (an open book) on iPad. Cached each build so
+  /// [_pageStride] stays safe to read during dispose-time saves.
+  bool _wideLandscape = false;
+
+  /// Viewport width at the last build/metrics tick — distinguishes a real
+  /// rotation (width change) from keyboard/inset churn in didChangeMetrics.
+  double _lastViewWidth = 0;
+
 
   /// Last block that auto-follow moved to — so it only moves on a change.
   int _followedBlock = -1;
@@ -209,6 +218,28 @@ class _ReaderScreenState extends State<ReaderScreen>
     _open();
   }
 
+
+  /// Rotation (or an iPad split-view resize) repaginates, and spread counts
+  /// change — without capturing the reading position FIRST, the page jump
+  /// after relayout lands on a stale spread index. Width change is the
+  /// rotation signal; keyboard/inset churn only changes height and is
+  /// ignored.
+  @override
+  void didChangeMetrics() {
+    final view = WidgetsBinding.instance.platformDispatcher.implicitView;
+    if (view == null || view.devicePixelRatio == 0) return;
+    final width = view.physicalSize.width / view.devicePixelRatio;
+    if (_lastViewWidth <= 0 || (width - _lastViewWidth).abs() < 1) return;
+    _lastViewWidth = width;
+    if (_settings.mode == ReadingMode.paged &&
+        _pageController.hasClients &&
+        _pages != null &&
+        _pendingRestoreBlock == null) {
+      final block = _pagedTopBlockIndex();
+      _pendingRestoreBlock = block;
+      _pendingRestoreChar = _pagedTopChar(block);
+    }
+  }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -709,10 +740,19 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   /// Index of the first block on the current page in paged mode.
-  /// Underlying pages per swipe — 1 normally, 2 in TV mode (left/right
-  /// columns of a spread). PageController.page tracks *spreads*, so all
-  /// conversions between block-index and page-index go through this.
-  int get _pageStride => _settings.tvMode ? 2 : 1;
+  /// Underlying pages per swipe — 1 normally, 2 for a spread (TV mode's
+  /// left/right columns, or a tablet held in landscape reading like an open
+  /// book). PageController.page tracks *spreads*, so all conversions between
+  /// block-index and page-index go through this.
+  int get _pageStride =>
+      _settings.tvMode ||
+          (_wideLandscape && _settings.mode == ReadingMode.paged)
+      ? 2
+      : 1;
+
+  /// Test-only: the effective stride (2 = two-page spread is active).
+  @visibleForTesting
+  int get debugPageStride => _pageStride;
 
   int _pagedTopBlockIndex() {
     final pages = _pages;
@@ -2160,12 +2200,17 @@ class _ReaderScreenState extends State<ReaderScreen>
     final preset = _settings.theme;
     if (listenMode) return buildListenView(book, preset);
     final mq = MediaQuery.of(context);
+    // 700dp shortest side = real tablets (iPad mini is 744): big phones in
+    // landscape stay single-page.
+    _wideLandscape =
+        mq.size.shortestSide >= 700 && mq.size.width > mq.size.height;
+    _lastViewWidth = mq.size.width;
     // Centred-column mode caps the reading area to a comfortable measure and
-    // centres it (wide side gutters); otherwise it spans the screen. TV mode
-    // ignores the cap: its two-column spread needs the whole display (it
-    // applies its own overscan-safe insets), and squeezing a spread into the
-    // 620px column made two unreadably narrow strips on big screens.
-    final areaWidth = _settings.centeredColumn && !_settings.tvMode
+    // centres it (wide side gutters); otherwise it spans the screen. Any
+    // two-page spread (TV mode, iPad landscape) ignores the cap: a spread
+    // needs the whole display, and squeezing one into the 620px column made
+    // two unreadably narrow strips on big screens.
+    final areaWidth = _settings.centeredColumn && _pageStride == 1
         ? math.min(mq.size.width, _centeredColumnWidth)
         : mq.size.width;
     _lastContentWidth = areaWidth - 2 * _settings.margin;
