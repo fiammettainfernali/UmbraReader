@@ -1052,9 +1052,93 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// TextPainter layout math the pagination uses, so it's exact.
   void _onContentLongPress(LongPressStartDetails details) {
     final word = _wordAt(details.globalPosition);
-    if (word == null) return;
+    // A long-press that lands on NO word — margins, the gap between
+    // paragraphs, past a line's end — is the quick thought-capture gesture.
+    if (word == null) {
+      _quickCaptureThought();
+      return;
+    }
     _hapticSelection();
     DictionaryService().define(word);
+  }
+
+  /// Quick thought capture (Phase 6): instantly drops a bookmark at the
+  /// current position — one gesture, no dialog in the way, reading flow
+  /// unbroken. The snack offers an optional one-line note; ignoring it
+  /// keeps the plain marker. In focus-paragraph mode any long-press
+  /// captures (word lookup is disabled there).
+  Future<void> _quickCaptureThought() async {
+    final book = _book;
+    final blocks = _blocks;
+    if (book == null || blocks == null || blocks.isEmpty) return;
+    final top = currentTopBlockIndex().clamp(0, blocks.length - 1);
+    final mark = Bookmark(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      chapterIndex: _chapterIndex,
+      blockIndex: top,
+      chapterTitle: _book!.chapters[_chapterIndex].title,
+      snippet: _shortSnippet(plainBlockText(blocks[top])),
+      createdAt: DateTime.now(),
+    );
+    await BookmarkStore().add(widget.volume, mark);
+    _hapticSelection();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: const Text('Thought saved at this spot'),
+          action: SnackBarAction(
+            label: 'Add words',
+            onPressed: () => _addWordsToThought(mark),
+          ),
+        ),
+      );
+  }
+
+  /// The optional second step of quick capture: one autofocused line, save
+  /// on submit — a single field, not a flow.
+  Future<void> _addWordsToThought(Bookmark mark) async {
+    final controller = TextEditingController();
+    final note = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetCtx) => Padding(
+        padding: EdgeInsets.only(
+          left: 20,
+          right: 20,
+          bottom: MediaQuery.of(sheetCtx).viewInsets.bottom + 20,
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: controller,
+                autofocus: true,
+                textInputAction: TextInputAction.done,
+                decoration: const InputDecoration(
+                  labelText: 'Your thought',
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: (text) => Navigator.of(sheetCtx).pop(text),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.check),
+              tooltip: 'Save',
+              onPressed: () => Navigator.of(sheetCtx).pop(controller.text),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    if (note == null || note.trim().isEmpty) return;
+    // add() upserts on the bookmark id, so this attaches the note to the
+    // marker that was already saved.
+    await BookmarkStore().add(widget.volume, mark.copyWith(note: note.trim()));
   }
 
   /// The word at [globalPosition], or null when the press isn't on text.

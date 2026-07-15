@@ -255,9 +255,14 @@ distraction-free immersive mode, line-precision resume.
       hardcoded 220 — the estimate is calibrated to the actual reader.
       (Focus mode already shows its exact "N / M" paragraph counter; stats
       screen numbers were already unpadded.)
-- [ ] **Quick thought capture.** One gesture drops a note at the current
-      position without opening a dialog flow (voice-note optional later)
-      — protects reading flow from "I must write this down" derailment.
+- [x] **Quick thought capture.** A long-press on empty space (any spot the
+      dictionary finds no word — margins, inter-paragraph gaps, past a
+      line's end) instantly drops a bookmark at the current paragraph with
+      no dialog in the way; a snack confirms and offers an optional "Add
+      words" one-line note (single autofocused field, save-on-submit, upserts
+      the same marker by id). Long-pressing ON a word still opens the
+      dictionary. Reuses the existing bookmark store, so captures show in the
+      bookmarks sheet and iCloud-sync. (Voice note optional later.)
 - [ ] **Tinted overlays.** A colour-wash layer over the page (severity
       slider), independent of theme — visual-stress relief (Irlen-style),
       also useful for night reading.
