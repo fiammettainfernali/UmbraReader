@@ -59,6 +59,8 @@ class ReaderSettings {
     required this.hapticFeedback,
     required this.sessionMinutes,
     required this.exactNumbers,
+    required this.overlayTint,
+    required this.overlaySeverity,
     required this.autoPageSeconds,
     required this.ttsEngine,
     required this.ttsServerUrl,
@@ -169,6 +171,13 @@ class ReaderSettings {
   /// prefer exact over vague.
   final bool exactNumbers;
 
+  /// Id of the Irlen-style colour wash over the page ([kOverlayTintNone] for
+  /// no wash). See [ReaderOverlayTint].
+  final String overlayTint;
+
+  /// How strong the [overlayTint] wash is, 0 (off) to 1 (full).
+  final double overlaySeverity;
+
   /// Seconds between automatic page turns in paged mode (the paged analogue
   /// of auto-scroll). 0 disables it.
   final int autoPageSeconds;
@@ -217,6 +226,8 @@ class ReaderSettings {
     hapticFeedback: true,
     sessionMinutes: 0,
     exactNumbers: false,
+    overlayTint: kOverlayTintNone,
+    overlaySeverity: 0.0,
     autoPageSeconds: 0,
     ttsEngine: TtsEngineKind.system,
     ttsServerUrl: '',
@@ -224,7 +235,12 @@ class ReaderSettings {
     ttsSkips: <TtsSkip>{},
   );
 
-  ReaderThemePreset get theme => readerThemeById(themeId);
+  /// The active theme, already carrying any overlay wash — every reader
+  /// surface reads colours from here, so tinting once here tints the page,
+  /// its text, and the reader chrome together.
+  ReaderThemePreset get theme => readerThemeById(
+    themeId,
+  ).withOverlay(overlayTintById(overlayTint), overlaySeverity);
 
   ReaderSettings copyWith({
     ReadingMode? mode,
@@ -255,6 +271,8 @@ class ReaderSettings {
     bool? hapticFeedback,
     int? sessionMinutes,
     bool? exactNumbers,
+    String? overlayTint,
+    double? overlaySeverity,
     int? autoPageSeconds,
     TtsEngineKind? ttsEngine,
     String? ttsServerUrl,
@@ -290,6 +308,8 @@ class ReaderSettings {
       hapticFeedback: hapticFeedback ?? this.hapticFeedback,
       sessionMinutes: sessionMinutes ?? this.sessionMinutes,
       exactNumbers: exactNumbers ?? this.exactNumbers,
+      overlayTint: overlayTint ?? this.overlayTint,
+      overlaySeverity: overlaySeverity ?? this.overlaySeverity,
       autoPageSeconds: autoPageSeconds ?? this.autoPageSeconds,
       ttsEngine: ttsEngine ?? this.ttsEngine,
       ttsServerUrl: ttsServerUrl ?? this.ttsServerUrl,

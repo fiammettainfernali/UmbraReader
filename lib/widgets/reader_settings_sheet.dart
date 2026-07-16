@@ -477,6 +477,53 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                 ),
                 const SizedBox(height: 16),
 
+                _label(theme, 'Colour overlay'),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final tint in kOverlayTints)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 12),
+                          child: _TintSwatch(
+                            tint: tint,
+                            base: readerThemeById(_settings.themeId),
+                            // A tint at zero strength is invisible, so pick
+                            // one and give it a usable default rather than
+                            // leaving the reader looking broken.
+                            severity: _settings.overlaySeverity == 0
+                                ? 0.5
+                                : _settings.overlaySeverity,
+                            selected: tint.id == _settings.overlayTint,
+                            onTap: () => _update(
+                              _settings.copyWith(
+                                overlayTint: tint.id,
+                                overlaySeverity:
+                                    tint.id != kOverlayTintNone &&
+                                        _settings.overlaySeverity == 0
+                                    ? 0.5
+                                    : null,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (_settings.overlayTint != kOverlayTintNone)
+                  _slider(
+                    theme,
+                    label: 'Overlay strength',
+                    value: _settings.overlaySeverity,
+                    min: 0.05,
+                    max: 1.0,
+                    divisions: 19,
+                    display: '${(_settings.overlaySeverity * 100).round()}%',
+                    onChanged: (v) =>
+                        _update(_settings.copyWith(overlaySeverity: v)),
+                  ),
+                const SizedBox(height: 16),
+
                 _label(theme, 'Text style'),
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
@@ -1121,6 +1168,74 @@ class _ThemeSwatch extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(preset.name, style: Theme.of(context).textTheme.labelSmall),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One overlay-tint choice, previewed as the wash actually looks over the
+/// reader's current theme rather than as a swatch of the raw tint colour.
+class _TintSwatch extends StatelessWidget {
+  const _TintSwatch({
+    required this.tint,
+    required this.base,
+    required this.severity,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final ReaderOverlayTint tint;
+
+  /// The untinted theme the preview washes over.
+  final ReaderThemePreset base;
+
+  final double severity;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    final washed = base.withOverlay(tint, severity);
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: tint.id == kOverlayTintNone
+          ? 'No colour overlay'
+          : '${tint.name} colour overlay',
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Column(
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: washed.background,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: selected ? accent : Colors.black26,
+                  width: selected ? 2.5 : 1,
+                ),
+              ),
+              child: Center(
+                child: tint.id == kOverlayTintNone
+                    ? Icon(Icons.block, size: 20, color: washed.secondary)
+                    : Text(
+                        'Aa',
+                        style: TextStyle(
+                          color: washed.text,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(tint.name, style: Theme.of(context).textTheme.labelSmall),
           ],
         ),
       ),

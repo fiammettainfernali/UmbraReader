@@ -263,9 +263,21 @@ distraction-free immersive mode, line-precision resume.
       the same marker by id). Long-pressing ON a word still opens the
       dictionary. Reuses the existing bookmark store, so captures show in the
       bookmarks sheet and iCloud-sync. (Voice note optional later.)
-- [ ] **Tinted overlays.** A colour-wash layer over the page (severity
+- [x] **Tinted overlays.** A colour-wash layer over the page (severity
       slider), independent of theme — visual-stress relief (Irlen-style),
-      also useful for night reading.
+      also useful for night reading. Nine tints (none + blue…grey) in
+      Appearance, with a strength slider that appears once a tint is picked.
+      Modelled as a *multiply* filter, the way physical acetate works: an
+      alpha overlay would drag text and background toward the tint alike and
+      eat contrast, whereas multiply absorbs the bright background and leaves
+      near-black text near-black. Applied inside `ReaderSettings.theme`, the
+      single choke point every reader surface reads colours from, so page,
+      text and chrome tint together with no plumbing. Mid-tone secondary text
+      *is* compressed by a wash (Black + Violet bottomed out at 2.25:1), so
+      `withOverlay` lifts it back over 3:1 — `reader_overlay_test.dart` holds
+      every theme × tint to AA body / 3:1 secondary at full strength. Syncs
+      across devices rather than being device-local like `brightness`: a
+      visual-stress need belongs to the person, not the screen.
 - [ ] **Character memory.** Extend the existing glossary: per-series
       character notes with "last seen in chapter N" — working-memory
       support for 800-chapter webnovels.
