@@ -21,6 +21,7 @@ import '../models/volume.dart';
 import '../services/bookmark_store.dart';
 import '../services/dictionary_service.dart';
 import '../services/epub_parser.dart';
+import '../services/glossary_store.dart';
 import '../services/library_cache.dart';
 import '../services/cover_cache.dart';
 import '../services/library_storage.dart';
@@ -72,6 +73,7 @@ class ReaderScreen extends StatefulWidget {
 class _ReaderScreenState extends State<ReaderScreen>
     with WidgetsBindingObserver, ReaderTtsSession {
   final _progressStore = ReadingProgressStore();
+  final _glossaryStore = GlossaryStore();
   final _scrollController = ScrollController();
   final _pageController = PageController();
 
@@ -509,6 +511,7 @@ class _ReaderScreenState extends State<ReaderScreen>
             : null;
         _loading = false;
       });
+      _noteGlossarySightings(book.chapters[chapterIndex], blocks);
       if (_reentryBlock != null) {
         _reentryTimer?.cancel();
         _reentryTimer = Timer(const Duration(seconds: 6), () {
@@ -617,6 +620,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       // chapter, else the first.
       _focusBlock = landOnLastPage && blocks.isNotEmpty ? blocks.length - 1 : 0;
     });
+    _noteGlossarySightings(book.chapters[clamped], blocks);
     _progressStore.save(
       widget.volume,
       ReadingProgress(
@@ -992,6 +996,29 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   /// Total word count of a chapter's blocks, for the time-left estimate.
+  /// Notes which glossary terms appear in the chapter now on screen, so the
+  /// glossary can answer "how long since this character showed up?" without
+  /// the reader maintaining it by hand — the whole point at 800 chapters.
+  ///
+  /// Fire-and-forget: it is a background convenience and must never make a
+  /// page turn wait on a disk write.
+  void _noteGlossarySightings(EpubChapter chapter, List<ContentBlock> blocks) {
+    if (blocks.isEmpty) return;
+    unawaited(
+      _glossaryStore.noteSightings(
+        widget.volume.seriesOpdsId,
+        blocks.map(plainBlockText).join('\n'),
+        GlossarySighting(
+          // Volumes without a number in the title all collapse to 0, which
+          // still orders correctly against each other by chapter.
+          volume: volumeNumber(widget.volume) ?? 0,
+          chapter: chapter.index,
+          label: chapter.title,
+        ),
+      ),
+    );
+  }
+
   int _countWords(List<ContentBlock> blocks) {
     var words = 0;
     for (final block in blocks) {
@@ -1842,6 +1869,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       _focusBlock = targetBlock;
       _pageJumpTarget = 0;
     });
+    _noteGlossarySightings(book.chapters[clamped], blocks);
     _progressStore.save(
       widget.volume,
       ReadingProgress(

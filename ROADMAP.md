@@ -278,9 +278,20 @@ distraction-free immersive mode, line-precision resume.
       every theme × tint to AA body / 3:1 secondary at full strength. Syncs
       across devices rather than being device-local like `brightness`: a
       visual-stress need belongs to the person, not the screen.
-- [ ] **Character memory.** Extend the existing glossary: per-series
+- [x] **Character memory.** Extend the existing glossary: per-series
       character notes with "last seen in chapter N" — working-memory
-      support for 800-chapter webnovels.
+      support for 800-chapter webnovels. Tracked automatically: opening a
+      chapter scans its text for every glossary term and stamps the sighting,
+      so nobody has to hand-maintain it at 800 chapters. Deliberately
+      *monotonic* — a re-read of chapter 5 must not rewrite "last seen in
+      chapter 489", since the question being answered is "how long since they
+      turned up?", which lives at the furthest point reached, not the most
+      recent one visited. Ordering is (volume, chapter): chapter indices
+      restart in each volume's EPUB, so v2c1 has to outrank v1c99. The label
+      shown is the chapter's TOC title rather than a computed number, which
+      is what the reader sees everywhere else and needs no inference.
+      Matching uses word-boundary lookarounds so "Al" doesn't match "Also",
+      degrading to substring for scripts where `\w` doesn't apply.
 
 ### Bigger bets
 - [ ] **Read-aloud resurrection as an accessibility feature.** The whole

@@ -126,9 +126,32 @@ class _GlossaryScreenState extends State<GlossaryScreen> {
                           entry.term,
                           style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
-                        subtitle: entry.note.isEmpty
+                        subtitle: entry.note.isEmpty && entry.lastSeen == null
                             ? null
-                            : Text(entry.note),
+                            : Column(
+                                crossAxisAlignment:
+                                    CrossAxisAlignment.start,
+                                children: [
+                                  if (entry.note.isNotEmpty)
+                                    Text(entry.note),
+                                  if (entry.lastSeen case final seen?)
+                                    Padding(
+                                      padding:
+                                          const EdgeInsets.only(top: 3),
+                                      child: Text(
+                                        seen.label.isEmpty
+                                            ? 'Seen while reading'
+                                            : 'Last seen in ${seen.label}',
+                                        style: theme.textTheme.labelSmall
+                                            ?.copyWith(
+                                              color: theme
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                            ),
+                                      ),
+                                    ),
+                                ],
+                              ),
                         onTap: () => _edit(existing: entry),
                         trailing: IconButton(
                           icon: const Icon(Icons.delete_outline),
@@ -156,7 +179,8 @@ class _GlossaryScreenState extends State<GlossaryScreen> {
           const SizedBox(height: 8),
           Text(
             'Add characters, places or terms as you read so you can keep '
-            'this series\' cast straight.',
+            'this series\' cast straight. Umbra then tracks which chapter '
+            'each one last appeared in.',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
