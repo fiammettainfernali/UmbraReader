@@ -90,6 +90,14 @@ dependencies:
   # internal that newer pods renamed — keep this current.)
   sentry_flutter: ^9.23.0
 
+  # Opt-in daily reading reminders (see reminder_service.dart). Local
+  # notifications only — no entitlement needed, unlike push. timezone +
+  # flutter_timezone come with it: scheduling is wall-clock local ("8:30pm
+  # where the reader is"), which needs the device's zone to resolve.
+  flutter_local_notifications: ^22.0.1
+  timezone: ^0.11.1
+  flutter_timezone: ^5.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

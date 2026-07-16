@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/opds_client.dart';
+import '../services/reminder_service.dart';
 import '../services/settings_service.dart';
 import '../widgets/section_header.dart';
 
@@ -27,6 +28,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _autoDownloadWifiOnly = true;
   bool _autoDeleteFinished = false;
 
+  final _reminders = ReminderService();
+  bool _remindersOn = false;
+  TimeOfDay _reminderTime = ReminderService.defaultTime;
+
   @override
   void initState() {
     super.initState();
@@ -40,12 +45,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final auto = await _settingsService.autoDownloadNext();
     final wifi = await _settingsService.autoDownloadWifiOnly();
     final autoDelete = await _settingsService.autoDeleteFinished();
+    final remindersOn = await _reminders.isEnabled();
+    final reminderTime = await _reminders.time();
     if (!mounted) return;
     setState(() {
       _autoDownload = auto;
       _autoDownloadWifiOnly = wifi;
       _autoDeleteFinished = autoDelete;
+      _remindersOn = remindersOn;
+      _reminderTime = reminderTime;
     });
+  }
+
+  Future<void> _setReminders(bool value) async {
+    final granted = await _reminders.setEnabled(value);
+    if (!mounted) return;
+    setState(() => _remindersOn = value && granted);
+    // Turning it on without permission leaves the switch off, which needs
+    // explaining or it just looks broken.
+    if (value && !granted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Notifications are off for Umbra. You can turn them on in the '
+            'iOS Settings app.',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _pickReminderTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _reminderTime,
+      helpText: 'Reading reminder',
+    );
+    if (picked == null) return;
+    await _reminders.setTime(picked);
+    if (!mounted) return;
+    setState(() => _reminderTime = picked);
   }
 
   @override
@@ -222,6 +261,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _settingsService.setAutoDeleteFinished(value);
             },
           ),
+          const SizedBox(height: 20),
+          const SectionHeader('Reading', padding: EdgeInsets.only(bottom: 4)),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Daily reading reminder'),
+            subtitle: const Text(
+              'A gentle nudge at a time you pick. Never on a day you\'ve '
+              'already read, and it won\'t badge the app or mention streaks.',
+            ),
+            value: _remindersOn,
+            onChanged: _setReminders,
+          ),
+          if (_remindersOn)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Remind me at'),
+              trailing: TextButton(
+                onPressed: _pickReminderTime,
+                child: Text(_reminderTime.format(context)),
+              ),
+            ),
         ],
       ),
     );

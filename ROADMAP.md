@@ -300,9 +300,25 @@ distraction-free immersive mode, line-precision resume.
       highlighting is a first-class multimodal reading aid for both
       communities — no server needed. Ship the on-device engine free;
       premium voices can be a paid layer later.
-- [ ] **Routine anchoring.** Opt-in reading reminders tied to the user's
+- [x] **Routine anchoring.** Opt-in reading reminders tied to the user's
       chosen time, phrased as invitations not obligations; pairs with
-      streak grace.
+      streak grace. Off until asked for, with the iOS permission prompt at
+      the moment of opting in rather than at launch; if permission is
+      refused the switch stays off, because a switch that can't deliver is a
+      lie. Never fires on a day already read — `refresh()` rebuilds the
+      schedule after each session is recorded, which is what makes that
+      true. No badge (a red dot is a demand) and the copy never mentions
+      streaks or guilt; `reminder_service_test.dart` asserts that against a
+      banned-word list, so the principle survives future edits.
+      Implementation note: these are 14 individual one-shots, re-armed on
+      every launch and session, *not* one repeating daily notification —
+      iOS's `DateTimeComponents.time` matches on time and ignores the date,
+      so a repeat physically cannot skip a day. The 14-day horizon means
+      invitations keep arriving while you're away but stop after a fortnight
+      of silence, which is what an invitation implies. Added
+      flutter_local_notifications 22 / flutter_timezone 5 / timezone; no
+      entitlement needed (local ≠ push), and the plugin's iOS 13 target
+      matches the app's.
 - [ ] **Predictability audit.** A pass over the whole app against a
       written principle: nothing moves, reorders, or pops up without the
       user causing it. Document it and keep it true (this is a design

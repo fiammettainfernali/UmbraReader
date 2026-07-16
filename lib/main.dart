@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
@@ -6,6 +8,7 @@ import 'screens/onboarding_screen.dart';
 import 'services/cloud_sync_service.dart';
 import 'services/custom_theme_store.dart';
 import 'services/pro_service.dart';
+import 'services/reminder_service.dart';
 import 'services/settings_service.dart';
 
 /// Sentry crash-reporting DSN, baked in at build time via
@@ -27,6 +30,9 @@ Future<void> main() async {
   if (ProService().isPro.value) {
     await CloudSyncService().initialize();
   }
+  // Re-arm the reading-reminder schedule (a no-op unless opted in). Not
+  // awaited: nothing on screen depends on it, and launch shouldn't wait.
+  unawaited(ReminderService().refresh());
 
   if (_sentryDsn.isEmpty) {
     runApp(const UmbraReaderApp());

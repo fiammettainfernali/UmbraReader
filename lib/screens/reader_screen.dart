@@ -30,6 +30,7 @@ import '../services/reader_preferences.dart';
 import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
 import '../services/recommendation_feedback_store.dart';
+import '../services/reminder_service.dart';
 import '../services/tts_engine.dart';
 import '../services/tts_service.dart';
 import '../services/tts_skip.dart';
@@ -295,7 +296,12 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (newWords > 0) _wordsHighWater = current;
     // Fire-and-forget — losing the last fractional second on an app kill is
     // acceptable.
-    _activityStore.record(widget.volume, delta, words: newWords);
+    _activityStore.record(widget.volume, delta, words: newWords).then((_) {
+      // Today now counts as read, so drop today's pending invitation. This
+      // ordering matters: the reminder schedule is rebuilt from the ledger,
+      // which has to have landed first.
+      unawaited(ReminderService().refresh());
+    });
   }
 
   // ── gentle session timer ─────────────────────────────────────────────────
