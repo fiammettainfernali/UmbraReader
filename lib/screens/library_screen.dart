@@ -86,13 +86,19 @@ class LibraryScreen extends StatefulWidget {
   State<LibraryScreen> createState() => _LibraryScreenState();
 }
 
-class _LibraryScreenState extends State<LibraryScreen> {
+class _LibraryScreenState extends State<LibraryScreen>
+    with WidgetsBindingObserver {
   final _settingsService = SettingsService();
   final _searchController = TextEditingController();
   final _scrollController = ScrollController();
 
   /// True when the grid is scrolled far enough to offer a "back to top" jump.
   bool _showBackToTop = false;
+
+  /// An iCloud merge landed while this screen was on show, and its effect on
+  /// the visible order is being held back until the user causes a reload.
+  /// See the note in [initState].
+  bool _remoteMergePending = false;
 
   /// Null until the initial settings load finishes.
   OpdsSettings? _settings;
@@ -161,17 +167,33 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _scrollController.addListener(_onScroll);
-    // Repaint the Continue Reading shelf / recommendations when an iCloud
-    // sync from another device merges new progress or feedback in.
+    // An iCloud sync from another device has merged new progress/feedback
+    // into the stores. Deliberately do NOT repaint here: a shelf that
+    // reorders under a reader's finger — because a phone across the room
+    // synced — is the exact thing PREDICTABILITY.md forbids. The merged data
+    // is already in the stores, so opening a book still uses the freshest
+    // position; only the visible ordering waits for a moment the user caused
+    // (returning from a book, pull-to-refresh, or coming back to the app).
     CloudSyncService().onRemoteMerge = () {
-      if (mounted) _loadReading();
+      if (mounted) _remoteMergePending = true;
     };
     _initialize();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Returning to the app is a user-caused boundary, so a merge that landed
+    // while they were away can safely surface now.
+    if (state == AppLifecycleState.resumed && _remoteMergePending) {
+      _loadReading();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (CloudSyncService().onRemoteMerge != null) {
       CloudSyncService().onRemoteMerge = null;
     }
@@ -220,6 +242,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
   /// Refreshes the "Continue reading" shelf and the recommendation engine
   /// from the saved reading positions and the current library.
   Future<void> _loadReading() async {
+    // Whatever a remote merge was holding back is about to be shown.
+    _remoteMergePending = false;
     final entries = await ReadingProgressStore().allEntries();
     final feedback = await RecommendationFeedbackStore().load();
     final status = await SeriesStatusStore().load();

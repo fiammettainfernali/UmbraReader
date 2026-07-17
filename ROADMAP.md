@@ -319,10 +319,22 @@ distraction-free immersive mode, line-precision resume.
       flutter_local_notifications 22 / flutter_timezone 5 / timezone; no
       entitlement needed (local ≠ push), and the plugin's iOS 13 target
       matches the app's.
-- [ ] **Predictability audit.** A pass over the whole app against a
+- [x] **Predictability audit.** A pass over the whole app against a
       written principle: nothing moves, reorders, or pops up without the
       user causing it. Document it and keep it true (this is a design
-      contract, not a feature).
+      contract, not a feature). The contract now lives in
+      `PREDICTABILITY.md`: the rule, why it costs more here than elsewhere,
+      the boundaries that count as "the reader caused it" (note that *time
+      passing* and *another device* are not among them), a named-exceptions
+      table, and the audit itself. One real violation found and fixed — an
+      iCloud merge from another device rebuilt the Continue Reading shelf and
+      the recommendation row *live*, so a phone in another room could reorder
+      the covers while a finger was already moving toward one. Merges now
+      land in the stores immediately (a book still opens at the newest
+      position) while the visible reorder waits for a boundary the reader
+      caused. Everything else audited clean: the wildcard is `Random(daySeed)`
+      and stable all day, `requirePro` only ever fires from a tap, and the
+      reminder copy is asserted against a banned-word list.
 
 ## Phase 7 — Recommendation system overhaul (audited 2026-07-10)
 
