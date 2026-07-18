@@ -10,7 +10,13 @@ workflows:
       app_store_connect: UmbraReaderASC
     environment:
       flutter: stable
-      xcode: latest
+      # Pinned to the Xcode 26 stable line (was `latest`) so builds don't
+      # silently move onto the iOS 27 SDK while that OS is still in beta —
+      # a build machine shouldn't shift under us unannounced. Bump this
+      # deliberately once iOS 27 / Xcode 27 is out of beta and worth targeting.
+      # If Codemagic rejects a bare major, set the exact patch it lists as
+      # available (e.g. 26.1) — that's the only reason this would ever error.
+      xcode: 26
       cocoapods: default
       groups:
         # Codemagic env-var group holding CERTIFICATE_PRIVATE_KEY (the RSA key
