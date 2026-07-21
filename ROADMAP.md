@@ -135,8 +135,16 @@ non-starter, so the personal pipeline never ships as part of the product.
       results grouped by book, and tapping a hit opens the reader at that
       exact chapter + paragraph (new ReaderScreen initial-position
       params). Upgrade path if it ever crawls: FTS5 in AppDatabase.
-- [ ] **16.** Page-turn polish: curl/slide options, tap-zone customization,
-      brightness swipe gesture.
+- [~] **16.** Page-turn polish: curl/slide options, tap-zone customization,
+      brightness swipe gesture. *Done (Tier 1 of the reader-UX audit —
+      `docs/READER_UX_AUDIT.md`): configurable tap zones (left-hand swap,
+      turn-zone size defaulting to thirds so the forward zone grew from 28%
+      and the centre menu shrank from 44%, plus a swipe-only accidental-turn
+      guard) and edge-slide brightness (a left-edge vertical drag with a
+      heads-up readout, opaque 24px gutter so it wins the drag reliably;
+      toggle it off to restore full-edge swipe). All synced as
+      accessibility/ergonomic prefs. Remaining: curl/slide page-turn style
+      option (Tier 2, T4).*
 - [x] **17.** Typography: Literata, Lora and Atkinson Hyperlegible are
       now bundled app assets (regular/bold/italic/bold-italic, OFL
       licences included) — correct rendering offline from first launch,

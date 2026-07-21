@@ -46,6 +46,10 @@ class ReaderPreferences {
   static const _kExactNumbers = 'reader_exact_numbers';
   static const _kOverlayTint = 'reader_overlay_tint';
   static const _kOverlaySeverity = 'reader_overlay_severity';
+  static const _kTapTurnZones = 'reader_tap_turn_zones';
+  static const _kLeftHandedTaps = 'reader_left_handed_taps';
+  static const _kTapZoneWidth = 'reader_tap_zone_width';
+  static const _kEdgeBrightnessGesture = 'reader_edge_brightness_gesture';
   static const _kAutoPageSeconds = 'reader_auto_page_seconds';
   static const _kTtsEngine = 'reader_tts_engine';
   static const _kTtsServerUrl = 'reader_tts_server_url';
@@ -70,6 +74,7 @@ class ReaderPreferences {
     _kCenteredColumn, _kKeepAwake, _kReduceAnimations, _kHapticFeedback,
     _kSessionMinutes, _kExactNumbers,
     _kOverlayTint, _kOverlaySeverity,
+    _kTapTurnZones, _kLeftHandedTaps, _kTapZoneWidth, _kEdgeBrightnessGesture,
     _kAutoPageSeconds,
     _kTtsEngine, _kTtsServerUrl, _kTtsServerToken, _kTtsSkips,
   ];
@@ -152,6 +157,12 @@ class ReaderPreferences {
       overlayTint: prefs.getString('$p$_kOverlayTint') ?? d.overlayTint,
       overlaySeverity:
           prefs.getDouble('$p$_kOverlaySeverity') ?? d.overlaySeverity,
+      tapTurnZones: prefs.getBool('$p$_kTapTurnZones') ?? d.tapTurnZones,
+      leftHandedTaps:
+          prefs.getBool('$p$_kLeftHandedTaps') ?? d.leftHandedTaps,
+      tapZoneWidth: prefs.getDouble('$p$_kTapZoneWidth') ?? d.tapZoneWidth,
+      edgeBrightnessGesture: prefs.getBool('$p$_kEdgeBrightnessGesture') ??
+          d.edgeBrightnessGesture,
       autoPageSeconds:
           prefs.getInt('$p$_kAutoPageSeconds') ?? d.autoPageSeconds,
       ttsEngine: TtsEngineKind.values.firstWhere(
@@ -209,6 +220,13 @@ class ReaderPreferences {
     await prefs.setBool('$p$_kExactNumbers', settings.exactNumbers);
     await prefs.setString('$p$_kOverlayTint', settings.overlayTint);
     await prefs.setDouble('$p$_kOverlaySeverity', settings.overlaySeverity);
+    await prefs.setBool('$p$_kTapTurnZones', settings.tapTurnZones);
+    await prefs.setBool('$p$_kLeftHandedTaps', settings.leftHandedTaps);
+    await prefs.setDouble('$p$_kTapZoneWidth', settings.tapZoneWidth);
+    await prefs.setBool(
+      '$p$_kEdgeBrightnessGesture',
+      settings.edgeBrightnessGesture,
+    );
     await prefs.setInt('$p$_kAutoPageSeconds', settings.autoPageSeconds);
     await prefs.setString('$p$_kTtsEngine', settings.ttsEngine.name);
     await prefs.setString('$p$_kTtsServerUrl', settings.ttsServerUrl);

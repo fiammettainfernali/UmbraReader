@@ -103,6 +103,11 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// past the end, negative past the start) — used to cross chapters.
   double _edgeOverscroll = 0;
 
+  /// The brightness being set by the edge-slide gesture; non-null only while
+  /// the heads-up readout is showing. Drives the transient pill.
+  double? _brightnessHud;
+  Timer? _brightnessHudTimer;
+
   /// When the last chapter change happened. Edge-crossing is suppressed for a
   /// short window afterward so the scrollable settling into the new chapter
   /// can't trigger a second (skipped-chapter) cross.
@@ -378,6 +383,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     _reentryTimer?.cancel();
     _sessionTicker?.cancel();
     _sessionBreakTimer?.cancel();
+    _brightnessHudTimer?.cancel();
     disposeTtsSession();
     _scrollController.dispose();
     _pageController.dispose();
@@ -1366,15 +1372,82 @@ class _ReaderScreenState extends State<ReaderScreen>
       _toggleChrome();
       return;
     }
+    // Accidental-turn guard: with edge taps off, any tap just toggles chrome
+    // and only a swipe or the remote turns pages.
+    if (!_settings.tapTurnZones) {
+      _toggleChrome();
+      return;
+    }
     final width = MediaQuery.of(context).size.width;
     final x = details.globalPosition.dx;
-    if (x < width * 0.28) {
-      _advance(forward: false);
-    } else if (x > width * 0.72) {
-      _advance(forward: true);
+    final edge = _settings.tapZoneEdge;
+    if (x < width * edge) {
+      // Left edge — back by default, forward when left-handed.
+      _advance(forward: _settings.leftHandedTaps);
+    } else if (x > width * (1 - edge)) {
+      _advance(forward: !_settings.leftHandedTaps);
     } else {
       _toggleChrome();
     }
+  }
+
+  // ── edge-slide brightness ────────────────────────────────────────────────
+
+  void _onBrightnessDragStart(DragStartDetails details) {
+    _brightnessHudTimer?.cancel();
+    setState(() => _brightnessHud = _settings.brightness);
+  }
+
+  void _onBrightnessDragUpdate(DragUpdateDetails details) {
+    final height = MediaQuery.of(context).size.height;
+    if (height <= 0) return;
+    // Drag up brightens, down dims; a full-height swipe covers the range.
+    final next = (_settings.brightness - details.delta.dy / height)
+        .clamp(0.15, 1.0);
+    if (next == _settings.brightness) return;
+    setState(() {
+      _settings = _settings.copyWith(brightness: next);
+      _brightnessHud = next;
+    });
+  }
+
+  void _onBrightnessDragEnd(DragEndDetails details) {
+    // brightness is device-local; persist it without the heavy _applySettings
+    // diff, which would see no change now that _settings already holds it.
+    ReaderPreferences().save(_settings, volume: widget.volume);
+    _brightnessHudTimer?.cancel();
+    _brightnessHudTimer = Timer(const Duration(milliseconds: 700), () {
+      if (mounted) setState(() => _brightnessHud = null);
+    });
+  }
+
+  Widget _brightnessHudPill(ReaderThemePreset preset) {
+    final pct = ((_brightnessHud ?? _settings.brightness) * 100).round();
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: preset.background.withValues(alpha: 0.92),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: preset.secondary.withValues(alpha: 0.4)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.brightness_6, size: 20, color: preset.text),
+            const SizedBox(width: 10),
+            Text(
+              '$pct%',
+              style: TextStyle(
+                color: preset.text,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> _applySettings(ReaderSettings next) async {
@@ -2407,6 +2480,27 @@ class _ReaderScreenState extends State<ReaderScreen>
                     ),
                   ),
                 ),
+                // Left-edge brightness gutter: a vertical drag here sets
+                // brightness. Opaque so it wins the drag reliably (in scroll
+                // mode a raw drag would otherwise scroll); taps and long-press
+                // are delegated so it still behaves as a normal reading zone.
+                // Turning the gesture off restores full left-edge swipe/scroll.
+                if (_settings.edgeBrightnessGesture)
+                  Positioned(
+                    top: 0,
+                    bottom: 0,
+                    left: 0,
+                    width: 24,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTapUp: _onContentTap,
+                      onLongPressStart: _onContentLongPress,
+                      onVerticalDragStart: _onBrightnessDragStart,
+                      onVerticalDragUpdate: _onBrightnessDragUpdate,
+                      onVerticalDragEnd: _onBrightnessDragEnd,
+                      child: const SizedBox.expand(),
+                    ),
+                  ),
                 if (_settings.lineFocus && !_settings.focusParagraph)
                   Positioned.fill(
                     child: IgnorePointer(
@@ -2503,6 +2597,12 @@ class _ReaderScreenState extends State<ReaderScreen>
                           alpha: (1 - _settings.brightness).clamp(0.0, 0.85),
                         ),
                       ),
+                    ),
+                  ),
+                if (_brightnessHud != null)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: Center(child: _brightnessHudPill(preset)),
                     ),
                   ),
                 // "Where was I?" recap offer — sits above the bottom bar, on

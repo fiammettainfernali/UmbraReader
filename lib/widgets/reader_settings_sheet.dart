@@ -347,6 +347,60 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
             ),
             _section(
               theme,
+              icon: Icons.touch_app_outlined,
+              title: 'Tap zones & gestures',
+              children: [
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Tap edges to turn pages'),
+                  subtitle: const Text(
+                    'Tap the left/right edges to turn pages. Off: only a swipe '
+                    'or remote turns pages, so a stray tap never does.',
+                  ),
+                  value: _settings.tapTurnZones,
+                  onChanged: (on) =>
+                      _update(_settings.copyWith(tapTurnZones: on)),
+                ),
+                if (_settings.tapTurnZones) ...[
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: const Text('Left-handed'),
+                    subtitle: const Text(
+                      'Swap sides: tap left to go forward, right to go back.',
+                    ),
+                    value: _settings.leftHandedTaps,
+                    onChanged: (on) =>
+                        _update(_settings.copyWith(leftHandedTaps: on)),
+                  ),
+                  _slider(
+                    theme,
+                    label: 'Turn-zone size',
+                    value: _settings.tapZoneWidth,
+                    min: 0.15,
+                    max: 0.45,
+                    divisions: 6,
+                    display: '${(_settings.tapZoneWidth * 100).round()}%',
+                    onChanged: (v) =>
+                        _update(_settings.copyWith(tapZoneWidth: v)),
+                  ),
+                ],
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Slide left edge for brightness'),
+                  subtitle: const Text(
+                    'Drag up or down along the left edge to dim or brighten.',
+                  ),
+                  value: _settings.edgeBrightnessGesture,
+                  onChanged: (on) =>
+                      _update(_settings.copyWith(edgeBrightnessGesture: on)),
+                ),
+              ],
+            ),
+            _section(
+              theme,
               icon: Icons.palette_outlined,
               title: 'Appearance',
               children: [

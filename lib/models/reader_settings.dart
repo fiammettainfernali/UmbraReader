@@ -61,6 +61,10 @@ class ReaderSettings {
     required this.exactNumbers,
     required this.overlayTint,
     required this.overlaySeverity,
+    required this.tapTurnZones,
+    required this.leftHandedTaps,
+    required this.tapZoneWidth,
+    required this.edgeBrightnessGesture,
     required this.autoPageSeconds,
     required this.ttsEngine,
     required this.ttsServerUrl,
@@ -178,6 +182,27 @@ class ReaderSettings {
   /// How strong the [overlayTint] wash is, 0 (off) to 1 (full).
   final double overlaySeverity;
 
+  /// When true, tapping the left/right edge zones turns the page. When false
+  /// (the accidental-turn guard), edge taps are inert and only a swipe or the
+  /// remote turns pages — any tap just toggles the chrome.
+  final bool tapTurnZones;
+
+  /// Swaps which edge turns which way: normally left = back, right = forward;
+  /// left-handed = left forward, right back. An accessibility/ergonomics
+  /// setting, so it syncs across devices.
+  final bool leftHandedTaps;
+
+  /// Fraction of the screen width each edge turn-zone occupies (the rest,
+  /// centred, toggles the chrome). Clamped to a sane band in [tapZoneEdge].
+  final double tapZoneWidth;
+
+  /// When true, a vertical drag on the left edge adjusts brightness live.
+  final bool edgeBrightnessGesture;
+
+  /// The effective edge-zone fraction, clamped so the centre menu zone can
+  /// never vanish.
+  double get tapZoneEdge => tapZoneWidth.clamp(0.15, 0.45);
+
   /// Seconds between automatic page turns in paged mode (the paged analogue
   /// of auto-scroll). 0 disables it.
   final int autoPageSeconds;
@@ -228,6 +253,12 @@ class ReaderSettings {
     exactNumbers: false,
     overlayTint: kOverlayTintNone,
     overlaySeverity: 0.0,
+    tapTurnZones: true,
+    leftHandedTaps: false,
+    // Thirds by default: a larger forward zone than the old 28%, and a
+    // smaller centre menu than the old 44%.
+    tapZoneWidth: 0.33,
+    edgeBrightnessGesture: true,
     autoPageSeconds: 0,
     ttsEngine: TtsEngineKind.system,
     ttsServerUrl: '',
@@ -273,6 +304,10 @@ class ReaderSettings {
     bool? exactNumbers,
     String? overlayTint,
     double? overlaySeverity,
+    bool? tapTurnZones,
+    bool? leftHandedTaps,
+    double? tapZoneWidth,
+    bool? edgeBrightnessGesture,
     int? autoPageSeconds,
     TtsEngineKind? ttsEngine,
     String? ttsServerUrl,
@@ -310,6 +345,11 @@ class ReaderSettings {
       exactNumbers: exactNumbers ?? this.exactNumbers,
       overlayTint: overlayTint ?? this.overlayTint,
       overlaySeverity: overlaySeverity ?? this.overlaySeverity,
+      tapTurnZones: tapTurnZones ?? this.tapTurnZones,
+      leftHandedTaps: leftHandedTaps ?? this.leftHandedTaps,
+      tapZoneWidth: tapZoneWidth ?? this.tapZoneWidth,
+      edgeBrightnessGesture:
+          edgeBrightnessGesture ?? this.edgeBrightnessGesture,
       autoPageSeconds: autoPageSeconds ?? this.autoPageSeconds,
       ttsEngine: ttsEngine ?? this.ttsEngine,
       ttsServerUrl: ttsServerUrl ?? this.ttsServerUrl,

@@ -200,6 +200,87 @@ void main() {
     CloudSyncService().cancelPendingTimers();
   });
 
+  testWidgets('left-handed mode swaps the turn sides', (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'reader_left_handed_taps': true,
+    });
+    await tester.pumpWidget(MaterialApp(home: ReaderScreen(volume: _volume())));
+    await _settle(tester);
+
+    final size = tester.getSize(find.byType(ReaderScreen));
+    final leftEdge = Offset(size.width * 0.08, size.height * 0.5);
+    await tester.tapAt(leftEdge); // hide chrome
+    await _settle(tester);
+
+    // Left-handed: the LEFT edge goes forward.
+    await tester.tapAt(leftEdge);
+    await _settle(tester);
+    expect(
+      find.textContaining('Second chapter', findRichText: true),
+      findsOneWidget,
+      reason: 'left-handed: a left-edge tap must page forward',
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    CloudSyncService().cancelPendingTimers();
+  });
+
+  testWidgets('swipe-only guard: an edge tap never turns the page', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'reader_tap_turn_zones': false,
+    });
+    await tester.pumpWidget(MaterialApp(home: ReaderScreen(volume: _volume())));
+    await _settle(tester);
+
+    final size = tester.getSize(find.byType(ReaderScreen));
+    final rightEdge = Offset(size.width * 0.9, size.height * 0.5);
+    await tester.tapAt(rightEdge); // hide chrome
+    await _settle(tester);
+    // With edge turns disabled, tapping the edge just toggles chrome back —
+    // it must not advance.
+    await tester.tapAt(rightEdge);
+    await _settle(tester);
+    expect(
+      find.textContaining('Short first', findRichText: true),
+      findsOneWidget,
+      reason: 'the accidental-turn guard must block edge-tap page turns',
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    CloudSyncService().cancelPendingTimers();
+  });
+
+  testWidgets('sliding the left edge dims the brightness', (tester) async {
+    await tester.pumpWidget(MaterialApp(home: ReaderScreen(volume: _volume())));
+    await _settle(tester);
+
+    final size = tester.getSize(find.byType(ReaderScreen));
+    // Drag down along the left-edge gutter (x within the 24px strip).
+    await tester.dragFrom(
+      Offset(10, size.height * 0.4),
+      Offset(0, size.height * 0.4),
+    );
+    await _settle(tester);
+
+    final prefs = await SharedPreferences.getInstance();
+    final brightness = prefs.getDouble('reader_brightness');
+    expect(brightness, isNotNull, reason: 'the drag end must persist brightness');
+    expect(
+      brightness,
+      lessThan(1.0),
+      reason: 'dragging down the left edge must dim the page',
+    );
+    expect(brightness, greaterThanOrEqualTo(0.15));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    CloudSyncService().cancelPendingTimers();
+  });
+
   testWidgets('long-press on a word opens the dictionary for it', (
     tester,
   ) async {
