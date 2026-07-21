@@ -42,6 +42,10 @@ class BookmarkStore {
     isHighlight: row.isHighlight,
     note: row.note,
     color: HighlightColor.fromName(row.color),
+    startChar: row.startChar,
+    endChar: row.endChar,
+    endBlockIndex: row.endBlockIndex,
+    selectedText: row.selectedText,
   );
 
   BookmarkRowsCompanion _toRow(String volumeKey, Bookmark b) =>
@@ -56,6 +60,10 @@ class BookmarkStore {
         isHighlight: Value(b.isHighlight),
         note: Value(b.note),
         color: Value(b.color.name),
+        startChar: Value(b.startChar),
+        endChar: Value(b.endChar),
+        endBlockIndex: Value(b.endBlockIndex),
+        selectedText: Value(b.selectedText),
       );
 
   /// Bookmarks for [volume], newest-first.

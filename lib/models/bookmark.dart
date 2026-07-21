@@ -33,6 +33,10 @@ class Bookmark {
     this.isHighlight = false,
     this.note = '',
     this.color = HighlightColor.yellow,
+    this.endBlockIndex,
+    this.startChar,
+    this.endChar,
+    this.selectedText = '',
   });
 
   /// Stable identifier for delete + dedupe (a microsecond timestamp).
@@ -63,6 +67,28 @@ class Bookmark {
   /// Categorical colour of the highlight (ignored for plain bookmarks).
   final HighlightColor color;
 
+  /// Last block of a multi-block range highlight (inclusive). Null on
+  /// block-level highlights and single-block ranges default to [blockIndex]
+  /// via [rangeEndBlock].
+  final int? endBlockIndex;
+
+  /// Character offsets of a range highlight into the joined run text of
+  /// [blockIndex] / [rangeEndBlock]. Null on a legacy whole-block highlight,
+  /// which is what [isRange] keys on.
+  final int? startChar;
+  final int? endChar;
+
+  /// The exact selected string — for copy, notes, sharing, and the list label.
+  final String selectedText;
+
+  /// True when this highlight covers a character range rather than a whole
+  /// block. Legacy highlights (no [startChar]) render as whole-block, as before.
+  bool get isRange => startChar != null && endChar != null;
+
+  /// The range's last block, defaulting to [blockIndex] for a single-block
+  /// range.
+  int get rangeEndBlock => endBlockIndex ?? blockIndex;
+
   Bookmark copyWith({
     bool? isHighlight,
     String? note,
@@ -77,6 +103,10 @@ class Bookmark {
     isHighlight: isHighlight ?? this.isHighlight,
     note: note ?? this.note,
     color: color ?? this.color,
+    endBlockIndex: endBlockIndex,
+    startChar: startChar,
+    endChar: endChar,
+    selectedText: selectedText,
   );
 
   Map<String, dynamic> toJson() => {
@@ -89,6 +119,10 @@ class Bookmark {
     if (isHighlight) 'isHighlight': true,
     if (note.isNotEmpty) 'note': note,
     if (color != HighlightColor.yellow) 'color': color.name,
+    if (startChar != null) 'startChar': startChar,
+    if (endChar != null) 'endChar': endChar,
+    if (endBlockIndex != null) 'endBlockIndex': endBlockIndex,
+    if (selectedText.isNotEmpty) 'selectedText': selectedText,
   };
 
   factory Bookmark.fromJson(Map<String, dynamic> json) => Bookmark(
@@ -102,5 +136,9 @@ class Bookmark {
     isHighlight: json['isHighlight'] == true,
     note: json['note'] as String? ?? '',
     color: HighlightColor.fromName(json['color'] as String?),
+    startChar: (json['startChar'] as num?)?.toInt(),
+    endChar: (json['endChar'] as num?)?.toInt(),
+    endBlockIndex: (json['endBlockIndex'] as num?)?.toInt(),
+    selectedText: json['selectedText'] as String? ?? '',
   );
 }

@@ -62,6 +62,12 @@ class BookmarkRows extends Table {
   TextColumn get note => text().withDefault(const Constant(''))();
   TextColumn get color => text().withDefault(const Constant('yellow'))();
 
+  /// Character-range highlight fields (null on legacy whole-block highlights).
+  IntColumn get startChar => integer().nullable()();
+  IntColumn get endChar => integer().nullable()();
+  IntColumn get endBlockIndex => integer().nullable()();
+  TextColumn get selectedText => text().withDefault(const Constant(''))();
+
   @override
   Set<Column<Object>> get primaryKey => {volumeKey, bookmarkId};
 }
@@ -178,7 +184,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -208,6 +214,13 @@ class AppDatabase extends _$AppDatabase {
       if (from < 5) {
         // v5: recommendation outcome tracking (impressions/taps).
         await m.createTable(recOutcomeRows);
+      }
+      if (from < 6) {
+        // v6: character-range highlights (Tier 3 text selection).
+        await m.addColumn(bookmarkRows, bookmarkRows.startChar);
+        await m.addColumn(bookmarkRows, bookmarkRows.endChar);
+        await m.addColumn(bookmarkRows, bookmarkRows.endBlockIndex);
+        await m.addColumn(bookmarkRows, bookmarkRows.selectedText);
       }
     },
   );

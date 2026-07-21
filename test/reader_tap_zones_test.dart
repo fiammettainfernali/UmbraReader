@@ -12,8 +12,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:umbra_reader/models/bookmark.dart';
 import 'package:umbra_reader/models/volume.dart';
 import 'package:umbra_reader/screens/reader_screen.dart';
+import 'package:umbra_reader/services/bookmark_store.dart';
 import 'package:umbra_reader/services/cloud_sync_service.dart';
 import 'package:umbra_reader/services/library_storage.dart';
 
@@ -387,7 +389,7 @@ void main() {
     CloudSyncService().cancelPendingTimers();
   });
 
-  testWidgets('long-press on a word opens the dictionary for it', (
+  testWidgets('long-press selects a word and Define looks it up', (
     tester,
   ) async {
     final defined = <String>[];
@@ -407,19 +409,76 @@ void main() {
 
     final paragraph = find.textContaining('Short first', findRichText: true);
     expect(paragraph, findsOneWidget);
-    // Press ON the first word — the widget's centre is past the end of this
-    // short line, which correctly resolves to nothing.
+    // Long-press a word → the selection action bar appears (scroll mode).
     await tester.longPressAt(
       tester.getTopLeft(paragraph) + const Offset(24, 12),
     );
     await tester.pump();
+    expect(find.text('Copy'), findsOneWidget, reason: 'selection bar shows');
+    expect(find.text('Define'), findsOneWidget);
 
-    expect(defined, hasLength(1), reason: 'long-press must hit the bridge');
+    // Define looks up the selected word through the bridge.
+    await tester.tap(find.text('Define'));
+    await tester.pump();
+    expect(defined, hasLength(1), reason: 'Define must hit the bridge');
     expect(
       RegExp('Short|first|chapter').hasMatch(defined.single),
       isTrue,
       reason: 'looked-up word was "${defined.single}"',
     );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    CloudSyncService().cancelPendingTimers();
+  });
+
+  testWidgets('Copy puts the selected text on the clipboard', (tester) async {
+    await tester.pumpWidget(MaterialApp(home: ReaderScreen(volume: _volume())));
+    await _settle(tester);
+
+    final paragraph = find.textContaining('Short first', findRichText: true);
+    await tester.longPressAt(
+      tester.getTopLeft(paragraph) + const Offset(24, 12),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Copy'));
+    await tester.pump();
+
+    // Copy dismisses the selection and confirms with a snackbar.
+    expect(find.text('Copy'), findsNothing, reason: 'copy clears the selection');
+    expect(find.text('Copied'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 5)); // flush the snackbar timer
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    CloudSyncService().cancelPendingTimers();
+  });
+
+  testWidgets('highlighting a selection persists a range highlight', (
+    tester,
+  ) async {
+    await tester.pumpWidget(MaterialApp(home: ReaderScreen(volume: _volume())));
+    await _settle(tester);
+
+    final paragraph = find.textContaining('Short first', findRichText: true);
+    await tester.longPressAt(
+      tester.getTopLeft(paragraph) + const Offset(24, 12),
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey(HighlightColor.yellow)));
+    await tester.pump();
+    // Let the async DB write + highlight refresh complete.
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 300)),
+    );
+    await tester.pump();
+
+    final marks = await BookmarkStore().list(_volume());
+    final ranges = marks.where((m) => m.isHighlight && m.isRange).toList();
+    expect(ranges, hasLength(1), reason: 'a range highlight was saved');
+    expect(ranges.single.selectedText.trim(), isNotEmpty);
+    expect(ranges.single.color, HighlightColor.yellow);
+    expect(ranges.single.startChar, isNotNull);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();

@@ -184,7 +184,7 @@ void main() {
     CloudSyncService().cancelPendingTimers();
   });
 
-  testWidgets('long-press ON a word still opens the dictionary, no marker', (
+  testWidgets('long-press ON a word selects it, never quick-captures', (
     tester,
   ) async {
     final volume = _volume();
@@ -197,9 +197,12 @@ void main() {
     );
     await tester.pump();
 
-    expect(defined, hasLength(1), reason: 'word lookup keeps its gesture');
+    // Scroll mode: a word long-press starts a selection (with a Define
+    // action), not the old instant dictionary and never a quick-capture.
+    expect(find.text('Define'), findsOneWidget, reason: 'a word press selects');
+    expect(defined, isEmpty, reason: 'selection must not auto-define');
     final marks = await tester.runAsync(() => BookmarkStore().list(volume));
-    expect(marks, isEmpty, reason: 'a dictionary press must not capture');
+    expect(marks, isEmpty, reason: 'a word long-press must not capture');
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();

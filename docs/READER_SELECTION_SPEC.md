@@ -130,10 +130,20 @@ readers behave.
 
 ## 8. Phasing
 
-- **Phase A — single-block MVP.** Long-press selects a word; drag handles extend
-  *within one paragraph*; toolbar with Copy + Highlight(range) + Define. Range
-  model + range rendering land here. This alone closes most of the gap and de-
-  risks the geometry.
+- **Phase A — single-block MVP. SHIPPED 2026-07-21.** Long-press selects the
+  word (scroll mode); a long-press *drag* extends the selection within the
+  paragraph out from the seed word (no separate handle widgets — the extension
+  rides the long-press gesture that already won the arena, per §3); a Copy /
+  Define / 4-colour-Highlight bar appears; a tap dismisses. Range model landed
+  as four `Bookmark` fields + a drift schema v6 migration (`startChar`,
+  `endChar`, `endBlockIndex`, `selectedText`); range *rendering* reuses
+  `BlockView`'s span-splitting (generalised from the single read-aloud range to
+  a list of coloured ranges), so no CustomPainter or `getBoxesForSelection` was
+  needed and measure==render holds for free. Paged mode keeps the old
+  instant-dictionary long-press until Phase D. Covered by `reader_tap_zones_test`
+  (select→Define, Copy→clipboard, Highlight→persisted range) and an updated
+  `reader_quick_capture_test`. Handle-drag *re-adjustment* after release,
+  deferred to a follow-up.
 - **Phase B — cross-block (scroll mode).** Extend handles across paragraphs;
   multi-block box painting; Note.
 - **Phase C — Translate + Share**, and re-tapping a highlight to edit/remove.

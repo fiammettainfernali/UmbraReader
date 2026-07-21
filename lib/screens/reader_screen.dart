@@ -113,6 +113,21 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// when there's nowhere to return to. Ephemeral — never saved or synced.
   ({int chapter, int block, String label})? _returnPoint;
 
+  /// Active text selection (Phase A: scroll mode, single block) — the block
+  /// index and the [start, end) char range in that block's joined run text.
+  /// Null when nothing is selected. Drives the selection tint + action bar.
+  ({int block, int start, int end})? _selection;
+
+  /// The selection block's full joined run text, and the seed word's bounds,
+  /// cached so a drag can extend the selection out from the long-pressed word.
+  String _selectionBlockText = '';
+  int _selAnchorStart = 0;
+  int _selAnchorEnd = 0;
+
+  /// Saved range highlights for the current chapter, keyed by block index.
+  Map<int, List<({int start, int end, HighlightColor color})>>
+  _rangeHighlights = const {};
+
   /// When the last chapter change happened. Edge-crossing is suppressed for a
   /// short window afterward so the scrollable settling into the new chapter
   /// can't trigger a second (skipped-chapter) cross.
@@ -1113,6 +1128,19 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// dictionary. The word under the finger is resolved with the same
   /// TextPainter layout math the pagination uses, so it's exact.
   void _onContentLongPress(LongPressStartDetails details) {
+    // Scroll mode starts a text selection at the pressed word (Tier 3 Phase
+    // A). Paged / focus modes keep the instant-dictionary gesture until paged
+    // selection lands — see docs/READER_SELECTION_SPEC.md.
+    if (_settings.mode == ReadingMode.scroll && !_settings.focusParagraph) {
+      final hit = _selectionHitAt(details.globalPosition);
+      if (hit != null) {
+        _beginSelection(hit);
+        return;
+      }
+      // No word under the press → quick thought-capture.
+      _quickCaptureThought();
+      return;
+    }
     final word = _wordAt(details.globalPosition);
     // A long-press that lands on NO word — margins, the gap between
     // paragraphs, past a line's end — is the quick thought-capture gesture.
@@ -1122,6 +1150,166 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
     _hapticSelection();
     DictionaryService().define(word);
+  }
+
+  void _onContentLongPressMove(LongPressMoveUpdateDetails details) {
+    final sel = _selection;
+    if (sel == null) return;
+    final hit = _selectionHitAt(details.globalPosition);
+    // Phase A: stay within the block the selection started in.
+    if (hit == null || hit.block != sel.block) return;
+    _extendSelection(hit.offset);
+  }
+
+  /// Resolves a scroll-mode press to the block index and character offset (and
+  /// the word boundary there) under the point — the selection counterpart to
+  /// [_wordAt], returning positions instead of the word string.
+  ({int block, int offset, int wordStart, int wordEnd, String text})?
+  _selectionHitAt(Offset global) {
+    final blocks = _blocks;
+    if (blocks == null || blocks.isEmpty) return null;
+    if (_settings.mode != ReadingMode.scroll || _settings.focusParagraph) {
+      return null;
+    }
+    final mq = MediaQuery.of(context);
+    final areaWidth = _settings.centeredColumn && !_settings.tvMode
+        ? math.min(mq.size.width, _centeredColumnWidth)
+        : mq.size.width;
+    final contentLeft = (mq.size.width - areaWidth) / 2;
+    final contentTop = _chromeVisible
+        ? mq.padding.top + kTopBarHeight
+        : mq.padding.top + 8;
+    final (block, _, localX, localY) = _scrollHit(
+      global,
+      contentLeft,
+      contentTop,
+    );
+    if (block == null) return null;
+    final blockIndex = blocks.indexOf(block);
+    if (blockIndex < 0) return null;
+    final ParagraphBlock? paragraph = switch (block) {
+      ParagraphBlock p => p,
+      HeadingBlock h => ParagraphBlock(h.runs),
+      _ => null,
+    };
+    if (paragraph == null) return null;
+    final width = areaWidth - 2 * _settings.margin;
+    final style = block is HeadingBlock
+        ? headingStyle(_settings, block.level, _settings.theme.text)
+        : paragraphStyle(_settings, _settings.theme.text);
+    final painter = TextPainter(
+      text: runSpan(effectiveRuns(paragraph.runs, _settings), style),
+      textDirection: TextDirection.ltr,
+      textScaler: TextScaler.noScaling,
+    )..layout(maxWidth: width);
+    if (localY < 0 || localY > painter.height) return null;
+    final pos = painter.getPositionForOffset(Offset(localX, localY));
+    final text = paragraph.runs.map((r) => r.text).join();
+    final range = painter.getWordBoundary(pos);
+    if (range.start >= range.end || range.end > text.length) return null;
+    final word = text.substring(range.start, range.end);
+    if (!RegExp(r'\p{L}', unicode: true).hasMatch(word)) return null;
+    return (
+      block: blockIndex,
+      offset: pos.offset,
+      wordStart: range.start,
+      wordEnd: range.end,
+      text: text,
+    );
+  }
+
+  void _beginSelection(
+    ({int block, int offset, int wordStart, int wordEnd, String text}) hit,
+  ) {
+    _hapticSelection();
+    setState(() {
+      _selection = (block: hit.block, start: hit.wordStart, end: hit.wordEnd);
+      _selectionBlockText = hit.text;
+      _selAnchorStart = hit.wordStart;
+      _selAnchorEnd = hit.wordEnd;
+    });
+  }
+
+  /// Extends the selection out from the seed word to [offset], snapping the
+  /// far end to the drag while keeping the seed word covered.
+  void _extendSelection(int offset) {
+    final sel = _selection;
+    if (sel == null) return;
+    final o = offset.clamp(0, _selectionBlockText.length);
+    final int start;
+    final int end;
+    if (o >= _selAnchorEnd) {
+      start = _selAnchorStart;
+      end = o;
+    } else if (o <= _selAnchorStart) {
+      start = o;
+      end = _selAnchorEnd;
+    } else {
+      start = _selAnchorStart;
+      end = _selAnchorEnd;
+    }
+    if (start == sel.start && end == sel.end) return;
+    setState(() => _selection = (block: sel.block, start: start, end: end));
+  }
+
+  void _clearSelection() {
+    if (_selection == null) return;
+    setState(() => _selection = null);
+  }
+
+  String get _selectedText {
+    final sel = _selection;
+    if (sel == null) return '';
+    final t = _selectionBlockText;
+    return t.substring(
+      sel.start.clamp(0, t.length),
+      sel.end.clamp(0, t.length),
+    );
+  }
+
+  void _copySelection() {
+    final text = _selectedText;
+    _clearSelection();
+    if (text.isEmpty) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(const SnackBar(content: Text('Copied')));
+    // Fire-and-forget: the clipboard write shouldn't block dismissal.
+    unawaited(Clipboard.setData(ClipboardData(text: text)));
+  }
+
+  void _defineSelection() {
+    final text = _selectedText.trim();
+    _clearSelection();
+    if (text.isEmpty) return;
+    // A phrase resolves to its first word for the dictionary.
+    DictionaryService().define(text.split(RegExp(r'\s+')).first);
+  }
+
+  Future<void> _highlightSelection(HighlightColor color) async {
+    final sel = _selection;
+    final book = _book;
+    if (sel == null || book == null) return;
+    final text = _selectedText;
+    await BookmarkStore().add(
+      widget.volume,
+      Bookmark(
+        id: DateTime.now().microsecondsSinceEpoch.toString(),
+        chapterIndex: _chapterIndex,
+        blockIndex: sel.block,
+        chapterTitle: book.chapters[_chapterIndex].title,
+        snippet: _shortSnippet(text),
+        createdAt: DateTime.now(),
+        isHighlight: true,
+        color: color,
+        startChar: sel.start,
+        endChar: sel.end,
+        selectedText: text,
+      ),
+    );
+    _clearSelection();
+    await _refreshHighlights();
+    _hapticSelection();
   }
 
   /// Quick thought capture (Phase 6): instantly drops a bookmark at the
@@ -1373,6 +1561,11 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Routes a tap on the page: the left and right edges turn the page, while
   /// the centre toggles the reading chrome.
   void _onContentTap(TapUpDetails details) {
+    // A tap while text is selected just dismisses the selection.
+    if (_selection != null) {
+      _clearSelection();
+      return;
+    }
     // While the chrome is up, any tap on the page just dismisses it — the
     // edge zones stay dormant. Otherwise a tap meant to close the menu
     // that landed near an edge flipped a page as a side effect.
@@ -1965,12 +2158,29 @@ class _ReaderScreenState extends State<ReaderScreen>
   Future<void> _refreshHighlights() async {
     final all = await BookmarkStore().list(widget.volume);
     if (!mounted) return;
+    final ranges =
+        <int, List<({int start, int end, HighlightColor color})>>{};
+    for (final mark in all) {
+      if (!mark.isHighlight ||
+          mark.chapterIndex != _chapterIndex ||
+          !mark.isRange) {
+        continue;
+      }
+      ranges.putIfAbsent(mark.blockIndex, () => []).add((
+        start: mark.startChar!,
+        end: mark.endChar!,
+        color: mark.color,
+      ));
+    }
     setState(() {
       _highlightedBlocks = {
         for (final mark in all)
-          if (mark.isHighlight && mark.chapterIndex == _chapterIndex)
+          if (mark.isHighlight &&
+              mark.chapterIndex == _chapterIndex &&
+              !mark.isRange)
             mark.blockIndex: mark.color,
       };
+      _rangeHighlights = ranges;
     });
   }
 
@@ -2524,6 +2734,7 @@ class _ReaderScreenState extends State<ReaderScreen>
           child: GestureDetector(
             onTapUp: _onContentTap,
             onLongPressStart: _onContentLongPress,
+            onLongPressMoveUpdate: _onContentLongPressMove,
             // Only present when an action is set, so single taps aren't
             // delayed waiting to disambiguate a possible double-tap.
             onDoubleTap:
@@ -2566,6 +2777,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                       behavior: HitTestBehavior.opaque,
                       onTapUp: _onContentTap,
                       onLongPressStart: _onContentLongPress,
+                      onLongPressMoveUpdate: _onContentLongPressMove,
                       onVerticalDragStart: _onBrightnessDragStart,
                       onVerticalDragUpdate: _onBrightnessDragUpdate,
                       onVerticalDragEnd: _onBrightnessDragEnd,
@@ -2698,6 +2910,19 @@ class _ReaderScreenState extends State<ReaderScreen>
                     right: 0,
                     bottom: bottomSpace + 64,
                     child: Center(child: _returnChip(preset)),
+                  ),
+                // Text-selection action bar (Tier 3 Phase A).
+                if (_selection != null)
+                  Positioned(
+                    top: topSpace + 8,
+                    left: 8,
+                    right: 8,
+                    child: Center(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: _selectionToolbar(preset),
+                      ),
+                    ),
                   ),
                 // Gentle session timer: a quiet fill along the very bottom
                 // edge creeping toward the target — no alarm, just presence.
@@ -2835,6 +3060,89 @@ class _ReaderScreenState extends State<ReaderScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// The wash painted behind the live selection — an iOS-ish blue, distinct
+  /// from the coloured saved-highlight tints.
+  Color get _selectionTint => const Color(0xFF4C8DFF).withValues(alpha: 0.35);
+
+  /// The action bar shown above an active selection: copy, define, and the
+  /// four highlight colours.
+  Widget _selectionToolbar(ReaderThemePreset preset) {
+    return Material(
+      color: preset.background.withValues(alpha: 0.98),
+      elevation: 4,
+      shape: StadiumBorder(
+        side: BorderSide(color: preset.text.withValues(alpha: 0.15)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _selAction(preset, Icons.copy_outlined, 'Copy', _copySelection),
+            _selAction(
+              preset,
+              Icons.menu_book_outlined,
+              'Define',
+              _defineSelection,
+            ),
+            const SizedBox(width: 2),
+            for (final c in HighlightColor.values) _selHighlightDot(preset, c),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _selAction(
+    ReaderThemePreset preset,
+    IconData icon,
+    String label,
+    VoidCallback onTap,
+  ) {
+    return InkWell(
+      customBorder: const StadiumBorder(),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: preset.text.withValues(alpha: 0.8)),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: TextStyle(
+                color: preset.text,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _selHighlightDot(ReaderThemePreset preset, HighlightColor c) {
+    return InkWell(
+      key: ValueKey(c),
+      customBorder: const CircleBorder(),
+      onTap: () => _highlightSelection(c),
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: Container(
+          width: 20,
+          height: 20,
+          decoration: BoxDecoration(
+            color: highlightPaintFor(c),
+            shape: BoxShape.circle,
+            border: Border.all(color: preset.text.withValues(alpha: 0.3)),
+          ),
+        ),
       ),
     );
   }
@@ -3028,15 +3336,25 @@ class _ReaderScreenState extends State<ReaderScreen>
         vertical: kContentVPad,
       ),
       itemCount: blocks.length,
-      itemBuilder: (context, index) => BlockView(
-        block: blocks[index],
-        settings: _settings,
-        preset: preset,
-        highlightStart: index == speakingBlock ? speakingStart : null,
-        highlightEnd: index == speakingBlock ? speakingEnd : null,
-        highlightColor: _highlightedBlocks[index],
-        reentry: _reentryBlock == index,
-      ),
+      itemBuilder: (context, index) {
+        final sel = _selection;
+        final ranges = <({int start, int end, Color color})>[
+          for (final r in (_rangeHighlights[index] ?? const []))
+            (start: r.start, end: r.end, color: highlightPaintFor(r.color)),
+          if (sel != null && sel.block == index)
+            (start: sel.start, end: sel.end, color: _selectionTint),
+        ];
+        return BlockView(
+          block: blocks[index],
+          settings: _settings,
+          preset: preset,
+          highlightStart: index == speakingBlock ? speakingStart : null,
+          highlightEnd: index == speakingBlock ? speakingEnd : null,
+          highlightColor: _highlightedBlocks[index],
+          ranges: ranges,
+          reentry: _reentryBlock == index,
+        );
+      },
     );
   }
 

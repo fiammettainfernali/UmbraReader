@@ -17,6 +17,7 @@ class BlockView extends StatelessWidget {
     this.highlightStart,
     this.highlightEnd,
     this.highlightColor,
+    this.ranges = const [],
     this.reentry = false,
   });
 
@@ -35,6 +36,12 @@ class BlockView extends StatelessWidget {
   /// Non-null when the user has saved a passage highlight on this block —
   /// the paragraph/heading body is painted with the matching tint.
   final HighlightColor? highlightColor;
+
+  /// Character ranges to paint with a background colour — saved range
+  /// highlights and the live text selection. Painted on top of the base runs
+  /// alongside the read-aloud [highlightStart]/[highlightEnd] range. Later
+  /// ranges win where they overlap.
+  final List<({int start, int end, Color color})> ranges;
 
   /// When true this is the paragraph the reader was resumed onto after a gap
   /// — briefly wash it in the highlight tint (fading out) so the eye lands on
@@ -168,21 +175,34 @@ class BlockView extends StatelessWidget {
     );
   }
 
-  /// Builds the run spans, giving the highlighted character range a
-  /// background colour (splitting runs at the highlight boundaries).
+  /// Builds the run spans, painting a background colour behind any character
+  /// ranges — the read-aloud sentence ([highlightStart]/[highlightEnd]),
+  /// saved range highlights, and the live selection ([ranges]). Runs are split
+  /// at every range boundary; where ranges overlap, the later one wins.
   List<InlineSpan> _spansFor(
     BuildContext context,
     List<TextRun> runs,
     TextStyle base,
   ) {
-    final hs = highlightStart;
-    final he = highlightEnd;
+    final all = <({int start, int end, Color color})>[
+      ...ranges,
+      if (highlightStart != null && highlightEnd != null)
+        (start: highlightStart!, end: highlightEnd!, color: preset.highlight),
+    ];
+    // The background colour covering absolute offset [i], or null.
+    Color? bgAt(int i) {
+      Color? c;
+      for (final r in all) {
+        if (i >= r.start && i < r.end) c = r.color;
+      }
+      return c;
+    }
+
     final spans = <InlineSpan>[];
     var offset = 0;
     for (final run in runs) {
       final runStart = offset;
-      final runEnd = offset + run.text.length;
-      offset = runEnd;
+      offset += run.text.length;
       final style = base.copyWith(
         fontWeight: run.bold ? FontWeight.bold : null,
         fontStyle: run.italic ? FontStyle.italic : null,
@@ -212,23 +232,27 @@ class BlockView extends StatelessWidget {
         );
         continue;
       }
-      if (hs == null || he == null || he <= runStart || hs >= runEnd) {
-        spans.add(TextSpan(text: run.text, style: style));
-        continue;
+      // Cut the run at every range boundary that falls inside it, then colour
+      // each segment by whichever range covers its middle.
+      final cuts = <int>{0, run.text.length};
+      for (final r in all) {
+        final a = r.start - runStart;
+        final b = r.end - runStart;
+        if (a > 0 && a < run.text.length) cuts.add(a);
+        if (b > 0 && b < run.text.length) cuts.add(b);
       }
-      final a = (hs - runStart).clamp(0, run.text.length);
-      final b = (he - runStart).clamp(0, run.text.length);
-      if (a > 0) {
-        spans.add(TextSpan(text: run.text.substring(0, a), style: style));
-      }
-      spans.add(
-        TextSpan(
-          text: run.text.substring(a, b),
-          style: style.copyWith(backgroundColor: preset.highlight),
-        ),
-      );
-      if (b < run.text.length) {
-        spans.add(TextSpan(text: run.text.substring(b), style: style));
+      final points = cuts.toList()..sort();
+      for (var i = 0; i < points.length - 1; i++) {
+        final segStart = points[i];
+        final segEnd = points[i + 1];
+        if (segEnd <= segStart) continue;
+        final bg = bgAt(runStart + (segStart + segEnd) ~/ 2);
+        spans.add(
+          TextSpan(
+            text: run.text.substring(segStart, segEnd),
+            style: bg == null ? style : style.copyWith(backgroundColor: bg),
+          ),
+        );
       }
     }
     return spans;

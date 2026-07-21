@@ -822,6 +822,51 @@ class $BookmarkRowsTable extends BookmarkRows
     requiredDuringInsert: false,
     defaultValue: const Constant('yellow'),
   );
+  static const VerificationMeta _startCharMeta = const VerificationMeta(
+    'startChar',
+  );
+  @override
+  late final GeneratedColumn<int> startChar = GeneratedColumn<int>(
+    'start_char',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _endCharMeta = const VerificationMeta(
+    'endChar',
+  );
+  @override
+  late final GeneratedColumn<int> endChar = GeneratedColumn<int>(
+    'end_char',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _endBlockIndexMeta = const VerificationMeta(
+    'endBlockIndex',
+  );
+  @override
+  late final GeneratedColumn<int> endBlockIndex = GeneratedColumn<int>(
+    'end_block_index',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _selectedTextMeta = const VerificationMeta(
+    'selectedText',
+  );
+  @override
+  late final GeneratedColumn<String> selectedText = GeneratedColumn<String>(
+    'selected_text',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     volumeKey,
@@ -834,6 +879,10 @@ class $BookmarkRowsTable extends BookmarkRows
     isHighlight,
     note,
     color,
+    startChar,
+    endChar,
+    endBlockIndex,
+    selectedText,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -920,6 +969,36 @@ class $BookmarkRowsTable extends BookmarkRows
         color.isAcceptableOrUnknown(data['color']!, _colorMeta),
       );
     }
+    if (data.containsKey('start_char')) {
+      context.handle(
+        _startCharMeta,
+        startChar.isAcceptableOrUnknown(data['start_char']!, _startCharMeta),
+      );
+    }
+    if (data.containsKey('end_char')) {
+      context.handle(
+        _endCharMeta,
+        endChar.isAcceptableOrUnknown(data['end_char']!, _endCharMeta),
+      );
+    }
+    if (data.containsKey('end_block_index')) {
+      context.handle(
+        _endBlockIndexMeta,
+        endBlockIndex.isAcceptableOrUnknown(
+          data['end_block_index']!,
+          _endBlockIndexMeta,
+        ),
+      );
+    }
+    if (data.containsKey('selected_text')) {
+      context.handle(
+        _selectedTextMeta,
+        selectedText.isAcceptableOrUnknown(
+          data['selected_text']!,
+          _selectedTextMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -969,6 +1048,22 @@ class $BookmarkRowsTable extends BookmarkRows
         DriftSqlType.string,
         data['${effectivePrefix}color'],
       )!,
+      startChar: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}start_char'],
+      ),
+      endChar: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}end_char'],
+      ),
+      endBlockIndex: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}end_block_index'],
+      ),
+      selectedText: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}selected_text'],
+      )!,
     );
   }
 
@@ -990,6 +1085,12 @@ class BookmarkRow extends DataClass implements Insertable<BookmarkRow> {
   final bool isHighlight;
   final String note;
   final String color;
+
+  /// Character-range highlight fields (null on legacy whole-block highlights).
+  final int? startChar;
+  final int? endChar;
+  final int? endBlockIndex;
+  final String selectedText;
   const BookmarkRow({
     required this.volumeKey,
     required this.bookmarkId,
@@ -1001,6 +1102,10 @@ class BookmarkRow extends DataClass implements Insertable<BookmarkRow> {
     required this.isHighlight,
     required this.note,
     required this.color,
+    this.startChar,
+    this.endChar,
+    this.endBlockIndex,
+    required this.selectedText,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1015,6 +1120,16 @@ class BookmarkRow extends DataClass implements Insertable<BookmarkRow> {
     map['is_highlight'] = Variable<bool>(isHighlight);
     map['note'] = Variable<String>(note);
     map['color'] = Variable<String>(color);
+    if (!nullToAbsent || startChar != null) {
+      map['start_char'] = Variable<int>(startChar);
+    }
+    if (!nullToAbsent || endChar != null) {
+      map['end_char'] = Variable<int>(endChar);
+    }
+    if (!nullToAbsent || endBlockIndex != null) {
+      map['end_block_index'] = Variable<int>(endBlockIndex);
+    }
+    map['selected_text'] = Variable<String>(selectedText);
     return map;
   }
 
@@ -1030,6 +1145,16 @@ class BookmarkRow extends DataClass implements Insertable<BookmarkRow> {
       isHighlight: Value(isHighlight),
       note: Value(note),
       color: Value(color),
+      startChar: startChar == null && nullToAbsent
+          ? const Value.absent()
+          : Value(startChar),
+      endChar: endChar == null && nullToAbsent
+          ? const Value.absent()
+          : Value(endChar),
+      endBlockIndex: endBlockIndex == null && nullToAbsent
+          ? const Value.absent()
+          : Value(endBlockIndex),
+      selectedText: Value(selectedText),
     );
   }
 
@@ -1049,6 +1174,10 @@ class BookmarkRow extends DataClass implements Insertable<BookmarkRow> {
       isHighlight: serializer.fromJson<bool>(json['isHighlight']),
       note: serializer.fromJson<String>(json['note']),
       color: serializer.fromJson<String>(json['color']),
+      startChar: serializer.fromJson<int?>(json['startChar']),
+      endChar: serializer.fromJson<int?>(json['endChar']),
+      endBlockIndex: serializer.fromJson<int?>(json['endBlockIndex']),
+      selectedText: serializer.fromJson<String>(json['selectedText']),
     );
   }
   @override
@@ -1065,6 +1194,10 @@ class BookmarkRow extends DataClass implements Insertable<BookmarkRow> {
       'isHighlight': serializer.toJson<bool>(isHighlight),
       'note': serializer.toJson<String>(note),
       'color': serializer.toJson<String>(color),
+      'startChar': serializer.toJson<int?>(startChar),
+      'endChar': serializer.toJson<int?>(endChar),
+      'endBlockIndex': serializer.toJson<int?>(endBlockIndex),
+      'selectedText': serializer.toJson<String>(selectedText),
     };
   }
 
@@ -1079,6 +1212,10 @@ class BookmarkRow extends DataClass implements Insertable<BookmarkRow> {
     bool? isHighlight,
     String? note,
     String? color,
+    Value<int?> startChar = const Value.absent(),
+    Value<int?> endChar = const Value.absent(),
+    Value<int?> endBlockIndex = const Value.absent(),
+    String? selectedText,
   }) => BookmarkRow(
     volumeKey: volumeKey ?? this.volumeKey,
     bookmarkId: bookmarkId ?? this.bookmarkId,
@@ -1090,6 +1227,12 @@ class BookmarkRow extends DataClass implements Insertable<BookmarkRow> {
     isHighlight: isHighlight ?? this.isHighlight,
     note: note ?? this.note,
     color: color ?? this.color,
+    startChar: startChar.present ? startChar.value : this.startChar,
+    endChar: endChar.present ? endChar.value : this.endChar,
+    endBlockIndex: endBlockIndex.present
+        ? endBlockIndex.value
+        : this.endBlockIndex,
+    selectedText: selectedText ?? this.selectedText,
   );
   BookmarkRow copyWithCompanion(BookmarkRowsCompanion data) {
     return BookmarkRow(
@@ -1113,6 +1256,14 @@ class BookmarkRow extends DataClass implements Insertable<BookmarkRow> {
           : this.isHighlight,
       note: data.note.present ? data.note.value : this.note,
       color: data.color.present ? data.color.value : this.color,
+      startChar: data.startChar.present ? data.startChar.value : this.startChar,
+      endChar: data.endChar.present ? data.endChar.value : this.endChar,
+      endBlockIndex: data.endBlockIndex.present
+          ? data.endBlockIndex.value
+          : this.endBlockIndex,
+      selectedText: data.selectedText.present
+          ? data.selectedText.value
+          : this.selectedText,
     );
   }
 
@@ -1128,7 +1279,11 @@ class BookmarkRow extends DataClass implements Insertable<BookmarkRow> {
           ..write('createdAt: $createdAt, ')
           ..write('isHighlight: $isHighlight, ')
           ..write('note: $note, ')
-          ..write('color: $color')
+          ..write('color: $color, ')
+          ..write('startChar: $startChar, ')
+          ..write('endChar: $endChar, ')
+          ..write('endBlockIndex: $endBlockIndex, ')
+          ..write('selectedText: $selectedText')
           ..write(')'))
         .toString();
   }
@@ -1145,6 +1300,10 @@ class BookmarkRow extends DataClass implements Insertable<BookmarkRow> {
     isHighlight,
     note,
     color,
+    startChar,
+    endChar,
+    endBlockIndex,
+    selectedText,
   );
   @override
   bool operator ==(Object other) =>
@@ -1159,7 +1318,11 @@ class BookmarkRow extends DataClass implements Insertable<BookmarkRow> {
           other.createdAt == this.createdAt &&
           other.isHighlight == this.isHighlight &&
           other.note == this.note &&
-          other.color == this.color);
+          other.color == this.color &&
+          other.startChar == this.startChar &&
+          other.endChar == this.endChar &&
+          other.endBlockIndex == this.endBlockIndex &&
+          other.selectedText == this.selectedText);
 }
 
 class BookmarkRowsCompanion extends UpdateCompanion<BookmarkRow> {
@@ -1173,6 +1336,10 @@ class BookmarkRowsCompanion extends UpdateCompanion<BookmarkRow> {
   final Value<bool> isHighlight;
   final Value<String> note;
   final Value<String> color;
+  final Value<int?> startChar;
+  final Value<int?> endChar;
+  final Value<int?> endBlockIndex;
+  final Value<String> selectedText;
   final Value<int> rowid;
   const BookmarkRowsCompanion({
     this.volumeKey = const Value.absent(),
@@ -1185,6 +1352,10 @@ class BookmarkRowsCompanion extends UpdateCompanion<BookmarkRow> {
     this.isHighlight = const Value.absent(),
     this.note = const Value.absent(),
     this.color = const Value.absent(),
+    this.startChar = const Value.absent(),
+    this.endChar = const Value.absent(),
+    this.endBlockIndex = const Value.absent(),
+    this.selectedText = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   BookmarkRowsCompanion.insert({
@@ -1198,6 +1369,10 @@ class BookmarkRowsCompanion extends UpdateCompanion<BookmarkRow> {
     this.isHighlight = const Value.absent(),
     this.note = const Value.absent(),
     this.color = const Value.absent(),
+    this.startChar = const Value.absent(),
+    this.endChar = const Value.absent(),
+    this.endBlockIndex = const Value.absent(),
+    this.selectedText = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : volumeKey = Value(volumeKey),
        bookmarkId = Value(bookmarkId);
@@ -1212,6 +1387,10 @@ class BookmarkRowsCompanion extends UpdateCompanion<BookmarkRow> {
     Expression<bool>? isHighlight,
     Expression<String>? note,
     Expression<String>? color,
+    Expression<int>? startChar,
+    Expression<int>? endChar,
+    Expression<int>? endBlockIndex,
+    Expression<String>? selectedText,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1225,6 +1404,10 @@ class BookmarkRowsCompanion extends UpdateCompanion<BookmarkRow> {
       if (isHighlight != null) 'is_highlight': isHighlight,
       if (note != null) 'note': note,
       if (color != null) 'color': color,
+      if (startChar != null) 'start_char': startChar,
+      if (endChar != null) 'end_char': endChar,
+      if (endBlockIndex != null) 'end_block_index': endBlockIndex,
+      if (selectedText != null) 'selected_text': selectedText,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1240,6 +1423,10 @@ class BookmarkRowsCompanion extends UpdateCompanion<BookmarkRow> {
     Value<bool>? isHighlight,
     Value<String>? note,
     Value<String>? color,
+    Value<int?>? startChar,
+    Value<int?>? endChar,
+    Value<int?>? endBlockIndex,
+    Value<String>? selectedText,
     Value<int>? rowid,
   }) {
     return BookmarkRowsCompanion(
@@ -1253,6 +1440,10 @@ class BookmarkRowsCompanion extends UpdateCompanion<BookmarkRow> {
       isHighlight: isHighlight ?? this.isHighlight,
       note: note ?? this.note,
       color: color ?? this.color,
+      startChar: startChar ?? this.startChar,
+      endChar: endChar ?? this.endChar,
+      endBlockIndex: endBlockIndex ?? this.endBlockIndex,
+      selectedText: selectedText ?? this.selectedText,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1290,6 +1481,18 @@ class BookmarkRowsCompanion extends UpdateCompanion<BookmarkRow> {
     if (color.present) {
       map['color'] = Variable<String>(color.value);
     }
+    if (startChar.present) {
+      map['start_char'] = Variable<int>(startChar.value);
+    }
+    if (endChar.present) {
+      map['end_char'] = Variable<int>(endChar.value);
+    }
+    if (endBlockIndex.present) {
+      map['end_block_index'] = Variable<int>(endBlockIndex.value);
+    }
+    if (selectedText.present) {
+      map['selected_text'] = Variable<String>(selectedText.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1309,6 +1512,10 @@ class BookmarkRowsCompanion extends UpdateCompanion<BookmarkRow> {
           ..write('isHighlight: $isHighlight, ')
           ..write('note: $note, ')
           ..write('color: $color, ')
+          ..write('startChar: $startChar, ')
+          ..write('endChar: $endChar, ')
+          ..write('endBlockIndex: $endBlockIndex, ')
+          ..write('selectedText: $selectedText, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3099,6 +3306,10 @@ typedef $$BookmarkRowsTableCreateCompanionBuilder =
       Value<bool> isHighlight,
       Value<String> note,
       Value<String> color,
+      Value<int?> startChar,
+      Value<int?> endChar,
+      Value<int?> endBlockIndex,
+      Value<String> selectedText,
       Value<int> rowid,
     });
 typedef $$BookmarkRowsTableUpdateCompanionBuilder =
@@ -3113,6 +3324,10 @@ typedef $$BookmarkRowsTableUpdateCompanionBuilder =
       Value<bool> isHighlight,
       Value<String> note,
       Value<String> color,
+      Value<int?> startChar,
+      Value<int?> endChar,
+      Value<int?> endBlockIndex,
+      Value<String> selectedText,
       Value<int> rowid,
     });
 
@@ -3172,6 +3387,26 @@ class $$BookmarkRowsTableFilterComposer
 
   ColumnFilters<String> get color => $composableBuilder(
     column: $table.color,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get startChar => $composableBuilder(
+    column: $table.startChar,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get endChar => $composableBuilder(
+    column: $table.endChar,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get endBlockIndex => $composableBuilder(
+    column: $table.endBlockIndex,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get selectedText => $composableBuilder(
+    column: $table.selectedText,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -3234,6 +3469,26 @@ class $$BookmarkRowsTableOrderingComposer
     column: $table.color,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get startChar => $composableBuilder(
+    column: $table.startChar,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get endChar => $composableBuilder(
+    column: $table.endChar,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get endBlockIndex => $composableBuilder(
+    column: $table.endBlockIndex,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get selectedText => $composableBuilder(
+    column: $table.selectedText,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$BookmarkRowsTableAnnotationComposer
@@ -3284,6 +3539,22 @@ class $$BookmarkRowsTableAnnotationComposer
 
   GeneratedColumn<String> get color =>
       $composableBuilder(column: $table.color, builder: (column) => column);
+
+  GeneratedColumn<int> get startChar =>
+      $composableBuilder(column: $table.startChar, builder: (column) => column);
+
+  GeneratedColumn<int> get endChar =>
+      $composableBuilder(column: $table.endChar, builder: (column) => column);
+
+  GeneratedColumn<int> get endBlockIndex => $composableBuilder(
+    column: $table.endBlockIndex,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get selectedText => $composableBuilder(
+    column: $table.selectedText,
+    builder: (column) => column,
+  );
 }
 
 class $$BookmarkRowsTableTableManager
@@ -3327,6 +3598,10 @@ class $$BookmarkRowsTableTableManager
                 Value<bool> isHighlight = const Value.absent(),
                 Value<String> note = const Value.absent(),
                 Value<String> color = const Value.absent(),
+                Value<int?> startChar = const Value.absent(),
+                Value<int?> endChar = const Value.absent(),
+                Value<int?> endBlockIndex = const Value.absent(),
+                Value<String> selectedText = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => BookmarkRowsCompanion(
                 volumeKey: volumeKey,
@@ -3339,6 +3614,10 @@ class $$BookmarkRowsTableTableManager
                 isHighlight: isHighlight,
                 note: note,
                 color: color,
+                startChar: startChar,
+                endChar: endChar,
+                endBlockIndex: endBlockIndex,
+                selectedText: selectedText,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -3353,6 +3632,10 @@ class $$BookmarkRowsTableTableManager
                 Value<bool> isHighlight = const Value.absent(),
                 Value<String> note = const Value.absent(),
                 Value<String> color = const Value.absent(),
+                Value<int?> startChar = const Value.absent(),
+                Value<int?> endChar = const Value.absent(),
+                Value<int?> endBlockIndex = const Value.absent(),
+                Value<String> selectedText = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => BookmarkRowsCompanion.insert(
                 volumeKey: volumeKey,
@@ -3365,6 +3648,10 @@ class $$BookmarkRowsTableTableManager
                 isHighlight: isHighlight,
                 note: note,
                 color: color,
+                startChar: startChar,
+                endChar: endChar,
+                endBlockIndex: endBlockIndex,
+                selectedText: selectedText,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
