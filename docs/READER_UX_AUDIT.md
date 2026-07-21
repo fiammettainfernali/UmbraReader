@@ -138,14 +138,20 @@ reclaim it.
   *Effort: ~3–4 days. Risk: moderate (gesture-arena coordination with taps and
   the PageView).*
 
-- **T4. Page-turn style option.** Off/slide (skip curl — it fights e-ink and the
-  calm aesthetic). Mostly a settings toggle over the existing animate-vs-jump
-  branch in `_advancePage`. *Effort: ~1 day. Risk: low.*
+- **T4. Page-turn style option — SHIPPED 2026-07-18.** `pageAnimations` bool +
+  an `_instantPageTurns` getter (`_reduceMotion || !pageAnimations`) driving the
+  animate-vs-jump branches in `_advancePage`/`_advanceRulerScroll`. Lets a reader
+  snap pages while keeping other motion, decoupled from global reduce-motion.
+  Curl skipped by design. "Animate page turns" toggle in the gestures section.
 
-- **T5. Opt-in gesture shortcuts.** Map double-tap and/or corner taps to chosen
-  actions (bookmark, TOC, brightness reset). Small action registry; off by
-  default so nothing surprises. *Effort: ~2 days. Risk: low–moderate (double-tap
-  vs single-tap arena timing).*
+- **T5. Opt-in gesture shortcuts — SHIPPED 2026-07-18.** `doubleTapAction` enum
+  (none/bookmark/contents/bookmarks-list). Crucially, `onDoubleTap` is only
+  wired when an action is set, so default users pay no single-tap
+  disambiguation latency. Dispatches to the existing
+  `_quickCaptureThought`/`_showTableOfContents`/`_openBookmarks`. Corner taps
+  deliberately deferred (more arena complexity for less value). Covered by
+  `reader_tap_zones_test` (instant-turn still advances; double-tap opens the
+  assigned action).
 
 ### Tier 3 — the marquee gap, genuinely hard
 

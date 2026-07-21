@@ -281,6 +281,60 @@ void main() {
     CloudSyncService().cancelPendingTimers();
   });
 
+  testWidgets('page turns still work with animations off', (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'reader_mode': 'paged',
+      'reader_page_animations': false,
+    });
+    await tester.pumpWidget(MaterialApp(home: ReaderScreen(volume: _volume())));
+    await _settle(tester);
+
+    final size = tester.getSize(find.byType(ReaderScreen));
+    final rightEdge = Offset(size.width * 0.9, size.height * 0.5);
+    await tester.tapAt(rightEdge); // hide chrome
+    await _settle(tester);
+    await tester.tapAt(rightEdge); // instant advance (single-page chapter → ch2)
+    await _settle(tester);
+    expect(
+      find.textContaining('Second chapter', findRichText: true),
+      findsOneWidget,
+      reason: 'instant page turns must still advance',
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    CloudSyncService().cancelPendingTimers();
+  });
+
+  testWidgets('an assigned double-tap runs its action', (tester) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'reader_double_tap_action': 'contents',
+    });
+    await tester.pumpWidget(MaterialApp(home: ReaderScreen(volume: _volume())));
+    await _settle(tester);
+
+    final size = tester.getSize(find.byType(ReaderScreen));
+    final centre = Offset(size.width * 0.5, size.height * 0.5);
+    await tester.tapAt(centre);
+    await tester.pump(const Duration(milliseconds: 60));
+    await tester.tapAt(centre);
+    await _settle(tester);
+
+    expect(
+      find.text('Contents'),
+      findsOneWidget,
+      reason: 'double-tap assigned to Contents must open the TOC',
+    );
+
+    // Dismiss the modal and let its close animation finish so no route timer
+    // outlives the disposed tree (_settle bails early without a spinner).
+    Navigator.of(tester.element(find.text('Contents'))).pop();
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    CloudSyncService().cancelPendingTimers();
+  });
+
   testWidgets('long-press on a word opens the dictionary for it', (
     tester,
   ) async {

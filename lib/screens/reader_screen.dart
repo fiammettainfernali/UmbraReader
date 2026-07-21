@@ -1391,6 +1391,22 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
   }
 
+  /// Opt-in double-tap shortcut. Only wired when the reader has chosen an
+  /// action, so single-tap page turns stay instant by default (a live
+  /// double-tap recogniser would delay every tap to disambiguate).
+  void _onDoubleTap() {
+    switch (_settings.doubleTapAction) {
+      case ReaderDoubleTap.none:
+        return;
+      case ReaderDoubleTap.bookmark:
+        _quickCaptureThought();
+      case ReaderDoubleTap.contents:
+        _showTableOfContents();
+      case ReaderDoubleTap.bookmarksList:
+        _openBookmarks();
+    }
+  }
+
   // ── edge-slide brightness ────────────────────────────────────────────────
 
   void _onBrightnessDragStart(DragStartDetails details) {
@@ -1600,6 +1616,11 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// reader's own in-app toggle (either one wins).
   bool get _reduceMotion =>
       MediaQuery.of(context).disableAnimations || _settings.reduceAnimations;
+
+  /// Page turns skip their slide/scroll animation when reduce-motion is on OR
+  /// the reader has switched page animations off specifically (keeping other
+  /// motion but snapping pages).
+  bool get _instantPageTurns => _reduceMotion || !_settings.pageAnimations;
 
   // Haptic taps, gated by the reader's haptic-feedback setting so the whole
   // page-turn/advance feel can be silenced for sensory comfort.
@@ -2180,7 +2201,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     final step = _rulerBandHeight;
     final target = (pos.pixels + (forward ? step : -step))
         .clamp(0.0, pos.maxScrollExtent);
-    if (_reduceMotion) {
+    if (_instantPageTurns) {
       _scrollController.jumpTo(target);
     } else {
       _scrollController.animateTo(
@@ -2199,7 +2220,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (forward) {
         if (current < pages.length - 1) {
           _hapticLight();
-          if (_reduceMotion) {
+          if (_instantPageTurns) {
             _pageController.jumpToPage(current + 1);
           } else {
             _pageController.nextPage(
@@ -2214,7 +2235,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       } else {
         if (current > 0) {
           _hapticLight();
-          if (_reduceMotion) {
+          if (_instantPageTurns) {
             _pageController.jumpToPage(current - 1);
           } else {
             _pageController.previousPage(
@@ -2239,7 +2260,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       } else {
         _hapticLight();
         final next = (pos.pixels + step).clamp(0.0, pos.maxScrollExtent);
-        if (_reduceMotion) {
+        if (_instantPageTurns) {
           _scrollController.jumpTo(next);
         } else {
           _scrollController.animateTo(
@@ -2256,7 +2277,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       } else {
         _hapticLight();
         final prev = (pos.pixels - step).clamp(0.0, pos.maxScrollExtent);
-        if (_reduceMotion) {
+        if (_instantPageTurns) {
           _scrollController.jumpTo(prev);
         } else {
           _scrollController.animateTo(
@@ -2459,6 +2480,12 @@ class _ReaderScreenState extends State<ReaderScreen>
           child: GestureDetector(
             onTapUp: _onContentTap,
             onLongPressStart: _onContentLongPress,
+            // Only present when an action is set, so single taps aren't
+            // delayed waiting to disambiguate a possible double-tap.
+            onDoubleTap:
+                _settings.doubleTapAction == ReaderDoubleTap.none
+                ? null
+                : _onDoubleTap,
             behavior: HitTestBehavior.opaque,
             child: Stack(
               children: [

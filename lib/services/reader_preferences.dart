@@ -50,6 +50,8 @@ class ReaderPreferences {
   static const _kLeftHandedTaps = 'reader_left_handed_taps';
   static const _kTapZoneWidth = 'reader_tap_zone_width';
   static const _kEdgeBrightnessGesture = 'reader_edge_brightness_gesture';
+  static const _kPageAnimations = 'reader_page_animations';
+  static const _kDoubleTapAction = 'reader_double_tap_action';
   static const _kAutoPageSeconds = 'reader_auto_page_seconds';
   static const _kTtsEngine = 'reader_tts_engine';
   static const _kTtsServerUrl = 'reader_tts_server_url';
@@ -75,6 +77,7 @@ class ReaderPreferences {
     _kSessionMinutes, _kExactNumbers,
     _kOverlayTint, _kOverlaySeverity,
     _kTapTurnZones, _kLeftHandedTaps, _kTapZoneWidth, _kEdgeBrightnessGesture,
+    _kPageAnimations, _kDoubleTapAction,
     _kAutoPageSeconds,
     _kTtsEngine, _kTtsServerUrl, _kTtsServerToken, _kTtsSkips,
   ];
@@ -163,6 +166,12 @@ class ReaderPreferences {
       tapZoneWidth: prefs.getDouble('$p$_kTapZoneWidth') ?? d.tapZoneWidth,
       edgeBrightnessGesture: prefs.getBool('$p$_kEdgeBrightnessGesture') ??
           d.edgeBrightnessGesture,
+      pageAnimations:
+          prefs.getBool('$p$_kPageAnimations') ?? d.pageAnimations,
+      doubleTapAction: ReaderDoubleTap.values.firstWhere(
+        (v) => v.name == prefs.getString('$p$_kDoubleTapAction'),
+        orElse: () => d.doubleTapAction,
+      ),
       autoPageSeconds:
           prefs.getInt('$p$_kAutoPageSeconds') ?? d.autoPageSeconds,
       ttsEngine: TtsEngineKind.values.firstWhere(
@@ -226,6 +235,11 @@ class ReaderPreferences {
     await prefs.setBool(
       '$p$_kEdgeBrightnessGesture',
       settings.edgeBrightnessGesture,
+    );
+    await prefs.setBool('$p$_kPageAnimations', settings.pageAnimations);
+    await prefs.setString(
+      '$p$_kDoubleTapAction',
+      settings.doubleTapAction.name,
     );
     await prefs.setInt('$p$_kAutoPageSeconds', settings.autoPageSeconds);
     await prefs.setString('$p$_kTtsEngine', settings.ttsEngine.name);

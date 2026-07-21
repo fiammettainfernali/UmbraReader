@@ -397,6 +397,54 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                   onChanged: (on) =>
                       _update(_settings.copyWith(edgeBrightnessGesture: on)),
                 ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Animate page turns'),
+                  subtitle: const Text(
+                    'Off: pages snap instantly, without turning off other '
+                    'animations.',
+                  ),
+                  value: _settings.pageAnimations,
+                  onChanged: (on) =>
+                      _update(_settings.copyWith(pageAnimations: on)),
+                ),
+                const SizedBox(height: 8),
+                _label(theme, 'Double-tap'),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: DropdownButton<ReaderDoubleTap>(
+                    value: _settings.doubleTapAction,
+                    onChanged: (v) => v == null
+                        ? null
+                        : _update(_settings.copyWith(doubleTapAction: v)),
+                    items: const [
+                      DropdownMenuItem(
+                        value: ReaderDoubleTap.none,
+                        child: Text('Nothing'),
+                      ),
+                      DropdownMenuItem(
+                        value: ReaderDoubleTap.bookmark,
+                        child: Text('Add bookmark'),
+                      ),
+                      DropdownMenuItem(
+                        value: ReaderDoubleTap.contents,
+                        child: Text('Table of contents'),
+                      ),
+                      DropdownMenuItem(
+                        value: ReaderDoubleTap.bookmarksList,
+                        child: Text('Bookmarks'),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_settings.doubleTapAction != ReaderDoubleTap.none)
+                  Text(
+                    'Single taps wait a moment to tell a double-tap apart.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
               ],
             ),
             _section(

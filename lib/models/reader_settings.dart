@@ -28,6 +28,16 @@ enum ReaderOrientation {
   landscape,
 }
 
+/// What a double-tap on the page does. [none] is the default and, crucially,
+/// leaves the double-tap recogniser unregistered so single taps (the
+/// page-turn) never wait to disambiguate.
+enum ReaderDoubleTap {
+  none,
+  bookmark,
+  contents,
+  bookmarksList,
+}
+
 /// All reader preferences: layout mode, colour theme, and typography.
 class ReaderSettings {
   const ReaderSettings({
@@ -65,6 +75,8 @@ class ReaderSettings {
     required this.leftHandedTaps,
     required this.tapZoneWidth,
     required this.edgeBrightnessGesture,
+    required this.pageAnimations,
+    required this.doubleTapAction,
     required this.autoPageSeconds,
     required this.ttsEngine,
     required this.ttsServerUrl,
@@ -199,6 +211,15 @@ class ReaderSettings {
   /// When true, a vertical drag on the left edge adjusts brightness live.
   final bool edgeBrightnessGesture;
 
+  /// When true, page turns slide/animate; when false they jump instantly,
+  /// independent of the global reduce-motion setting (which also forces
+  /// instant). Lets a reader keep other motion but snap pages.
+  final bool pageAnimations;
+
+  /// What a double-tap on the page triggers. [ReaderDoubleTap.none] keeps the
+  /// double-tap recogniser off so single taps stay instant.
+  final ReaderDoubleTap doubleTapAction;
+
   /// The effective edge-zone fraction, clamped so the centre menu zone can
   /// never vanish.
   double get tapZoneEdge => tapZoneWidth.clamp(0.15, 0.45);
@@ -259,6 +280,8 @@ class ReaderSettings {
     // smaller centre menu than the old 44%.
     tapZoneWidth: 0.33,
     edgeBrightnessGesture: true,
+    pageAnimations: true,
+    doubleTapAction: ReaderDoubleTap.none,
     autoPageSeconds: 0,
     ttsEngine: TtsEngineKind.system,
     ttsServerUrl: '',
@@ -308,6 +331,8 @@ class ReaderSettings {
     bool? leftHandedTaps,
     double? tapZoneWidth,
     bool? edgeBrightnessGesture,
+    bool? pageAnimations,
+    ReaderDoubleTap? doubleTapAction,
     int? autoPageSeconds,
     TtsEngineKind? ttsEngine,
     String? ttsServerUrl,
@@ -350,6 +375,8 @@ class ReaderSettings {
       tapZoneWidth: tapZoneWidth ?? this.tapZoneWidth,
       edgeBrightnessGesture:
           edgeBrightnessGesture ?? this.edgeBrightnessGesture,
+      pageAnimations: pageAnimations ?? this.pageAnimations,
+      doubleTapAction: doubleTapAction ?? this.doubleTapAction,
       autoPageSeconds: autoPageSeconds ?? this.autoPageSeconds,
       ttsEngine: ttsEngine ?? this.ttsEngine,
       ttsServerUrl: ttsServerUrl ?? this.ttsServerUrl,
