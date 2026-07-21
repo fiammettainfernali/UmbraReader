@@ -132,11 +132,20 @@ reclaim it.
 
 ### Tier 2 — high value, moderate effort
 
-- **T3. Skim / peek.** Press-and-hold a bottom corner to enter a lightweight
-  page-skim (thumbnail strip or fast page step) that snaps back to your spot on
-  release — Kobo's model. Reuses the existing pagination; no new layout.
-  *Effort: ~3–4 days. Risk: moderate (gesture-arena coordination with taps and
-  the PageView).*
+- **T3. Skim / peek — SHIPPED 2026-07-18 (adapted).** Delivered the *core value*
+  — reversible exploration ("go look somewhere, snap back") — as a **"Back to
+  your spot" return chip** rather than Kobo's corner-hold filmstrip. A
+  discontinuous jump (a TOC tap, or a multi-chapter scrubber skip) records the
+  prior position via a `recordReturn` flag on `_goToChapter`; a persistent chip
+  then offers one-tap return (reusing `_jumpToSearchHit`) or a × to dismiss.
+  Chosen over the filmstrip because (a) it fits 400-chapter webnovels better —
+  the pain is "I jumped and lost my place", not "I want to fan through pages" —
+  and (b) it sidesteps piling another press-hold-drag onto an already-crowded
+  gesture arena. Ephemeral (never saved/synced), one level of undo. Covered by
+  `reader_tap_zones_test`. Gesture-arena note discovered here: when a
+  double-tap action is set, single taps (including the chip) resolve only after
+  the ~300ms double-tap window — expected, and the default no-double-tap path is
+  instant. A literal corner-hold page-skim remains open as a future add.
 
 - **T4. Page-turn style option — SHIPPED 2026-07-18.** `pageAnimations` bool +
   an `_instantPageTurns` getter (`_reduceMotion || !pageAnimations`) driving the

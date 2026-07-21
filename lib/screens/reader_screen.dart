@@ -108,6 +108,11 @@ class _ReaderScreenState extends State<ReaderScreen>
   double? _brightnessHud;
   Timer? _brightnessHudTimer;
 
+  /// Where to jump back to after a discontinuous jump (a table-of-contents
+  /// tap or a multi-chapter skip), so skimming the book is reversible. Null
+  /// when there's nowhere to return to. Ephemeral — never saved or synced.
+  ({int chapter, int block, String label})? _returnPoint;
+
   /// When the last chapter change happened. Edge-crossing is suppressed for a
   /// short window afterward so the scrollable settling into the new chapter
   /// can't trigger a second (skipped-chapter) cross.
@@ -593,10 +598,13 @@ class _ReaderScreenState extends State<ReaderScreen>
     int index, {
     bool landOnLastPage = false,
     bool fromTts = false,
+    bool recordReturn = false,
   }) {
     final book = _book;
     final parser = _parser;
     if (book == null || parser == null) return;
+    // Capture the current spot before a deliberate jump so it's reversible.
+    if (recordReturn) _recordReturnPoint();
     // Advancing past the final chapter is the natural "I finished this volume"
     // moment — surface the next volume in the series rather than silently
     // pinning the user on the last page.
@@ -1405,6 +1413,42 @@ class _ReaderScreenState extends State<ReaderScreen>
       case ReaderDoubleTap.bookmarksList:
         _openBookmarks();
     }
+  }
+
+  // ── skim & return ────────────────────────────────────────────────────────
+
+  /// Remembers the current spot before a discontinuous jump, so a "return"
+  /// affordance can bring the reader straight back. Overwrites any prior
+  /// point — one level of undo, which covers the common "jump, look, come
+  /// back" flow.
+  void _recordReturnPoint() {
+    final book = _book;
+    if (book == null ||
+        _chapterIndex < 0 ||
+        _chapterIndex >= book.chapters.length) {
+      return;
+    }
+    final blocks = _blocks ?? const <ContentBlock>[];
+    final block = _settings.focusParagraph
+        ? _focusBlock
+        : (blocks.isEmpty
+              ? 0
+              : currentTopBlockIndex().clamp(0, blocks.length - 1));
+    setState(() {
+      _returnPoint = (
+        chapter: _chapterIndex,
+        block: block,
+        label: book.chapters[_chapterIndex].title,
+      );
+    });
+  }
+
+  void _returnToPoint() {
+    final p = _returnPoint;
+    if (p == null) return;
+    _hapticMedium();
+    setState(() => _returnPoint = null);
+    _jumpToSearchHit(p.chapter, p.block);
   }
 
   // ── edge-slide brightness ────────────────────────────────────────────────
@@ -2393,7 +2437,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                           ),
                           onTap: () {
                             Navigator.of(context).pop();
-                            _goToChapter(index);
+                            _goToChapter(index, recordReturn: true);
                           },
                         );
                       },
@@ -2597,7 +2641,12 @@ class _ReaderScreenState extends State<ReaderScreen>
                       onPrevious: () => _goToChapter(_chapterIndex - 1),
                       onNext: () => _goToChapter(_chapterIndex + 1),
                       onSeek: _seekChapter,
-                      onJump: (delta) => _goToChapter(_chapterIndex + delta),
+                      // A multi-chapter skip is a jump worth being able to
+                      // undo; a ±1 step is just normal reading.
+                      onJump: (delta) => _goToChapter(
+                        _chapterIndex + delta,
+                        recordReturn: delta.abs() > 1,
+                      ),
                       isReading:
                           ttsEngine.state != TtsPlaybackState.stopped,
                       isPlaying:
@@ -2640,6 +2689,15 @@ class _ReaderScreenState extends State<ReaderScreen>
                     right: 0,
                     bottom: bottomSpace + 12,
                     child: Center(child: _reentryChip(preset)),
+                  ),
+                // "Back to your spot" after a jump — sits above the re-entry
+                // chip so the two can coexist.
+                if (_returnPoint != null)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: bottomSpace + 64,
+                    child: Center(child: _returnChip(preset)),
                   ),
                 // Gentle session timer: a quiet fill along the very bottom
                 // edge creeping toward the target — no alarm, just presence.
@@ -2719,6 +2777,64 @@ class _ReaderScreenState extends State<ReaderScreen>
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// The "return to your spot" chip shown after a jump — tap the label to go
+  /// back, or the × to dismiss. Persists (no auto-hide) so a long peek is
+  /// still reversible.
+  Widget _returnChip(ReaderThemePreset preset) {
+    final label = _returnPoint?.label ?? '';
+    return Material(
+      color: preset.background.withValues(alpha: 0.96),
+      elevation: 3,
+      shape: StadiumBorder(
+        side: BorderSide(color: preset.text.withValues(alpha: 0.15)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          InkWell(
+            customBorder: const StadiumBorder(),
+            onTap: _returnToPoint,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 9, 10, 9),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.keyboard_return,
+                    size: 16,
+                    color: preset.text.withValues(alpha: 0.7),
+                  ),
+                  const SizedBox(width: 8),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 180),
+                    child: Text(
+                      label.isEmpty ? 'Back to your spot' : 'Back to $label',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: preset.text,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          InkWell(
+            customBorder: const CircleBorder(),
+            onTap: () => setState(() => _returnPoint = null),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(2, 9, 12, 9),
+              child: Icon(Icons.close, size: 15, color: preset.secondary),
+            ),
+          ),
+        ],
       ),
     );
   }

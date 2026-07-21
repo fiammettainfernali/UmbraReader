@@ -335,6 +335,58 @@ void main() {
     CloudSyncService().cancelPendingTimers();
   });
 
+  testWidgets('a TOC jump can be undone with "Back to your spot"', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'reader_double_tap_action': 'contents',
+    });
+    await tester.pumpWidget(MaterialApp(home: ReaderScreen(volume: _volume())));
+    await _settle(tester);
+    expect(
+      find.textContaining('Short first', findRichText: true),
+      findsOneWidget,
+    );
+
+    // Open the TOC (double-tap) and jump to the last chapter.
+    final size = tester.getSize(find.byType(ReaderScreen));
+    final centre = Offset(size.width * 0.5, size.height * 0.5);
+    await tester.tapAt(centre);
+    await tester.pump(const Duration(milliseconds: 60));
+    await tester.tapAt(centre);
+    await tester.pumpAndSettle(); // finish the TOC open animation
+    await tester.tap(find.byType(ListTile).last);
+    await tester.pumpAndSettle(); // jump + modal close
+    expect(
+      find.textContaining('Second chapter', findRichText: true),
+      findsOneWidget,
+      reason: 'the TOC tap must jump to chapter two',
+    );
+    // The jump left a reversible return affordance.
+    expect(find.textContaining('Back to'), findsOneWidget);
+
+    // Tapping it returns to the original spot and clears the affordance.
+    // (doubleTapAction is set in this test, so the tap resolves only after
+    // the double-tap window closes — pump past it.)
+    await tester.tap(find.byIcon(Icons.keyboard_return));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('Short first', findRichText: true),
+      findsOneWidget,
+      reason: 'the return chip must jump back where we came from',
+    );
+    expect(
+      find.textContaining('Back to'),
+      findsNothing,
+      reason: 'returning clears the affordance',
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    CloudSyncService().cancelPendingTimers();
+  });
+
   testWidgets('long-press on a word opens the dictionary for it', (
     tester,
   ) async {
