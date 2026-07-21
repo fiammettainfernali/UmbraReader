@@ -142,6 +142,22 @@ class CloudSyncService {
     _set(_kProgress, await ReadingProgressStore().exportSyncBlob());
   }
 
+  /// Forces an immediate reading-progress push, cancelling any pending
+  /// debounced one.
+  ///
+  /// Call this when the app is backgrounding. iOS freezes Dart timers the
+  /// instant the process suspends, so the 3-second [pushReadingProgressSoon]
+  /// debounce armed by the last page turn usually never fires — the freshest
+  /// position stays on this device and the user's other device resumes at an
+  /// older spot. Pushing synchronously here hands the write to the native
+  /// iCloud bridge before suspension, where its own background queue and the
+  /// iCloud daemon can finish the upload.
+  Future<void> flushReadingProgress() async {
+    _progressDebounce?.cancel();
+    _progressDebounce = null;
+    await pushReadingProgress();
+  }
+
   Future<void> pushCollections() async {
     if (_merging) return;
     _set(_kCollections, await CollectionStore().exportSyncBlob());
@@ -163,6 +179,16 @@ class CloudSyncService {
   Future<void> pushActivity() async {
     if (_merging) return;
     _set(_kActivity, await ReadingActivityStore().exportSyncBlob());
+  }
+
+  /// Forces an immediate activity-ledger push, cancelling any pending
+  /// debounced one. Same rationale as [flushReadingProgress]: the 5-second
+  /// [pushActivitySoon] debounce is frozen when iOS suspends the app, so
+  /// reading time and streaks would otherwise lag behind on the other device.
+  Future<void> flushActivity() async {
+    _activityDebounce?.cancel();
+    _activityDebounce = null;
+    await pushActivity();
   }
 
   Future<void> pushBookmarks() async {

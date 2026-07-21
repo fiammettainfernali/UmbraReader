@@ -19,6 +19,7 @@ import '../models/reader_settings.dart';
 import '../models/reader_theme.dart';
 import '../models/volume.dart';
 import '../services/bookmark_store.dart';
+import '../services/cloud_sync_service.dart';
 import '../services/dictionary_service.dart';
 import '../services/epub_parser.dart';
 import '../services/glossary_store.dart';
@@ -263,14 +264,29 @@ class _ReaderScreenState extends State<ReaderScreen>
       // Save the current page/scroll position the moment the app loses
       // foreground (screen lock, app switcher, etc.) — without this iOS can
       // kill the process before dispose() fires and the user reopens to an
-      // older saved position from the last page turn.
-      _saveProgress();
-      _flushReadingSession();
+      // older saved position from the last page turn. Also push both to
+      // iCloud right now: the ordinary saves arm only debounced pushes (3s
+      // progress, 5s activity), which iOS freezes on suspension, so the other
+      // device would otherwise resume at an older spot and show stale reading
+      // time.
+      _flushOnPause();
     }
   }
 
+  /// Commits the reading position and session locally, then forces both
+  /// straight to iCloud instead of leaving them on the frozen debounce timers.
+  /// Fire-and-forget: the lifecycle callback can't await, but the awaits
+  /// inside dispatch the native iCloud writes before the process suspends,
+  /// and each flush pushes the value that just landed in the database.
+  Future<void> _flushOnPause() async {
+    await _saveProgress();
+    await _flushReadingSession();
+    await CloudSyncService().flushReadingProgress();
+    await CloudSyncService().flushActivity();
+  }
+
   /// Records the time spent in the foreground reader since the last flush.
-  void _flushReadingSession() {
+  Future<void> _flushReadingSession() async {
     final start = _sessionStart;
     if (start == null) return;
     _sessionStart = null;
@@ -294,14 +310,13 @@ class _ReaderScreenState extends State<ReaderScreen>
     final current = _wordsReadInBook();
     final newWords = current > _wordsHighWater ? current - _wordsHighWater : 0;
     if (newWords > 0) _wordsHighWater = current;
-    // Fire-and-forget — losing the last fractional second on an app kill is
-    // acceptable.
-    _activityStore.record(widget.volume, delta, words: newWords).then((_) {
-      // Today now counts as read, so drop today's pending invitation. This
-      // ordering matters: the reminder schedule is rebuilt from the ledger,
-      // which has to have landed first.
-      unawaited(ReminderService().refresh());
-    });
+    // Awaited so a background flush pushes the ledger that includes this
+    // stretch, not the one before it.
+    await _activityStore.record(widget.volume, delta, words: newWords);
+    // Today now counts as read, so drop today's pending invitation. This
+    // ordering matters: the reminder schedule is rebuilt from the ledger,
+    // which has to have landed first.
+    unawaited(ReminderService().refresh());
   }
 
   // ── gentle session timer ─────────────────────────────────────────────────
@@ -813,7 +828,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     return (pages.length - 1) ~/ stride;
   }
 
-  void _saveProgress() {
+  Future<void> _saveProgress() async {
     final blocks = _blocks ?? const <ContentBlock>[];
     // While reading aloud, the authoritative position is the paragraph being
     // spoken — not the scroll top (which trails it because the follow-scroll
@@ -852,7 +867,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     // not merely being on it (you can stop mid-final-chapter).
     final onLastChapter =
         chapterCount > 0 && _chapterIndex >= chapterCount - 1;
-    _progressStore.save(
+    await _progressStore.save(
       widget.volume,
       ReadingProgress(
         chapterIndex: _chapterIndex,
