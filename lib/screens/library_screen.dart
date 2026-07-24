@@ -244,12 +244,39 @@ class _LibraryScreenState extends State<LibraryScreen>
   Future<void> _loadReading() async {
     // Whatever a remote merge was holding back is about to be shown.
     _remoteMergePending = false;
-    final entries = await ReadingProgressStore().allEntries();
-    final feedback = await RecommendationFeedbackStore().load();
-    final status = await SeriesStatusStore().load();
-    final hidden = await ReadingProgressStore().hiddenFromContinue();
-    final activity = await ReadingActivityStore().load();
-    final dailyGoal = await SettingsService().readDailyMinuteGoal();
+    // Nine independent store reads, awaited together rather than one after
+    // another. This runs on every library load AND every return from a book,
+    // so nine stacked round-trips (each a prefs check plus a query, and the
+    // activity ledger folds in every other device's) is worth not paying in
+    // series. Drift still serialises its own queries on one connection, so
+    // the win is modest rather than 9x — but it costs nothing to not queue.
+    // The stores' one-time migration guards are concurrency-safe: the
+    // `_migration ??=` assignment runs synchronously after its await, so the
+    // two ReadingProgressStore calls share one migration rather than racing.
+    final (
+      entries,
+      feedback,
+      status,
+      hidden,
+      activity,
+      dailyGoal,
+      highlights,
+      collections,
+      outcomes,
+    ) = await (
+      ReadingProgressStore().allEntries(),
+      RecommendationFeedbackStore().load(),
+      SeriesStatusStore().load(),
+      ReadingProgressStore().hiddenFromContinue(),
+      ReadingActivityStore().load(),
+      SettingsService().readDailyMinuteGoal(),
+      // Everything the app knows about HOW the user reads, folded into the
+      // engine below: highlight density, collection membership, and
+      // shown-and-ignored outcomes.
+      BookmarkStore().countBySeries(),
+      CollectionStore().list(),
+      RecOutcomeStore().load(),
+    ).wait;
     // The Continue shelf excludes volumes the user hid; the filter chips
     // (which use _allReadingEntries) still count them as in-progress.
     final inProgress = entries
@@ -261,12 +288,6 @@ class _LibraryScreenState extends State<LibraryScreen>
         )
         .take(12)
         .toList();
-    // Everything the app knows about HOW the user reads, folded into the
-    // engine: time + words per volume, highlight density, hidden volumes,
-    // collection membership, and shown-and-ignored outcomes.
-    final highlights = await BookmarkStore().countBySeries();
-    final collections = await CollectionStore().list();
-    final outcomes = await RecOutcomeStore().load();
     final signals = RecSignals(
       volumeSeconds: activity.perVolumeSeconds,
       volumeWords: activity.perVolumeWords,
