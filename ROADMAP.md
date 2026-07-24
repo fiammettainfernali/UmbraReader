@@ -65,8 +65,17 @@ non-starter, so the personal pipeline never ships as part of the product.
       encapsulated slice. That trades a big file for indirection with no
       ownership win. The one genuinely self-contained piece left is the
       brightness gesture + HUD (~70 lines); extract it only if this area is
-      touched again. Note `library_screen.dart` (2,872 lines) has never been
-      tracked here at all and is now the larger problem.*
+      touched again.*
+      *`library_screen.dart` (2,872 lines, never tracked here before) got the
+      same treatment: `LibraryDownloads` takes everything the screen does with
+      *files on disk* — the whole-library download with its progress banner,
+      and the throttled upkeep pass that pre-fetches the next volume and prunes
+      finished ones. 2,872 → 2,569 lines, 91 → 82 methods. Same test as the
+      reader seams: it owns real state (the five bulk-progress fields plus the
+      maintenance throttle) and borrows reads plus two refresh callbacks —
+      never a command that drives the screen. Remaining clusters there are
+      filters/sort/search and the recommendation shelf; both are more woven
+      into `build` and should only be split if that area is worked on again.*
 - [x] **4. Sync durability.** Sync now rides on JSON documents in the app's
       private iCloud Drive container (`ICloudDocsBridge`, NSFileCoordinator
       + NSMetadataQuery live updates) — no more 1 MB key-value cap. Reads
