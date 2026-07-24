@@ -44,6 +44,18 @@ non-starter, so the personal pipeline never ships as part of the product.
       reader_screen.dart 3,910 → 1,732 lines. Remaining: the State still
       owns navigation/progress/build — extract further only if it keeps
       hurting; the file is now reviewable.*
+      *Regressed and partly re-fixed (2026-07-21): a run of reader features
+      (tap zones, brightness gesture, return points, text selection, migraine
+      mode) grew the file back to 3,633 lines / 152 methods — an audit caught
+      it. Extracted `ReaderSelection` (text hit-testing + selection state,
+      actions and toolbar) as a mixin on the `ReaderTtsSession` pattern:
+      3,633 → 3,156 lines, 152 → 134 methods. The move also collapsed real
+      duplication — `_wordAt` and `_selectionHitAt` were two near-identical
+      copies of the layout maths, now one `_resolveHit`. Net +85 lines across
+      both files (mixin ceremony), which is the trade for the seam. Two seams
+      still identified and unextracted: session-timer/re-entry (~59 refs) and
+      gestures/tap/brightness (~70). Note `library_screen.dart` (2,872 lines)
+      has never been tracked here at all.*
 - [x] **4. Sync durability.** Sync now rides on JSON documents in the app's
       private iCloud Drive container (`ICloudDocsBridge`, NSFileCoordinator
       + NSMetadataQuery live updates) — no more 1 MB key-value cap. Reads

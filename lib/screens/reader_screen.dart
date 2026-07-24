@@ -37,6 +37,7 @@ import '../services/tts_service.dart';
 import '../services/tts_skip.dart';
 import '../utils/volume_ordering.dart';
 import '../widgets/reader_settings_sheet.dart';
+import '../reader/reader_selection.dart';
 import 'glossary_screen.dart';
 
 /// Reads a downloaded volume: parses the EPUB and renders its chapters, with
@@ -73,7 +74,7 @@ class ReaderScreen extends StatefulWidget {
 }
 
 class _ReaderScreenState extends State<ReaderScreen>
-    with WidgetsBindingObserver, ReaderTtsSession {
+    with WidgetsBindingObserver, ReaderTtsSession, ReaderSelection {
   final _progressStore = ReadingProgressStore();
   final _glossaryStore = GlossaryStore();
   final _scrollController = ScrollController();
@@ -113,16 +114,27 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// when there's nowhere to return to. Ephemeral — never saved or synced.
   ({int chapter, int block, String label})? _returnPoint;
 
-  /// Active text selection (scroll mode) — a range from (startBlock, startChar)
-  /// to (endBlock, endChar), normalised so start ≤ end, in the blocks' joined
-  /// run text. Null when nothing is selected. Phase B spans paragraphs.
-  ({int startBlock, int startChar, int endBlock, int endChar})? _selection;
-
-  /// The seed word's block and char bounds, so a drag extends the selection
-  /// out from the long-pressed word (in either direction, across paragraphs).
-  int _selAnchorBlock = 0;
-  int _selAnchorStart = 0;
-  int _selAnchorEnd = 0;
+  // ── ReaderSelection proxies (text hit-testing + selection live there) ───
+  @override
+  bool get chromeVisible => _chromeVisible;
+  @override
+  double get contentWidth => _lastContentWidth;
+  @override
+  ScrollController get readerScrollController => _scrollController;
+  @override
+  PageController get readerPageController => _pageController;
+  @override
+  List<List<PageBlock>>? get currentPages => _pages;
+  @override
+  int get pageStride => _pageStride;
+  @override
+  void hapticSelection() => _hapticSelection();
+  @override
+  String shortSnippet(String text) => _shortSnippet(text);
+  @override
+  Future<void> refreshHighlights() => _refreshHighlights();
+  @override
+  Future<void> addNoteToBookmark(Bookmark mark) => _addWordsToThought(mark);
 
   /// Saved range highlights for the current chapter, keyed by block index.
   Map<int, List<({int start, int end, HighlightColor color})>>
@@ -1128,20 +1140,16 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// dictionary. The word under the finger is resolved with the same
   /// TextPainter layout math the pagination uses, so it's exact.
   void _onContentLongPress(LongPressStartDetails details) {
-    // Scroll mode starts a text selection at the pressed word (Tier 3 Phase
-    // A). Paged / focus modes keep the instant-dictionary gesture until paged
-    // selection lands — see docs/READER_SELECTION_SPEC.md.
+    // Scroll mode starts a text selection at the pressed word. Paged / focus
+    // modes keep the instant-dictionary gesture until paged selection lands —
+    // see docs/READER_SELECTION_SPEC.md.
     if (_settings.mode == ReadingMode.scroll && !_settings.focusParagraph) {
-      final hit = _selectionHitAt(details.globalPosition);
-      if (hit != null) {
-        _beginSelection(hit);
-        return;
-      }
+      if (beginSelectionAt(details.globalPosition)) return;
       // No word under the press → quick thought-capture.
       _quickCaptureThought();
       return;
     }
-    final word = _wordAt(details.globalPosition);
+    final word = wordAt(details.globalPosition);
     // A long-press that lands on NO word — margins, the gap between
     // paragraphs, past a line's end — is the quick thought-capture gesture.
     if (word == null) {
@@ -1150,240 +1158,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
     _hapticSelection();
     DictionaryService().define(word);
-  }
-
-  void _onContentLongPressMove(LongPressMoveUpdateDetails details) {
-    if (_selection == null) return;
-    // Extension doesn't need to land on a word — dragging over whitespace or
-    // into another paragraph should still move the selection edge there.
-    final hit = _selectionHitAt(details.globalPosition, requireWord: false);
-    if (hit == null) return;
-    _extendSelection(hit.block, hit.offset);
-  }
-
-  /// Joined run text of block [index] (paragraph or heading), or '' otherwise.
-  String _blockText(int index) {
-    final blocks = _blocks;
-    if (blocks == null || index < 0 || index >= blocks.length) return '';
-    final b = blocks[index];
-    return switch (b) {
-      ParagraphBlock p => p.runs.map((r) => r.text).join(),
-      HeadingBlock h => h.runs.map((r) => r.text).join(),
-      _ => '',
-    };
-  }
-
-  /// Lexicographic comparison of two (block, char) positions.
-  int _cmpPos(int b1, int c1, int b2, int c2) =>
-      b1 != b2 ? b1 - b2 : c1 - c2;
-
-  /// Resolves a scroll-mode press to the block index and character offset (and
-  /// the word boundary there) under the point — the selection counterpart to
-  /// [_wordAt], returning positions instead of the word string. With
-  /// [requireWord] false the letter check is skipped (used while dragging).
-  ({int block, int offset, int wordStart, int wordEnd, String text})?
-  _selectionHitAt(Offset global, {bool requireWord = true}) {
-    final blocks = _blocks;
-    if (blocks == null || blocks.isEmpty) return null;
-    if (_settings.mode != ReadingMode.scroll || _settings.focusParagraph) {
-      return null;
-    }
-    final mq = MediaQuery.of(context);
-    final areaWidth = _settings.centeredColumn && !_settings.tvMode
-        ? math.min(mq.size.width, _centeredColumnWidth)
-        : mq.size.width;
-    final contentLeft = (mq.size.width - areaWidth) / 2;
-    final contentTop = _chromeVisible
-        ? mq.padding.top + kTopBarHeight
-        : mq.padding.top + 8;
-    final (block, _, localX, localY) = _scrollHit(
-      global,
-      contentLeft,
-      contentTop,
-    );
-    if (block == null) return null;
-    final blockIndex = blocks.indexOf(block);
-    if (blockIndex < 0) return null;
-    final ParagraphBlock? paragraph = switch (block) {
-      ParagraphBlock p => p,
-      HeadingBlock h => ParagraphBlock(h.runs),
-      _ => null,
-    };
-    if (paragraph == null) return null;
-    final width = areaWidth - 2 * _settings.margin;
-    final style = block is HeadingBlock
-        ? headingStyle(_settings, block.level, _settings.theme.text)
-        : paragraphStyle(_settings, _settings.theme.text);
-    final painter = TextPainter(
-      text: runSpan(effectiveRuns(paragraph.runs, _settings), style),
-      textDirection: TextDirection.ltr,
-      textScaler: TextScaler.noScaling,
-    )..layout(maxWidth: width);
-    if (localY < 0 || localY > painter.height) return null;
-    final pos = painter.getPositionForOffset(Offset(localX, localY));
-    final text = paragraph.runs.map((r) => r.text).join();
-    final range = painter.getWordBoundary(pos);
-    if (requireWord) {
-      if (range.start >= range.end || range.end > text.length) return null;
-      final word = text.substring(range.start, range.end);
-      if (!RegExp(r'\p{L}', unicode: true).hasMatch(word)) return null;
-    }
-    return (
-      block: blockIndex,
-      offset: pos.offset.clamp(0, text.length),
-      wordStart: range.start,
-      wordEnd: range.end,
-      text: text,
-    );
-  }
-
-  void _beginSelection(
-    ({int block, int offset, int wordStart, int wordEnd, String text}) hit,
-  ) {
-    _hapticSelection();
-    setState(() {
-      _selection = (
-        startBlock: hit.block,
-        startChar: hit.wordStart,
-        endBlock: hit.block,
-        endChar: hit.wordEnd,
-      );
-      _selAnchorBlock = hit.block;
-      _selAnchorStart = hit.wordStart;
-      _selAnchorEnd = hit.wordEnd;
-    });
-  }
-
-  /// Extends the selection out from the seed word to (block, offset), on
-  /// either side of the anchor and across paragraphs, keeping the seed word
-  /// covered.
-  void _extendSelection(int block, int offset) {
-    if (_selection == null) return;
-    final o = offset.clamp(0, _blockText(block).length);
-    final int sb, sc, eb, ec;
-    if (_cmpPos(block, o, _selAnchorBlock, _selAnchorEnd) > 0) {
-      // Past the anchor word — grow the end.
-      sb = _selAnchorBlock;
-      sc = _selAnchorStart;
-      eb = block;
-      ec = o;
-    } else if (_cmpPos(block, o, _selAnchorBlock, _selAnchorStart) < 0) {
-      // Before the anchor word — grow the start.
-      sb = block;
-      sc = o;
-      eb = _selAnchorBlock;
-      ec = _selAnchorEnd;
-    } else {
-      // Inside the anchor word — hold the whole word.
-      sb = _selAnchorBlock;
-      sc = _selAnchorStart;
-      eb = _selAnchorBlock;
-      ec = _selAnchorEnd;
-    }
-    final sel = _selection!;
-    if (sb == sel.startBlock &&
-        sc == sel.startChar &&
-        eb == sel.endBlock &&
-        ec == sel.endChar) {
-      return;
-    }
-    setState(
-      () => _selection = (
-        startBlock: sb,
-        startChar: sc,
-        endBlock: eb,
-        endChar: ec,
-      ),
-    );
-  }
-
-  void _clearSelection() {
-    if (_selection == null) return;
-    setState(() => _selection = null);
-  }
-
-  String get _selectedText {
-    final sel = _selection;
-    if (sel == null) return '';
-    if (sel.startBlock == sel.endBlock) {
-      final t = _blockText(sel.startBlock);
-      return t.substring(
-        sel.startChar.clamp(0, t.length),
-        sel.endChar.clamp(0, t.length),
-      );
-    }
-    final buf = StringBuffer();
-    for (var b = sel.startBlock; b <= sel.endBlock; b++) {
-      final t = _blockText(b);
-      final s = b == sel.startBlock ? sel.startChar.clamp(0, t.length) : 0;
-      final e = b == sel.endBlock ? sel.endChar.clamp(0, t.length) : t.length;
-      buf.write(t.substring(s, e));
-      if (b != sel.endBlock) buf.write('\n\n');
-    }
-    return buf.toString();
-  }
-
-  void _copySelection() {
-    final text = _selectedText;
-    _clearSelection();
-    if (text.isEmpty) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(const SnackBar(content: Text('Copied')));
-    // Fire-and-forget: the clipboard write shouldn't block dismissal.
-    unawaited(Clipboard.setData(ClipboardData(text: text)));
-  }
-
-  void _defineSelection() {
-    final text = _selectedText.trim();
-    _clearSelection();
-    if (text.isEmpty) return;
-    // A phrase resolves to its first word for the dictionary.
-    DictionaryService().define(text.split(RegExp(r'\s+')).first);
-  }
-
-  /// Builds a range-highlight bookmark from the current selection, or null if
-  /// there's nothing selected.
-  Bookmark? _selectionBookmark(HighlightColor color) {
-    final sel = _selection;
-    final book = _book;
-    if (sel == null || book == null) return null;
-    final text = _selectedText;
-    return Bookmark(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      chapterIndex: _chapterIndex,
-      blockIndex: sel.startBlock,
-      endBlockIndex: sel.endBlock == sel.startBlock ? null : sel.endBlock,
-      chapterTitle: book.chapters[_chapterIndex].title,
-      snippet: _shortSnippet(text),
-      createdAt: DateTime.now(),
-      isHighlight: true,
-      color: color,
-      startChar: sel.startChar,
-      endChar: sel.endChar,
-      selectedText: text,
-    );
-  }
-
-  Future<void> _highlightSelection(HighlightColor color) async {
-    final mark = _selectionBookmark(color);
-    if (mark == null) return;
-    await BookmarkStore().add(widget.volume, mark);
-    _clearSelection();
-    await _refreshHighlights();
-    _hapticSelection();
-  }
-
-  /// Highlights the selection and immediately opens a note editor for it.
-  Future<void> _noteSelection() async {
-    final mark = _selectionBookmark(HighlightColor.yellow);
-    if (mark == null) return;
-    await BookmarkStore().add(widget.volume, mark);
-    _clearSelection();
-    await _refreshHighlights();
-    _hapticSelection();
-    // Reuses the quick-capture note sheet; add() upserts the note by id.
-    if (mounted) await _addWordsToThought(mark);
   }
 
   /// Quick thought capture (Phase 6): instantly drops a bookmark at the
@@ -1435,160 +1209,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     await BookmarkStore().add(widget.volume, mark.copyWith(note: note.trim()));
   }
 
-  /// The word at [globalPosition], or null when the press isn't on text.
-  String? _wordAt(Offset globalPosition) {
-    final blocks = _blocks;
-    if (blocks == null || blocks.isEmpty) return null;
-    // Focus mode centres a single paragraph outside the scroll/paged geometry
-    // this hit-test relies on — skip word lookup there for now.
-    if (_settings.focusParagraph) return null;
-    final mq = MediaQuery.of(context);
-    final areaWidth = _settings.centeredColumn && !_settings.tvMode
-        ? math.min(mq.size.width, _centeredColumnWidth)
-        : mq.size.width;
-    final contentLeft = (mq.size.width - areaWidth) / 2;
-    final contentTop = _chromeVisible
-        ? mq.padding.top + kTopBarHeight
-        : mq.padding.top + 8;
-
-    final (block, slice, localX, localY) = _settings.mode == ReadingMode.paged
-        ? _pagedHit(globalPosition, areaWidth, contentLeft, contentTop)
-        : _scrollHit(globalPosition, contentLeft, contentTop);
-    if (block == null) return null;
-
-    final ParagraphBlock? paragraph = switch (slice ?? block) {
-      ParagraphBlock p => p,
-      HeadingBlock h => ParagraphBlock(h.runs),
-      _ => null,
-    };
-    if (paragraph == null) return null;
-
-    final width = _settings.mode == ReadingMode.paged
-        ? _pagedColumnTextWidth(areaWidth)
-        : areaWidth - 2 * _settings.margin;
-    final style = (slice ?? block) is HeadingBlock
-        ? headingStyle(
-            _settings,
-            ((slice ?? block) as HeadingBlock).level,
-            _settings.theme.text,
-          )
-        : paragraphStyle(_settings, _settings.theme.text);
-    final painter = TextPainter(
-      // Fixation anchors widen line wrapping, so hit-test with the same runs
-      // that were rendered or the tapped word won't line up.
-      text: runSpan(effectiveRuns(paragraph.runs, _settings), style),
-      textDirection: TextDirection.ltr,
-      textScaler: TextScaler.noScaling,
-    )..layout(maxWidth: width);
-    if (localY < 0 || localY > painter.height) return null;
-    final pos = painter.getPositionForOffset(Offset(localX, localY));
-    final text = paragraph.runs.map((r) => r.text).join();
-    final range = painter.getWordBoundary(pos);
-    if (range.start >= range.end || range.end > text.length) return null;
-    final word = text
-        .substring(range.start, range.end)
-        .replaceAll(RegExp(r'''^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$''', unicode: true), '');
-    if (word.isEmpty || word.length > 40) return null;
-    if (!RegExp(r'\p{L}', unicode: true).hasMatch(word)) return null;
-    return word;
-  }
-
-  /// Text width of one paged column (matches _buildPaged's colWidth).
-  double _pagedColumnTextWidth(double areaWidth) {
-    final stride = _pageStride;
-    final tvSafeH = _settings.tvMode ? areaWidth * 0.055 : 0.0;
-    final usableWidth = areaWidth - 2 * tvSafeH;
-    const columnGutter = 36.0;
-    final gutterTotal = columnGutter * (stride - 1);
-    return ((usableWidth - gutterTotal) / stride) - 2 * _settings.margin;
-  }
-
-  /// Resolves a scroll-mode press to (block, sliceless, x, y within the
-  /// block's own text layout).
-  (ContentBlock?, ContentBlock?, double, double) _scrollHit(
-    Offset global,
-    double contentLeft,
-    double contentTop,
-  ) {
-    final blocks = _blocks!;
-    if (!_scrollController.hasClients) return (null, null, 0, 0);
-    final x = global.dx - contentLeft - _settings.margin;
-    var y = global.dy - contentTop + _scrollController.offset - kContentVPad;
-    for (final block in blocks) {
-      final h = measureBlockHeight(block, _lastContentWidth, _settings);
-      if (y < h) {
-        // Headings carry a top gap before their text.
-        final inset = block is HeadingBlock ? kHeadingTopGap : 0.0;
-        return (block, null, x, y - inset);
-      }
-      y -= h;
-    }
-    return (null, null, 0, 0);
-  }
-
-  /// Resolves a paged-mode press to (origin block, rendered slice, x, y
-  /// within the slice's own text layout).
-  (ContentBlock?, ContentBlock?, double, double) _pagedHit(
-    Offset global,
-    double areaWidth,
-    double contentLeft,
-    double contentTop,
-  ) {
-    final pages = _pages;
-    if (pages == null || pages.isEmpty || !_pageController.hasClients) {
-      return (null, null, 0, 0);
-    }
-    final stride = _pageStride;
-    final tvSafeH = _settings.tvMode ? areaWidth * 0.055 : 0.0;
-    final tvSafeV = _settings.tvMode
-        ? (MediaQuery.of(context).size.height) * 0.04
-        : 0.0;
-    const columnGutter = 36.0;
-    final colOuter =
-        ((areaWidth - 2 * tvSafeH) - columnGutter * (stride - 1)) / stride;
-    var x = global.dx - contentLeft - tvSafeH;
-    var col = 0;
-    while (col < stride - 1 && x > colOuter + columnGutter / 2) {
-      x -= colOuter + columnGutter;
-      col++;
-    }
-    final spread = (_pageController.page ?? 0).round();
-    final pageIndex = spread * stride + col;
-    if (pageIndex < 0 || pageIndex >= pages.length) return (null, null, 0, 0);
-
-    final textX = x - _settings.margin;
-    var y = global.dy - contentTop - tvSafeV - kContentVPad;
-    final width = _pagedColumnTextWidth(areaWidth);
-    for (final pb in pages[pageIndex]) {
-      final block = pb.block;
-      final double h;
-      final double inset;
-      switch (block) {
-        case ParagraphBlock p:
-          h = layoutParagraph(p.runs, width, _settings).height +
-              paragraphGap(_settings);
-          inset = 0;
-        case HeadingBlock _:
-          h = measureBlockHeight(block, width, _settings);
-          inset = kHeadingTopGap;
-        case DividerBlock _:
-          h = kDividerHeight;
-          inset = 0;
-        case ImageBlock _:
-          h = measureBlockHeight(block, width, _settings);
-          inset = 0;
-      }
-      if (y < h) {
-        final origin = (_blocks != null && pb.originIndex < _blocks!.length)
-            ? _blocks![pb.originIndex]
-            : block;
-        return (origin, block, textX, y - inset);
-      }
-      y -= h;
-    }
-    return (null, null, 0, 0);
-  }
-
   void _toggleChrome() {
     // Showing/hiding the chrome changes the content padding, which re-paginates
     // paged mode. Restore by the top *block* — page indices shift when the
@@ -1606,8 +1226,8 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// the centre toggles the reading chrome.
   void _onContentTap(TapUpDetails details) {
     // A tap while text is selected just dismisses the selection.
-    if (_selection != null) {
-      _clearSelection();
+    if (hasSelection) {
+      clearSelection();
       return;
     }
     // While the chrome is up, any tap on the page just dismisses it — the
@@ -2233,7 +1853,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       final first = mark.blockIndex;
       final last = mark.rangeEndBlock;
       for (var b = first; b <= last; b++) {
-        final len = _blockText(b).length;
+        final len = blockText(b).length;
         final s = b == first ? mark.startChar! : 0;
         final e = b == last ? mark.endChar! : len;
         if (e <= s) continue;
@@ -2806,7 +2426,7 @@ class _ReaderScreenState extends State<ReaderScreen>
           child: GestureDetector(
             onTapUp: _onContentTap,
             onLongPressStart: _onContentLongPress,
-            onLongPressMoveUpdate: _onContentLongPressMove,
+            onLongPressMoveUpdate: (d) => extendSelectionTo(d.globalPosition),
             // Only present when an action is set, so single taps aren't
             // delayed waiting to disambiguate a possible double-tap.
             onDoubleTap:
@@ -2849,7 +2469,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                       behavior: HitTestBehavior.opaque,
                       onTapUp: _onContentTap,
                       onLongPressStart: _onContentLongPress,
-                      onLongPressMoveUpdate: _onContentLongPressMove,
+                      onLongPressMoveUpdate: (d) => extendSelectionTo(d.globalPosition),
                       onVerticalDragStart: _onBrightnessDragStart,
                       onVerticalDragUpdate: _onBrightnessDragUpdate,
                       onVerticalDragEnd: _onBrightnessDragEnd,
@@ -2984,7 +2604,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                     child: Center(child: _returnChip(preset)),
                   ),
                 // Text-selection action bar (Tier 3 Phase A).
-                if (_selection != null)
+                if (hasSelection)
                   Positioned(
                     top: topSpace + 8,
                     left: 8,
@@ -2992,7 +2612,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                     child: Center(
                       child: SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
-                        child: _selectionToolbar(preset),
+                        child: selectionToolbar(preset),
                       ),
                     ),
                   ),
@@ -3132,95 +2752,6 @@ class _ReaderScreenState extends State<ReaderScreen>
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  /// The wash painted behind the live selection — an iOS-ish blue, distinct
-  /// from the coloured saved-highlight tints.
-  Color get _selectionTint => const Color(0xFF4C8DFF).withValues(alpha: 0.35);
-
-  /// The action bar shown above an active selection: copy, define, and the
-  /// four highlight colours.
-  Widget _selectionToolbar(ReaderThemePreset preset) {
-    return Material(
-      color: preset.background.withValues(alpha: 0.98),
-      elevation: 4,
-      shape: StadiumBorder(
-        side: BorderSide(color: preset.text.withValues(alpha: 0.15)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _selAction(preset, Icons.copy_outlined, 'Copy', _copySelection),
-            _selAction(
-              preset,
-              Icons.menu_book_outlined,
-              'Define',
-              _defineSelection,
-            ),
-            _selAction(
-              preset,
-              Icons.note_alt_outlined,
-              'Note',
-              _noteSelection,
-            ),
-            const SizedBox(width: 2),
-            for (final c in HighlightColor.values) _selHighlightDot(preset, c),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _selAction(
-    ReaderThemePreset preset,
-    IconData icon,
-    String label,
-    VoidCallback onTap,
-  ) {
-    return InkWell(
-      customBorder: const StadiumBorder(),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 18, color: preset.text.withValues(alpha: 0.8)),
-            const SizedBox(width: 5),
-            Text(
-              label,
-              style: TextStyle(
-                color: preset.text,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _selHighlightDot(ReaderThemePreset preset, HighlightColor c) {
-    return InkWell(
-      key: ValueKey(c),
-      customBorder: const CircleBorder(),
-      onTap: () => _highlightSelection(c),
-      child: Padding(
-        padding: const EdgeInsets.all(6),
-        child: Container(
-          width: 20,
-          height: 20,
-          decoration: BoxDecoration(
-            color: highlightPaintFor(c),
-            shape: BoxShape.circle,
-            border: Border.all(color: preset.text.withValues(alpha: 0.3)),
-          ),
-        ),
       ),
     );
   }
@@ -3415,20 +2946,12 @@ class _ReaderScreenState extends State<ReaderScreen>
       ),
       itemCount: blocks.length,
       itemBuilder: (context, index) {
-        final sel = _selection;
+        final live = selectionRangeFor(index);
         final ranges = <({int start, int end, Color color})>[
           for (final r in (_rangeHighlights[index] ?? const []))
             (start: r.start, end: r.end, color: highlightPaintFor(r.color)),
-          if (sel != null &&
-              index >= sel.startBlock &&
-              index <= sel.endBlock)
-            (
-              start: index == sel.startBlock ? sel.startChar : 0,
-              end: index == sel.endBlock
-                  ? sel.endChar
-                  : _blockText(index).length,
-              color: _selectionTint,
-            ),
+          if (live != null)
+            (start: live.start, end: live.end, color: selectionTint),
         ];
         return BlockView(
           block: blocks[index],
