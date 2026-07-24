@@ -51,11 +51,22 @@ non-starter, so the personal pipeline never ships as part of the product.
       actions and toolbar) as a mixin on the `ReaderTtsSession` pattern:
       3,633 → 3,156 lines, 152 → 134 methods. The move also collapsed real
       duplication — `_wordAt` and `_selectionHitAt` were two near-identical
-      copies of the layout maths, now one `_resolveHit`. Net +85 lines across
-      both files (mixin ceremony), which is the trade for the seam. Two seams
-      still identified and unextracted: session-timer/re-entry (~59 refs) and
-      gestures/tap/brightness (~70). Note `library_screen.dart` (2,872 lines)
-      has never been tracked here at all.*
+      copies of the layout maths, now one `_resolveHit`. Then `ReaderSession`
+      (session clock, words high-water mark, break check-in, "Where was I?"
+      re-entry, recap sheet): 3,156 → 2,880 lines, 134 → 125 methods.
+      **The third identified seam — gestures/tap/brightness — was assessed and
+      deliberately NOT extracted.** The two that worked own their own state and
+      borrow mostly read accessors. The gesture cluster is the inverse: it owns
+      only `_rulerBand` and the brightness HUD, while `_advance`/`_advancePage`
+      borrow the whole navigation surface (`_goToChapter`, `_saveProgress`,
+      both controllers, `_pages`, `_chapterIndex`, `_chapterFraction`,
+      `_focusBlock`). Extracting it would need ~15 abstract members, most of
+      them mutating commands back into the State — a remote control, not an
+      encapsulated slice. That trades a big file for indirection with no
+      ownership win. The one genuinely self-contained piece left is the
+      brightness gesture + HUD (~70 lines); extract it only if this area is
+      touched again. Note `library_screen.dart` (2,872 lines) has never been
+      tracked here at all and is now the larger problem.*
 - [x] **4. Sync durability.** Sync now rides on JSON documents in the app's
       private iCloud Drive container (`ICloudDocsBridge`, NSFileCoordinator
       + NSMetadataQuery live updates) — no more 1 MB key-value cap. Reads

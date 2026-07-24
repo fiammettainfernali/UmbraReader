@@ -30,14 +30,13 @@ import '../services/network_tts_service.dart';
 import '../services/reader_preferences.dart';
 import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
-import '../services/recommendation_feedback_store.dart';
-import '../services/reminder_service.dart';
 import '../services/tts_engine.dart';
 import '../services/tts_service.dart';
 import '../services/tts_skip.dart';
 import '../utils/volume_ordering.dart';
 import '../widgets/reader_settings_sheet.dart';
 import '../reader/reader_selection.dart';
+import '../reader/reader_session.dart';
 import 'glossary_screen.dart';
 
 /// Reads a downloaded volume: parses the EPUB and renders its chapters, with
@@ -74,7 +73,7 @@ class ReaderScreen extends StatefulWidget {
 }
 
 class _ReaderScreenState extends State<ReaderScreen>
-    with WidgetsBindingObserver, ReaderTtsSession, ReaderSelection {
+    with WidgetsBindingObserver, ReaderTtsSession, ReaderSelection, ReaderSession {
   final _progressStore = ReadingProgressStore();
   final _glossaryStore = GlossaryStore();
   final _scrollController = ScrollController();
@@ -115,6 +114,14 @@ class _ReaderScreenState extends State<ReaderScreen>
   ({int chapter, int block, String label})? _returnPoint;
 
   // ── ReaderSelection proxies (text hit-testing + selection live there) ───
+  // ── ReaderSession proxies ───────────────────────────────────────────────
+  @override
+  int wordsReadInBook() => _wordsReadInBook();
+  @override
+  Duration? get debugSessionElapsedOverride => ReaderScreen.debugSessionElapsed;
+  @override
+  Duration? get debugSessionDeltaOverride => ReaderScreen.debugSessionDelta;
+
   @override
   bool get chromeVisible => _chromeVisible;
   @override
@@ -165,25 +172,6 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// to advance. Seeded from the saved position on open; stepped by _advance.
   int _focusBlock = 0;
 
-  /// The paragraph the reader was resumed onto after a real gap — briefly
-  /// washed in the highlight tint and offered a "Where was I?" recap. Null
-  /// unless this open was a genuine resume after time away.
-  int? _reentryBlock;
-  Timer? _reentryTimer;
-
-  /// Accumulated foreground reading time this open, for the gentle session
-  /// timer. The live figure adds the time since [_sessionStart] on top.
-  Duration _sessionElapsed = Duration.zero;
-  Timer? _sessionTicker;
-
-  /// The session target has been passed and a break check-in is waiting for
-  /// the next chapter boundary — never shown mid-page.
-  bool _sessionBreakPending = false;
-
-  /// The break check-in chip is currently on screen.
-  bool _sessionBreakChip = false;
-  Timer? _sessionBreakTimer;
-
   /// Content width (screen minus margins), cached each build so progress can
   /// be measured without a MediaQuery lookup (e.g. during dispose).
   double _lastContentWidth = 0;
@@ -226,11 +214,8 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// last page.
   bool _endOfVolumePrompted = false;
 
-  /// Persists per-day and per-volume reading-time totals.
+  /// Reads the ledger for the wpm calibration and high-water seed below.
   final _activityStore = ReadingActivityStore();
-
-  /// When the current foreground reading session started; null when paused.
-  DateTime? _sessionStart;
 
   /// The user's own measured reading pace from the activity ledger, or 0
   /// until loaded / when there's no history. Time-left estimates prefer it
@@ -242,12 +227,6 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// entries can't produce absurd estimates.
   double get _wpm =>
       _userWpm >= 80 && _userWpm <= 800 ? _userWpm.toDouble() : 220.0;
-
-  /// Words read into this volume at or below which nothing new counts — the
-  /// high-water mark that keeps re-reading from re-billing words. Seeded on
-  /// open from the ledger and the restored position, so reading done before
-  /// this feature existed (or in a past session) isn't dumped into today.
-  int _wordsHighWater = 0;
 
   /// Progress through the current chapter (0..1) and its total word count —
   /// drive the reading-progress bar and the "time left" estimate.
@@ -266,7 +245,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     _scrollController.addListener(_onPositionTick);
     _pageController.addListener(_onPositionTick);
     WidgetsBinding.instance.addObserver(this);
-    _sessionStart = DateTime.now();
+    beginSession();
     _open();
   }
 
@@ -296,7 +275,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      _sessionStart ??= DateTime.now();
+      resumeSession();
     } else {
       // Save the current page/scroll position the moment the app loses
       // foreground (screen lock, app switcher, etc.) — without this iOS can
@@ -317,93 +296,18 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// and each flush pushes the value that just landed in the database.
   Future<void> _flushOnPause() async {
     await _saveProgress();
-    await _flushReadingSession();
+    await flushReadingSession();
     await CloudSyncService().flushReadingProgress();
     await CloudSyncService().flushActivity();
   }
 
   /// Records the time spent in the foreground reader since the last flush.
-  Future<void> _flushReadingSession() async {
-    final start = _sessionStart;
-    if (start == null) return;
-    _sessionStart = null;
-    final delta =
-        ReaderScreen.debugSessionDelta ?? DateTime.now().difference(start);
-    if (delta.inSeconds <= 0) return;
-    // A real reading session in this series is re-engagement: clear any
-    // stale "no thanks" recommendation feedback (dismiss/reset) so the
-    // series can participate in taste again. Fire-and-forget; forget() is
-    // a no-op when there's nothing stored.
-    if (delta.inMinutes >= 5) {
-      RecommendationFeedbackStore().forget(widget.volume.seriesOpdsId);
-    }
-    // Fold the stretch into the gentle session-timer accumulator too.
-    _sessionElapsed += delta;
-    // New words this session = reading past the high-water mark. Re-reading
-    // already-seen text adds nothing (mirrors TTS audio caching), so the
-    // ledger measures genuine content consumed. The mark only advances when
-    // the session is actually recorded, so a sub-second gap defers rather
-    // than loses the words.
-    final current = _wordsReadInBook();
-    final newWords = current > _wordsHighWater ? current - _wordsHighWater : 0;
-    if (newWords > 0) _wordsHighWater = current;
-    // Awaited so a background flush pushes the ledger that includes this
-    // stretch, not the one before it.
-    await _activityStore.record(widget.volume, delta, words: newWords);
-    // Today now counts as read, so drop today's pending invitation. This
-    // ordering matters: the reminder schedule is rebuilt from the ledger,
-    // which has to have landed first.
-    unawaited(ReminderService().refresh());
-  }
-
   // ── gentle session timer ─────────────────────────────────────────────────
-
-  /// Live foreground reading time this open (accumulated + the current
-  /// in-progress stretch).
-  Duration get _sessionLive {
-    if (ReaderScreen.debugSessionElapsed != null) {
-      return ReaderScreen.debugSessionElapsed!;
-    }
-    final start = _sessionStart;
-    return start == null
-        ? _sessionElapsed
-        : _sessionElapsed + DateTime.now().difference(start);
-  }
-
-  /// Progress toward the session target (0..1); 0 when the timer is off.
-  double get _sessionFraction {
-    final target = _settings.sessionMinutes;
-    if (target <= 0) return 0;
-    return (_sessionLive.inSeconds / (target * 60)).clamp(0.0, 1.0);
-  }
-
-  /// A slow ticker so the quiet fill creeps forward and the target is noticed
-  /// even while sitting on one page. Only runs when the timer is on.
-  void _startSessionTicker() {
-    _sessionTicker?.cancel();
-    _sessionTicker = null;
-    if (_settings.sessionMinutes <= 0) return;
-    _sessionTicker = Timer.periodic(const Duration(seconds: 20), (_) {
-      if (!mounted) return;
-      setState(() {}); // refresh the fill
-      _noteSessionTarget();
-    });
-  }
-
-  /// Marks the break check-in as due once the target is passed; the chip
-  /// itself waits for the next chapter boundary (see [_goToChapter]).
-  void _noteSessionTarget() {
-    if (_settings.sessionMinutes <= 0) return;
-    if (_sessionBreakChip || _sessionBreakPending) return;
-    if (_sessionLive.inMinutes >= _settings.sessionMinutes) {
-      _sessionBreakPending = true;
-    }
-  }
 
   @override
   void dispose() {
     _saveProgress();
-    _flushReadingSession();
+    flushReadingSession();
     // Release any reader-imposed orientation lock so the rest of the app
     // (library, settings) follows the device's normal auto-rotate setting.
     _applyOrientation(ReaderOrientation.auto);
@@ -412,9 +316,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     WidgetsBinding.instance.removeObserver(this);
     _autoScrollTimer?.cancel();
     _autoPageTimer?.cancel();
-    _reentryTimer?.cancel();
-    _sessionTicker?.cancel();
-    _sessionBreakTimer?.cancel();
+    disposeSession();
     _brightnessHudTimer?.cancel();
     disposeTtsSession();
     _scrollController.dispose();
@@ -540,7 +442,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         // Only forward progress past the restored position becomes "new
         // words"; estimate the words already behind us (one chapter's worth
         // per prior chapter) so resuming mid-book doesn't spike today's tally.
-        _wordsHighWater = _chapterWordCount * _chapterIndex;
+        wordsHighWater = _chapterWordCount * _chapterIndex;
         _settings = settings;
         _pendingRestoreBlock = blocks.isEmpty
             ? 0
@@ -562,7 +464,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         final away = progress.updatedAt == null
             ? Duration.zero
             : DateTime.now().difference(progress.updatedAt!);
-        _reentryBlock = (resuming &&
+        reentryBlock = (resuming &&
                 away > const Duration(minutes: 20) &&
                 blocks.isNotEmpty &&
                 (progress.blockIndex > 0 || chapterIndex > 0))
@@ -571,13 +473,8 @@ class _ReaderScreenState extends State<ReaderScreen>
         _loading = false;
       });
       _noteGlossarySightings(book.chapters[chapterIndex], blocks);
-      if (_reentryBlock != null) {
-        _reentryTimer?.cancel();
-        _reentryTimer = Timer(const Duration(seconds: 6), () {
-          if (mounted) setState(() => _reentryBlock = null);
-        });
-      }
-      _startSessionTicker();
+      if (reentryBlock != null) armReentryTimer();
+      startSessionTicker();
       _applyOrientation(settings.orientation);
       _applyKeepAwake(settings.keepAwake);
       syncEngineToSettings();
@@ -601,7 +498,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       // so re-opening a book never re-counts words recorded on a past device
       // or session.
       _activityStore.wordsForVolume(widget.volume).then((stored) {
-        if (mounted && stored > _wordsHighWater) _wordsHighWater = stored;
+        if (mounted && stored > wordsHighWater) wordsHighWater = stored;
       });
       // Calibrate time-left estimates to how fast this user actually reads.
       _activityStore.load().then((activity) {
@@ -699,14 +596,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     });
     // A chapter boundary is the one moment the break check-in may surface —
     // never mid-page. Show it here if the session target has been passed.
-    if (_sessionBreakPending && !_sessionBreakChip) {
-      _sessionBreakPending = false;
-      _sessionBreakChip = true;
-      _sessionBreakTimer?.cancel();
-      _sessionBreakTimer = Timer(const Duration(seconds: 14), () {
-        if (mounted) setState(() => _sessionBreakChip = false);
-      });
-    }
+    surfaceSessionBreak();
     _refreshHighlights();
   }
 
@@ -995,7 +885,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   void _onPositionTick() {
     // Cheap enough to re-check the session target on every settle, so the
     // break check-in becomes due promptly (not only on the 20s ticker).
-    _noteSessionTarget();
+    noteSessionTarget();
     // A page change from any source (swipe, scrubber, follow) resets the
     // ruler band to the top of the new page.
     if (_settings.lineFocus &&
@@ -1481,10 +1371,8 @@ class _ReaderScreenState extends State<ReaderScreen>
     // Changing the session target restarts the ticker and clears any pending
     // break cue (turning it off stops everything).
     if (sessionChanged) {
-      _sessionBreakPending = false;
-      _sessionBreakTimer?.cancel();
-      if (_sessionBreakChip) setState(() => _sessionBreakChip = false);
-      _startSessionTicker();
+      resetSessionBreak();
+      startSessionTicker();
     }
   }
 
@@ -2057,7 +1945,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   void _advance({required bool forward}) {
     // Evaluate the session target before a possible chapter cross, so a break
     // check-in that just came due can surface on this very boundary.
-    _noteSessionTarget();
+    noteSessionTarget();
     // Focus-paragraph mode: each advance steps one paragraph, centred, rolling
     // into the adjacent chapter at the ends.
     if (_settings.focusParagraph) {
@@ -2587,12 +2475,12 @@ class _ReaderScreenState extends State<ReaderScreen>
                   ),
                 // "Where was I?" recap offer — sits above the bottom bar, on
                 // top of the dimming overlay so it stays tappable.
-                if (_reentryBlock != null)
+                if (reentryBlock != null)
                   Positioned(
                     left: 0,
                     right: 0,
                     bottom: bottomSpace + 12,
-                    child: Center(child: _reentryChip(preset)),
+                    child: Center(child: reentryChip(preset)),
                   ),
                 // "Back to your spot" after a jump — sits above the re-entry
                 // chip so the two can coexist.
@@ -2630,10 +2518,10 @@ class _ReaderScreenState extends State<ReaderScreen>
                         child: Align(
                           alignment: Alignment.centerLeft,
                           child: FractionallySizedBox(
-                            widthFactor: _sessionFraction,
+                            widthFactor: sessionFraction,
                             child: ColoredBox(
                               color: preset.secondary.withValues(
-                                alpha: _sessionFraction >= 1.0 ? 0.55 : 0.3,
+                                alpha: sessionFraction >= 1.0 ? 0.55 : 0.3,
                               ),
                             ),
                           ),
@@ -2642,56 +2530,15 @@ class _ReaderScreenState extends State<ReaderScreen>
                     ),
                   ),
                 // The between-chapters break check-in (dismissible, no alarm).
-                if (_sessionBreakChip)
+                if (sessionBreakChipVisible)
                   Positioned(
                     left: 0,
                     right: 0,
                     bottom: bottomSpace + 12,
-                    child: Center(child: _sessionBreakChipWidget(preset)),
+                    child: Center(child: sessionBreakChip(preset)),
                   ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// The tappable "Where was I?" pill shown briefly on resume after a gap.
-  Widget _reentryChip(ReaderThemePreset preset) {
-    return Material(
-      color: preset.background.withValues(alpha: 0.96),
-      elevation: 3,
-      shape: StadiumBorder(
-        side: BorderSide(color: preset.text.withValues(alpha: 0.15)),
-      ),
-      child: InkWell(
-        customBorder: const StadiumBorder(),
-        onTap: () {
-          _reentryTimer?.cancel();
-          setState(() => _reentryBlock = null);
-          _showRecap();
-        },
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.history,
-                size: 16,
-                color: preset.text.withValues(alpha: 0.7),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Where was I?',
-                style: TextStyle(
-                  color: preset.text,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
           ),
         ),
       ),
@@ -2756,129 +2603,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     );
   }
 
-  /// Shows the previous few paragraphs leading up to the current spot, dimmed
-  /// on the way in and brightest at the current paragraph — a gentle recap of
-  /// context after being away.
-  Widget _sessionBreakChipWidget(ReaderThemePreset preset) {
-    final mins = _settings.sessionMinutes;
-    return Material(
-      color: preset.background.withValues(alpha: 0.96),
-      elevation: 3,
-      shape: StadiumBorder(
-        side: BorderSide(color: preset.text.withValues(alpha: 0.15)),
-      ),
-      child: InkWell(
-        customBorder: const StadiumBorder(),
-        onTap: () {
-          _sessionBreakTimer?.cancel();
-          setState(() => _sessionBreakChip = false);
-        },
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.self_improvement,
-                size: 16,
-                color: preset.text.withValues(alpha: 0.7),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  "You've been reading $mins min — a good time for a break?",
-                  style: TextStyle(color: preset.text, fontSize: 13),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showRecap() {
-    final blocks = _blocks ?? const <ContentBlock>[];
-    if (blocks.isEmpty) return;
-    final end = currentTopBlockIndex().clamp(0, blocks.length - 1);
-    // Walk back to include up to three text blocks before the current one.
-    var start = end;
-    var count = 0;
-    for (var i = end - 1; i >= 0 && count < 3; i--) {
-      if (blocks[i] is ParagraphBlock || blocks[i] is HeadingBlock) count++;
-      start = i;
-    }
-    final preset = _settings.theme;
-    final span = (end - start).clamp(1, 1 << 30);
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: preset.background,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (sheetCtx) => SafeArea(
-        top: false,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: MediaQuery.of(sheetCtx).size.height * 0.62,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                child: Text(
-                  'WHERE YOU LEFT OFF',
-                  style: TextStyle(
-                    color: preset.secondary,
-                    fontSize: 11,
-                    letterSpacing: 1,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              Flexible(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (var i = start; i <= end; i++)
-                        if (blocks[i] is ParagraphBlock ||
-                            blocks[i] is HeadingBlock)
-                          Opacity(
-                            opacity: i == end
-                                ? 1.0
-                                : (0.4 + 0.6 * ((i - start) / span))
-                                      .clamp(0.4, 1.0),
-                            child: BlockView(
-                              block: blocks[i],
-                              settings: _settings,
-                              preset: preset,
-                              isLast: i == end,
-                            ),
-                          ),
-                    ],
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
-                child: Align(
-                  alignment: Alignment.centerRight,
-                  child: FilledButton.tonal(
-                    onPressed: () => Navigator.of(sheetCtx).pop(),
-                    child: const Text('Back to reading'),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget _fadeChrome(Widget child) {
     return AnimatedOpacity(
       opacity: _chromeVisible ? 1 : 0,
@@ -2915,7 +2639,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                     settings: _settings,
                     preset: preset,
                     isLast: true,
-                    reentry: _reentryBlock == idx,
+                    reentry: reentryBlock == idx,
                   ),
                   const SizedBox(height: 20),
                   Text(
@@ -2961,7 +2685,7 @@ class _ReaderScreenState extends State<ReaderScreen>
           highlightEnd: index == speakingBlock ? speakingEnd : null,
           highlightColor: _highlightedBlocks[index],
           ranges: ranges,
-          reentry: _reentryBlock == index,
+          reentry: reentryBlock == index,
         );
       },
     );
@@ -3093,7 +2817,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                   ? speakingEnd - pageBlocks[j].charOffset
                   : null,
               highlightColor: _highlightedBlocks[pageBlocks[j].originIndex],
-              reentry: _reentryBlock == pageBlocks[j].originIndex,
+              reentry: reentryBlock == pageBlocks[j].originIndex,
             ),
         ],
       ),
