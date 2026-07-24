@@ -3,6 +3,8 @@ import 'dart:math';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'cloud_sync_service.dart';
+
 /// Where in a series a term was last observed.
 ///
 /// [volume] and [chapter] exist to order sightings and are meaningless to
@@ -55,11 +57,17 @@ class GlossaryEntry {
     required this.term,
     required this.note,
     this.lastSeen,
+    this.updatedAt,
   });
 
   final String id;
   final String term;
   final String note;
+
+  /// When the term/note was last edited — drives last-writer-wins when the
+  /// same entry was edited on two devices. Null on entries written before
+  /// sync existed, which lose to any timestamped edit.
+  final DateTime? updatedAt;
 
   /// The furthest-along place this term has been read, or null if it has not
   /// been seen since the entry was made. Maintained by [GlossaryStore.
@@ -70,11 +78,13 @@ class GlossaryEntry {
     String? term,
     String? note,
     GlossarySighting? lastSeen,
+    DateTime? updatedAt,
   }) => GlossaryEntry(
     id: id,
     term: term ?? this.term,
     note: note ?? this.note,
     lastSeen: lastSeen ?? this.lastSeen,
+    updatedAt: updatedAt ?? this.updatedAt,
   );
 
   Map<String, dynamic> toJson() => {
@@ -82,6 +92,7 @@ class GlossaryEntry {
     'term': term,
     'note': note,
     if (lastSeen != null) 'lastSeen': lastSeen!.toJson(),
+    if (updatedAt != null) 'updatedAt': updatedAt!.toIso8601String(),
   };
 
   factory GlossaryEntry.fromJson(Map<String, dynamic> json) {
@@ -93,6 +104,7 @@ class GlossaryEntry {
       lastSeen: seen is Map<String, dynamic>
           ? GlossarySighting.fromJson(seen)
           : null,
+      updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? ''),
     );
   }
 }
@@ -125,12 +137,14 @@ class GlossaryStore {
     }
   }
 
+  /// Inserts or replaces [entry], stamping the edit time so a conflicting
+  /// edit on another device can be resolved by recency.
   Future<void> upsert(int seriesId, GlossaryEntry entry) async {
     final all = await list(seriesId);
     final next = [
       for (final e in all)
         if (e.id != entry.id) e,
-      entry,
+      entry.copyWith(updatedAt: DateTime.now()),
     ];
     await _write(seriesId, next);
   }
@@ -142,6 +156,7 @@ class GlossaryStore {
           '-${_rng.nextInt(1 << 32).toRadixString(16)}',
       term: term.trim(),
       note: note.trim(),
+      updatedAt: DateTime.now(),
     );
     await upsert(seriesId, entry);
     return entry;
@@ -201,5 +216,96 @@ class GlossaryStore {
       _key(seriesId),
       jsonEncode([for (final e in entries) e.toJson()]),
     );
+    CloudSyncService().pushGlossary();
+  }
+
+  // ── iCloud sync (see CloudSyncService) ─────────────────────────────────
+
+  /// Every series' glossary as one JSON blob (`seriesId` → entry list).
+  Future<String> exportSyncBlob() async {
+    final prefs = await SharedPreferences.getInstance();
+    final out = <String, dynamic>{};
+    for (final key in prefs.getKeys()) {
+      if (!key.startsWith(_prefix)) continue;
+      final id = key.substring(_prefix.length);
+      final entries = await list(int.tryParse(id) ?? -1);
+      if (entries.isEmpty) continue;
+      out[id] = [for (final e in entries) e.toJson()];
+    }
+    return jsonEncode(out);
+  }
+
+  /// Merges a cloud blob into local. Entries union by id — a term added on
+  /// either device survives. On a conflict the newer edit wins for term/note,
+  /// while [GlossaryEntry.lastSeen] independently keeps whichever sighting is
+  /// further along, matching [noteSightings]' monotonic rule: reading ahead on
+  /// the iPad shouldn't rewind the phone's "last seen in chapter 489".
+  ///
+  /// Deletions are not represented (no tombstones), so a term deleted on one
+  /// device can come back from the other. That's the safe direction to fail
+  /// for hand-written notes.
+  Future<bool> mergeSyncBlob(String blob) async {
+    if (blob.isEmpty) return false;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(blob);
+    } on FormatException {
+      return false;
+    }
+    if (decoded is! Map) return false;
+    var changed = false;
+    for (final entry in decoded.entries) {
+      final seriesId = int.tryParse(entry.key.toString());
+      final value = entry.value;
+      if (seriesId == null || value is! List) continue;
+      final remote = <GlossaryEntry>[
+        for (final e in value)
+          if (e is Map<String, dynamic>) GlossaryEntry.fromJson(e),
+      ];
+      if (remote.isEmpty) continue;
+      final merged = {for (final e in await list(seriesId)) e.id: e};
+      var seriesChanged = false;
+      for (final r in remote) {
+        final local = merged[r.id];
+        if (local == null) {
+          merged[r.id] = r;
+          seriesChanged = true;
+          continue;
+        }
+        final winner = _newer(local, r);
+        // The sighting is merged independently of the term/note edit, so a
+        // stale-but-further sighting isn't lost to a newer note edit.
+        final sighting = r.lastSeen != null && r.lastSeen!.isAfter(local.lastSeen)
+            ? r.lastSeen
+            : local.lastSeen;
+        final next = winner.copyWith(lastSeen: sighting);
+        if (next.term != local.term ||
+            next.note != local.note ||
+            next.lastSeen?.volume != local.lastSeen?.volume ||
+            next.lastSeen?.chapter != local.lastSeen?.chapter) {
+          merged[r.id] = next;
+          seriesChanged = true;
+        }
+      }
+      if (!seriesChanged) continue;
+      // Write directly: _write would push straight back to the cloud.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _key(seriesId),
+        jsonEncode([for (final e in merged.values) e.toJson()]),
+      );
+      changed = true;
+    }
+    return changed;
+  }
+
+  /// The more recently edited of two versions of the same entry; an entry
+  /// with no timestamp predates sync and loses.
+  GlossaryEntry _newer(GlossaryEntry a, GlossaryEntry b) {
+    final at = a.updatedAt;
+    final bt = b.updatedAt;
+    if (at == null) return bt == null ? a : b;
+    if (bt == null) return a;
+    return bt.isAfter(at) ? b : a;
   }
 }

@@ -5,10 +5,13 @@ import 'package:flutter/services.dart';
 
 import 'bookmark_store.dart';
 import 'collection_store.dart';
+import 'custom_theme_store.dart';
+import 'glossary_store.dart';
 import 'reader_preferences.dart';
 import 'reading_activity_store.dart';
 import 'reading_progress_store.dart';
 import 'recommendation_feedback_store.dart';
+import 'series_status_store.dart';
 
 /// Syncs a slice of the user's data across their Apple devices via JSON
 /// files in the app's private iCloud Drive container, bridged in
@@ -16,7 +19,10 @@ import 'recommendation_feedback_store.dart';
 ///
 /// Synced: reading progress (per-volume, last-write-wins by `updatedAt`),
 /// collections (whole-set, last-write-wins), bookmarks (union by id),
-/// reader settings and recommendation feedback.
+/// reader settings, recommendation feedback, the reading-activity ledger,
+/// manual series status (per-series LWW, feeds the recommendation engine),
+/// per-series glossaries (union by id; sightings keep the furthest-along
+/// one), and user-defined themes (union by id).
 ///
 /// The previous transport was iCloud *key-value* storage (1 MB total cap —
 /// too small for a large library). Reads fall back to the old KVS keys when
@@ -42,6 +48,9 @@ class CloudSyncService {
   static const _kBookmarks = 'cloud_bookmarks';
   static const _kReaderSettings = 'cloud_reader_settings';
   static const _kActivity = 'cloud_activity';
+  static const _kSeriesStatus = 'cloud_series_status';
+  static const _kGlossary = 'cloud_glossary';
+  static const _kCustomThemes = 'cloud_custom_themes';
 
   /// True while a cloud→local merge is in flight, so the store-write hooks
   /// don't bounce the just-merged data straight back up to the cloud.
@@ -201,6 +210,21 @@ class CloudSyncService {
     _set(_kReaderSettings, await ReaderPreferences().exportSyncBlob());
   }
 
+  Future<void> pushSeriesStatus() async {
+    if (_merging) return;
+    _set(_kSeriesStatus, await SeriesStatusStore().exportSyncBlob());
+  }
+
+  Future<void> pushGlossary() async {
+    if (_merging) return;
+    _set(_kGlossary, await GlossaryStore().exportSyncBlob());
+  }
+
+  Future<void> pushCustomThemes() async {
+    if (_merging) return;
+    _set(_kCustomThemes, await CustomThemeStore().exportSyncBlob());
+  }
+
   // ── pull + merge: cloud → local ────────────────────────────────────────
 
   Future<void> pullAndMerge() async {
@@ -237,6 +261,20 @@ class CloudSyncService {
           await ReadingActivityStore().mergeSyncBlob(activity)) {
         changed = true;
       }
+      final seriesStatus = await _get(_kSeriesStatus);
+      if (seriesStatus != null &&
+          await SeriesStatusStore().mergeSyncBlob(seriesStatus)) {
+        changed = true;
+      }
+      final glossary = await _get(_kGlossary);
+      if (glossary != null && await GlossaryStore().mergeSyncBlob(glossary)) {
+        changed = true;
+      }
+      final themes = await _get(_kCustomThemes);
+      if (themes != null &&
+          await CustomThemeStore().mergeSyncBlob(themes)) {
+        changed = true;
+      }
     } finally {
       _merging = false;
     }
@@ -250,6 +288,9 @@ class CloudSyncService {
       await pushBookmarks();
       await pushReaderSettings();
       await pushActivity();
+      await pushSeriesStatus();
+      await pushGlossary();
+      await pushCustomThemes();
       onRemoteMerge?.call();
     }
   }

@@ -4,6 +4,7 @@ import 'package:flutter/painting.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/reader_theme.dart';
+import 'cloud_sync_service.dart';
 
 /// Persists user-defined reader themes alongside the built-in [kReaderThemes].
 ///
@@ -76,6 +77,52 @@ class CustomThemeStore {
       _key,
       jsonEncode([for (final t in themes) _toJson(t)]),
     );
+    CloudSyncService().pushCustomThemes();
+  }
+
+  // ── iCloud sync (see CloudSyncService) ─────────────────────────────────
+
+  Future<String> exportSyncBlob() async =>
+      jsonEncode([for (final t in await _readAll()) _toJson(t)]);
+
+  /// Merges a cloud blob into local, union by theme id — a theme made on
+  /// either device shows up on both. On a same-id conflict the local copy
+  /// wins (editing one theme on two devices at once isn't a real workflow,
+  /// and keeping local avoids churning the reader's active theme).
+  ///
+  /// Like the glossary, deletions aren't represented: a theme deleted on one
+  /// device can return from the other. Preferring to keep a theme the user
+  /// built is the safe direction.
+  Future<bool> mergeSyncBlob(String blob) async {
+    if (blob.isEmpty) return false;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(blob);
+    } on FormatException {
+      return false;
+    }
+    if (decoded is! List) return false;
+    final local = await _readAll();
+    final byId = {for (final t in local) t.id: t};
+    var changed = false;
+    for (final entry in decoded) {
+      if (entry is! Map<String, dynamic>) continue;
+      final theme = _fromJson(entry);
+      if (theme == null || byId.containsKey(theme.id)) continue;
+      byId[theme.id] = theme;
+      changed = true;
+    }
+    if (!changed) return false;
+    final next = byId.values.toList();
+    // Write directly: _writeAll would push straight back to the cloud.
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _key,
+      jsonEncode([for (final t in next) _toJson(t)]),
+    );
+    _loaded = next;
+    setAdditionalThemes(_loaded);
+    return true;
   }
 
   static Map<String, dynamic> _toJson(ReaderThemePreset t) => {

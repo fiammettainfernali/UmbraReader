@@ -51,6 +51,21 @@ non-starter, so the personal pipeline never ships as part of the product.
       builds migrates on first pull; writes fall back when the container is
       unavailable. Conflict resolution unchanged (per-book last-write-wins,
       bookmark union-by-id, whole-set LWW collections).
+      *Coverage extended 2026-07-21 after an audit found three stores had
+      never been wired in — all of them shipped after the sync layer was
+      built. **Series status** (per-series LWW; it feeds the recommendation
+      engine's `statusOverrides`, so binge-marking books finished was
+      teaching only one device), **glossaries** (union by id, with sightings
+      independently keeping the furthest-along one so reading ahead on one
+      device can't rewind "last seen in chapter 489"), and **custom themes**
+      (union by id — a Pro feature that was stranded per-device). Series
+      status now stores an explicit `none` tombstone rather than dropping the
+      key, because otherwise the other device's stale status wins the next
+      merge and a clear undoes itself. Glossary entries gained `updatedAt`
+      for edit conflicts; entries written before sync existed lose to any
+      timestamped edit. Neither glossary nor themes represent deletions, so a
+      delete on one device can be undone by the other — the safe direction to
+      fail for hand-written notes. Covered by `sync_gaps_test.dart`.*
 - [x] **5. Dependency hygiene.** Upgraded (2026-07): archive 4, xml 7,
       google_fonts 8, file_picker 11, connectivity_plus 7, just_audio 0.10,
       audio_session 0.2 + all minors. Still held back: share_plus 13 and
