@@ -103,7 +103,9 @@ class ReadingActivity {
   ///    current streak leans on a rest day.
   int currentStreak({DateTime? now}) => _streak(now).$1;
 
-  /// True when the current streak includes a forgiven rest day.
+  /// True when the current streak leans on a rest day forgiven within the
+  /// last 7 days. Clears once a week of clean reading rolls the rest day out
+  /// of the window (it does not stay lit for the whole streak's life).
   bool streakUsedGrace({DateTime? now}) => _streak(now).$2;
 
   (int, bool) _streak(DateTime? now) {
@@ -124,7 +126,14 @@ class ReadingActivity {
         final dayBefore = cursor.subtract(const Duration(days: 1));
         final continues = (dailySeconds[_dateKey(dayBefore)] ?? 0) > 0;
         if (streak > 0 && continues && daysSinceGrace >= 7) {
-          usedGrace = true;
+          // The forgiveness is spent (so a second gap this week still breaks),
+          // but only surface "(rest day used)" while the rest day is still in
+          // the trailing 7-day window. Older forgiven gaps keep extending the
+          // streak silently — otherwise the label sticks on forever once any
+          // rest day is baked into a long streak.
+          if (today.difference(cursor).inDays < 7) {
+            usedGrace = true;
+          }
           daysSinceGrace = 0;
         } else {
           break;

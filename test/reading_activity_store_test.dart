@@ -195,6 +195,31 @@ void main() {
     expect(a.streakUsedGrace(now: DateTime(2026, 7, 3, 20)), isTrue);
   });
 
+  test('streak grace: an old rest day stops showing after a clean week',
+      () async {
+    final store = ReadingActivityStore();
+    final v = _volume();
+    // Read every day July 1–20 except July 5 (a single rest day). By the
+    // 20th the rest day is well outside the trailing 7-day window.
+    for (var day = 1; day <= 20; day++) {
+      if (day == 5) continue;
+      await store.record(v, const Duration(minutes: 10),
+          now: DateTime(2026, 7, day, 12));
+    }
+    final a = await store.load();
+    // The streak is unbroken (the old gap was forgiven and never re-counted).
+    expect(a.currentStreak(now: DateTime(2026, 7, 20, 20)), greaterThan(7));
+    // …but "(rest day used)" must have cleared — the bug was it stuck on
+    // forever once any rest day was baked into a long streak.
+    expect(
+      a.streakUsedGrace(now: DateTime(2026, 7, 20, 20)),
+      isFalse,
+      reason: 'a rest day 15 days ago must not keep the label lit',
+    );
+    // A rest day inside the window still shows it.
+    expect(a.streakUsedGrace(now: DateTime(2026, 7, 6, 20)), isTrue);
+  });
+
   test('streak grace: two gaps in a week end the streak', () async {
     final store = ReadingActivityStore();
     final v = _volume();
