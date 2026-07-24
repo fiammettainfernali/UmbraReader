@@ -79,8 +79,18 @@ non-starter, so the personal pipeline never ships as part of the product.
       been living in the screen file. 2,569 → 2,010 lines, and an earlier
       hedge that this cluster was "too woven into build()" turned out to be
       wrong: it owns five fields and borrows only reads, the same profile as
-      the seams that worked. Remaining there: the recommendation shelf, which
-      genuinely is interleaved with `build`.*
+      the seams that worked. Finally `LibraryRecommendations` (the shelf's
+      window, shuffle, like/snooze/dismiss and impressions — the engine run
+      stays in the load path and hands results over via `setRecommendations`),
+      which required first lifting the presentational widget layer into
+      `library_cards.dart`: 565 lines of cards, chips and badges with no State
+      coupling at all, and the reason a naive shelf extraction would have
+      needed a circular import. **library_screen.dart 2,872 → 1,270 lines,
+      91 → 45 methods**, across `library_downloads`, `library_filters`,
+      `library_cards` and `library_recommendations`. Twice during this work a
+      blanket `_x` → `x` rename silently corrupted an import path (the
+      filenames contain the identifier); the analyzer caught both, but prefer
+      targeted replaces over whole-file ones.*
 - [x] **4. Sync durability.** Sync now rides on JSON documents in the app's
       private iCloud Drive container (`ICloudDocsBridge`, NSFileCoordinator
       + NSMetadataQuery live updates) — no more 1 MB key-value cap. Reads

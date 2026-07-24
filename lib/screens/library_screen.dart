@@ -20,14 +20,15 @@ import '../services/series_status_store.dart';
 import '../services/reading_activity_store.dart';
 import '../services/settings_service.dart';
 import '../widgets/add_to_collection_sheet.dart';
-import '../widgets/cached_cover.dart';
 import '../widgets/section_header.dart';
 import 'backup_screen.dart';
 import 'collections_screen.dart';
 import 'glossary_screen.dart';
 import 'imported_books_screen.dart';
+import 'library_cards.dart';
 import 'library_downloads.dart';
 import 'library_filters.dart';
+import 'library_recommendations.dart';
 import 'library_search_screen.dart';
 import '../widgets/pro_sheet.dart';
 import 'manage_screen.dart';
@@ -49,7 +50,11 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen>
-    with WidgetsBindingObserver, LibraryDownloads, LibraryFiltering {
+    with
+        WidgetsBindingObserver,
+        LibraryDownloads,
+        LibraryFiltering,
+        LibraryRecommendations {
   final _settingsService = SettingsService();
   final _scrollController = ScrollController();
 
@@ -94,14 +99,6 @@ class _LibraryScreenState extends State<LibraryScreen>
   /// changes so it tracks current taste with no manual training step. We
   /// hold a wider pool (~40) and show one window of it; the shuffle button
   /// rotates through the rest.
-  List<Recommendation> _recommendations = const [];
-
-  /// Window offset into [_recommendations] for the displayed shelf.
-  int _recommendOffset = 0;
-
-  /// Number of recommendations on screen at one time.
-  static const int _recommendWindow = 10;
-
   /// Download records, used to flag series with content newer than what's
   /// been downloaded. Null until first loaded.
   DownloadStore? _downloads;
@@ -301,138 +298,19 @@ class _LibraryScreenState extends State<LibraryScreen>
       explore: true,
     );
     if (!mounted) return;
+    setRecommendations(recs);
     setState(() {
       _allReadingEntries = entries;
       _activity = activity;
       _dailyGoalMinutes = dailyGoal;
       _seriesStatus = status;
       _reading = inProgress;
-      _recommendations = recs;
-      _recommendOffset = 0;
     });
-    _recordShelfImpressions();
+    recordShelfImpressions();
   }
 
   /// Records a "not interested" on a recommendation and refreshes the shelf
   /// without the dismissed pick.
-  Future<void> _dismissRecommendation(Series series) async {
-    await RecommendationFeedbackStore().recordDismiss(series.opdsId);
-    await _loadReading();
-  }
-
-  /// Records a 👍 "more like this" and refreshes so the shelf leans into it.
-  Future<void> _likeRecommendation(Series series) async {
-    final messenger = ScaffoldMessenger.of(context);
-    await RecommendationFeedbackStore().recordLike(series.opdsId);
-    messenger.showSnackBar(
-      SnackBar(content: Text('More picks like “${series.title}” coming up.')),
-    );
-    await _loadReading();
-  }
-
-  /// Records a "not now" (30-day snooze) and refreshes the shelf.
-  Future<void> _snoozeRecommendation(Series series) async {
-    final messenger = ScaffoldMessenger.of(context);
-    await RecommendationFeedbackStore().recordSnooze(series.opdsId);
-    messenger.showSnackBar(
-      SnackBar(content: Text('“${series.title}” hidden for 30 days.')),
-    );
-    await _loadReading();
-  }
-
-  /// Long-press options for a recommendation card: the full feedback set.
-  Future<void> _showRecommendationOptions(Series series) async {
-    final action = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (sheetCtx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.thumb_up_outlined),
-              title: const Text('More like this'),
-              onTap: () => Navigator.of(sheetCtx).pop('like'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.snooze),
-              title: const Text('Not now'),
-              subtitle: const Text('Hide for 30 days'),
-              onTap: () => Navigator.of(sheetCtx).pop('snooze'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.block),
-              title: const Text('Not interested'),
-              onTap: () => Navigator.of(sheetCtx).pop('dismiss'),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (!mounted) return;
-    switch (action) {
-      case 'like':
-        await _likeRecommendation(series);
-      case 'snooze':
-        await _snoozeRecommendation(series);
-      case 'dismiss':
-        await _dismissRecommendation(series);
-    }
-  }
-
-  /// The recommendations currently visible in the shelf window. The
-  /// exploration wildcard (if any) is pinned as the last visible card in
-  /// every window so it always gets its one slot.
-  List<Recommendation> _visibleRecommendations() {
-    final wildcard = _recommendations
-        .where((r) => r.isWildcard)
-        .toList();
-    final pool = [
-      for (final r in _recommendations)
-        if (!r.isWildcard) r,
-    ];
-    final List<Recommendation> window;
-    if (pool.length <= _recommendWindow) {
-      window = pool;
-    } else {
-      final start = _recommendOffset % pool.length;
-      final take = pool.skip(start).take(_recommendWindow).toList();
-      if (take.length < _recommendWindow) {
-        take.addAll(pool.take(_recommendWindow - take.length));
-      }
-      window = take;
-    }
-    return [...window, ...wildcard];
-  }
-
-  /// Counts an impression (once per series per day) for the recs on screen —
-  /// the outcome data that lets repeatedly-ignored picks fade and, later,
-  /// trains the per-user weights.
-  void _recordShelfImpressions() {
-    final visible = _visibleRecommendations();
-    if (visible.isEmpty) return;
-    RecOutcomeStore().recordImpressions([
-      for (final rec in visible) rec.series.opdsId,
-    ]);
-  }
-
-  /// Opens a series from a recommendation card, recording the tap outcome.
-  void _openRecommended(Series series) {
-    RecOutcomeStore().recordTap(series.opdsId);
-    _openSeries(series);
-  }
-
-  /// Advances the visible recommendation window so "Show me different" gives
-  /// you the next batch; wraps to the start when the pool runs out.
-  void _rotateRecommendations() {
-    if (_recommendations.length <= _recommendWindow) return;
-    setState(() {
-      _recommendOffset =
-          (_recommendOffset + _recommendWindow) % _recommendations.length;
-    });
-    _recordShelfImpressions();
-  }
-
   /// Reloads the download manifest so the "update available" badges reflect
   /// the latest downloads.
   Future<void> _loadDownloads() async {
@@ -515,7 +393,8 @@ class _LibraryScreenState extends State<LibraryScreen>
     if (settings.isConfigured) await _sync();
   }
 
-  Future<void> _openSeries(Series series) async {
+  @override
+  Future<void> openSeries(Series series) async {
     final settings = _settings;
     if (settings == null) return;
     await Navigator.of(context).push(
@@ -607,7 +486,7 @@ class _LibraryScreenState extends State<LibraryScreen>
     final library = _library;
     if (library == null || library.isEmpty) return;
     final pick = library[Random().nextInt(library.length)];
-    _openSeries(pick);
+    openSeries(pick);
   }
 
   /// Opens a volume straight into the reader (from a "Continue reading" card).
@@ -679,7 +558,7 @@ class _LibraryScreenState extends State<LibraryScreen>
     );
     if (action == null || !mounted) return;
     if (action == 'open') {
-      _openSeries(series);
+      openSeries(series);
     } else if (action == 'glossary') {
       Navigator.of(context).push(
         MaterialPageRoute<void>(
@@ -766,7 +645,7 @@ class _LibraryScreenState extends State<LibraryScreen>
     } else if (action == 'series') {
       final series = _seriesById(entry.volume.seriesOpdsId);
       if (series != null) {
-        _openSeries(series);
+        openSeries(series);
       } else {
         _snack('That series isn\'t in the library list right now.');
       }
@@ -968,15 +847,15 @@ class _LibraryScreenState extends State<LibraryScreen>
           SliverToBoxAdapter(child: _buildContinueShelf()),
         if (showShelves && _recentlyUpdated.isNotEmpty)
           SliverToBoxAdapter(child: _buildRecentShelf()),
-        if (showShelves && _recommendations.isNotEmpty)
-          SliverToBoxAdapter(child: _buildRecommendedShelf()),
+        if (showShelves && recommendations.isNotEmpty)
+          SliverToBoxAdapter(child: buildRecommendedShelf()),
         // Distinct header so the full grid doesn't blend into the shelf above.
         if (showShelves && visible.isNotEmpty)
           SliverToBoxAdapter(child: _sectionHeader('All books')),
         if (visible.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
-            child: _MessageView(
+            child: MessageView(
               icon: Icons.search_off_outlined,
               title: 'No matches',
               message: 'No series match “$searchQuery”.',
@@ -995,13 +874,13 @@ class _LibraryScreenState extends State<LibraryScreen>
                 mainAxisSpacing: 20,
               ),
               itemCount: visible.length,
-              itemBuilder: (context, index) => _SeriesCard(
+              itemBuilder: (context, index) => SeriesCard(
                 series: visible[index],
                 imageHeaders: _settings!.isConfigured
                     ? OpdsClient(_settings!).authHeaders
                     : const {},
                 updateAvailable: _seriesHasUpdate(visible[index]),
-                onTap: () => _openSeries(visible[index]),
+                onTap: () => openSeries(visible[index]),
                 onLongPress: () => _seriesCardMenu(visible[index]),
               ),
             ),
@@ -1014,7 +893,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       return [
         SliverFillRemaining(
           hasScrollBody: false,
-          child: _MessageView(
+          child: MessageView(
             icon: Icons.auto_stories_outlined,
             title: 'Add your first books',
             message:
@@ -1033,7 +912,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       return [
         SliverFillRemaining(
           hasScrollBody: false,
-          child: _MessageView(
+          child: MessageView(
             icon: Icons.error_outline,
             title: 'Sync failed',
             message: _error!,
@@ -1046,7 +925,7 @@ class _LibraryScreenState extends State<LibraryScreen>
     return [
       SliverFillRemaining(
         hasScrollBody: false,
-        child: _MessageView(
+        child: MessageView(
           icon: Icons.library_books_outlined,
           title: 'No books found',
           message:
@@ -1215,8 +1094,8 @@ class _LibraryScreenState extends State<LibraryScreen>
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(6),
                       child: series != null
-                          ? _CoverImage(series: series, headers: headers)
-                          : _TitleCover(title: entry.volume.title),
+                          ? CoverImage(series: series, headers: headers)
+                          : TitleCover(title: entry.volume.title),
                     ),
                   ),
                   const SizedBox(width: 14),
@@ -1327,7 +1206,7 @@ class _LibraryScreenState extends State<LibraryScreen>
             separatorBuilder: (_, _) => const SizedBox(width: 14),
             itemBuilder: (context, index) {
               final entry = rest[index];
-              return _ContinueCard(
+              return ContinueCard(
                 entry: entry,
                 series: seriesById[entry.volume.seriesOpdsId],
                 imageHeaders: headers,
@@ -1373,10 +1252,10 @@ class _LibraryScreenState extends State<LibraryScreen>
             separatorBuilder: (_, _) => const SizedBox(width: 14),
             itemBuilder: (context, index) {
               final series = _recentlyUpdated[index];
-              return _RecommendCard(
+              return RecommendCard(
                 series: series,
                 imageHeaders: headers,
-                onTap: () => _openSeries(series),
+                onTap: () => openSeries(series),
               );
             },
           ),
@@ -1387,623 +1266,5 @@ class _LibraryScreenState extends State<LibraryScreen>
   }
 
   /// Horizontal shelf of "you might like" suggestions from the engine.
-  Widget _buildRecommendedShelf() {
-    final headers = (_settings?.isConfigured ?? false)
-        ? OpdsClient(_settings!).authHeaders
-        : const <String, String>{};
-    // Slice the pool into a visible window; wrap past the end so the shuffle
-    // button can cycle.
-    final visible = _visibleRecommendations();
-    final canRotate = _recommendations.length > _recommendWindow;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SectionHeader(
-          'Recommended for you',
-          trailing: canRotate
-              ? IconButton(
-                  icon: const Icon(Icons.refresh),
-                  tooltip: 'Show me different',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: _rotateRecommendations,
-                )
-              : null,
-        ),
-        SizedBox(
-          height: 244,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: visible.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 14),
-            itemBuilder: (context, index) {
-              final rec = visible[index];
-              final series = rec.series;
-              return _RecommendCard(
-                series: series,
-                imageHeaders: headers,
-                reason: rec.reason,
-                isWildcard: rec.isWildcard,
-                onTap: () => _openRecommended(series),
-                onDismiss: () => _dismissRecommendation(series),
-                onLike: () => _likeRecommendation(series),
-                onLongPress: () => _showRecommendationOptions(series),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 12),
-      ],
-    );
-  }
-
-  /// Progress banner shown while the whole library is downloading.
 }
 
-/// A single cover in the library grid: cover art, title, author.
-class _SeriesCard extends StatelessWidget {
-  const _SeriesCard({
-    required this.series,
-    required this.imageHeaders,
-    required this.updateAvailable,
-    required this.onTap,
-    required this.onLongPress,
-  });
-
-  final Series series;
-  final Map<String, String> imageHeaders;
-
-  /// True when the series has content newer than what's been downloaded.
-  final bool updateAvailable;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Semantics(
-      button: true,
-      label:
-          '${series.title} by ${series.author}'
-          "${updateAvailable ? '. New chapters available' : ''}",
-      excludeSemantics: true,
-      child: GestureDetector(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        behavior: HitTestBehavior.opaque,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.4),
-                      blurRadius: 6,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      _CoverImage(series: series, headers: imageHeaders),
-                      if (series.hasMultipleVolumes)
-                        const Positioned(
-                          top: 6,
-                          right: 6,
-                          child: _VolumeBadge(),
-                        ),
-                      if (updateAvailable)
-                        const Positioned(
-                          top: 6,
-                          left: 6,
-                          child: _UpdateBadge(),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              series.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                height: 1.2,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              series.author,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// A card on the "Continue reading" shelf: cover, title, and progress.
-class _ContinueCard extends StatelessWidget {
-  const _ContinueCard({
-    required this.entry,
-    required this.series,
-    required this.imageHeaders,
-    required this.onTap,
-    required this.onLongPress,
-  });
-
-  final ReadingEntry entry;
-
-  /// The owning series, if it's in the loaded library — for the cover art.
-  final Series? series;
-  final Map<String, String> imageHeaders;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final progress = entry.progress;
-    final title = series?.title ?? entry.volume.title;
-    final chapterLabel = progress.chapterCount > 0
-        ? 'Chapter ${progress.chapterIndex + 1} of ${progress.chapterCount}'
-        : 'Chapter ${progress.chapterIndex + 1}';
-    return Semantics(
-      button: true,
-      label: 'Continue reading $title, $chapterLabel',
-      excludeSemantics: true,
-      child: GestureDetector(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        behavior: HitTestBehavior.opaque,
-        child: SizedBox(
-          width: 124,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                width: 124,
-                height: 165,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.4),
-                        blurRadius: 6,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: series != null
-                        ? _CoverImage(series: series!, headers: imageHeaders)
-                        : _TitleCover(title: entry.volume.title),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 32,
-                child: Text(
-                  title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    height: 1.25,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(2),
-                child: LinearProgressIndicator(
-                  value: progress.fraction,
-                  minHeight: 4,
-                  backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                chapterLabel,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// A card showing a series cover, title and author. Used by both the
-/// "Recommended for you" and "Recently updated" shelves; the ✕ dismiss
-/// button only appears when [onDismiss] is supplied.
-class _RecommendCard extends StatelessWidget {
-  const _RecommendCard({
-    required this.series,
-    required this.imageHeaders,
-    required this.onTap,
-    this.reason = '',
-    this.isWildcard = false,
-    this.onDismiss,
-    this.onLike,
-    this.onLongPress,
-  });
-
-  final Series series;
-  final Map<String, String> imageHeaders;
-  final VoidCallback onTap;
-
-  /// The engine's "Because…" line — why this pick is here.
-  final String reason;
-
-  /// True for the daily out-of-taste exploration pick.
-  final bool isWildcard;
-
-  final VoidCallback? onDismiss;
-
-  /// 👍 "more like this" — the engine's explicit positive signal.
-  final VoidCallback? onLike;
-
-  /// Opens the full feedback options sheet (like / snooze / dismiss).
-  final VoidCallback? onLongPress;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Semantics(
-      button: true,
-      label: '${series.title} by ${series.author}'
-          '${reason.isEmpty ? '' : '. $reason'}',
-      child: GestureDetector(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        behavior: HitTestBehavior.opaque,
-        child: SizedBox(
-          width: 124,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                width: 124,
-                height: 165,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.4),
-                        blurRadius: 6,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        CachedCover(
-                          seriesId: series.opdsId,
-                          coverUrl: series.coverUrl,
-                          headers: imageHeaders,
-                          fallback: _TitleCover(title: series.title),
-                        ),
-                        if (onDismiss != null)
-                          Positioned(
-                            top: 4,
-                            right: 4,
-                            child: _DismissChip(onPressed: onDismiss!),
-                          ),
-                        if (onLike != null)
-                          Positioned(
-                            bottom: 4,
-                            right: 4,
-                            child: _LikeChip(onPressed: onLike!),
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 32,
-                child: Text(
-                  series.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    height: 1.25,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                series.author,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              ),
-              if (reason.isNotEmpty) ...[
-                const SizedBox(height: 2),
-                Text(
-                  reason,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    fontSize: 10,
-                    // The wildcard's "Something different" reads as a badge.
-                    color: isWildcard
-                        ? theme.colorScheme.primary
-                        : theme.colorScheme.outline.withValues(alpha: 0.85),
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// A titled gradient panel used when no cover art is available.
-class _TitleCover extends StatelessWidget {
-  const _TitleCover({required this.title});
-
-  final String title;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [scheme.primaryContainer, scheme.surfaceContainerHighest],
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Center(
-          child: Text(
-            title,
-            textAlign: TextAlign.center,
-            maxLines: 5,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(
-              context,
-            ).textTheme.labelMedium?.copyWith(color: scheme.onPrimaryContainer),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Cover art for a series — the network image, or a titled gradient fallback
-/// when there is no cover or it fails to load.
-class _CoverImage extends StatelessWidget {
-  const _CoverImage({required this.series, required this.headers});
-
-  final Series series;
-  final Map<String, String> headers;
-
-  @override
-  Widget build(BuildContext context) {
-    return CachedCover(
-      seriesId: series.opdsId,
-      coverUrl: series.coverUrl,
-      headers: headers,
-      fallback: _fallback(context),
-    );
-  }
-
-  /// A gradient panel showing the title — looks intentional, not broken.
-  Widget _fallback(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [scheme.primaryContainer, scheme.surfaceContainerHighest],
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(10),
-        child: Center(
-          child: Text(
-            series.title,
-            textAlign: TextAlign.center,
-            maxLines: 5,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: scheme.onPrimaryContainer,
-              height: 1.25,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Small corner badge marking a series that has more than one volume.
-class _VolumeBadge extends StatelessWidget {
-  const _VolumeBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: const Icon(
-        Icons.collections_bookmark,
-        size: 13,
-        color: Colors.white,
-      ),
-    );
-  }
-}
-
-/// A small "not interested" ✕ button overlaid on a recommendation card. Taps
-/// dismiss the recommendation and feed a soft-negative back to the engine.
-class _DismissChip extends StatelessWidget {
-  const _DismissChip({required this.onPressed});
-
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: 'Not interested',
-      child: Material(
-        color: Colors.black.withValues(alpha: 0.55),
-        shape: const CircleBorder(),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onPressed,
-          child: const Padding(
-            padding: EdgeInsets.all(4),
-            child: Icon(Icons.close, size: 14, color: Colors.white),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// The 👍 "more like this" chip on a recommendation card.
-class _LikeChip extends StatelessWidget {
-  const _LikeChip({required this.onPressed});
-
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: 'More like this',
-      child: Material(
-        color: Colors.black.withValues(alpha: 0.55),
-        shape: const CircleBorder(),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onPressed,
-          child: const Padding(
-            padding: EdgeInsets.all(4),
-            child: Icon(Icons.thumb_up, size: 14, color: Colors.white),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Corner badge marking a series with content newer than what's downloaded.
-class _UpdateBadge extends StatelessWidget {
-  const _UpdateBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: const BoxDecoration(
-        color: Colors.orange,
-        shape: BoxShape.circle,
-      ),
-      child: const Icon(Icons.update, size: 15, color: Colors.white),
-    );
-  }
-}
-
-/// A centered icon + message + action button, used for the empty / error /
-/// not-connected / no-matches states.
-class _MessageView extends StatelessWidget {
-  const _MessageView({
-    required this.icon,
-    required this.title,
-    required this.message,
-    required this.actionLabel,
-    required this.onAction,
-    this.secondaryLabel,
-    this.onSecondary,
-  });
-
-  final IconData icon;
-  final String title;
-  final String message;
-  final String actionLabel;
-  final VoidCallback onAction;
-
-  /// Optional second, lower-emphasis action (e.g. "Import books" next to
-  /// "Connect" on the no-server state).
-  final String? secondaryLabel;
-  final VoidCallback? onSecondary;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 56, color: theme.colorScheme.outline),
-            const SizedBox(height: 16),
-            Text(title, style: theme.textTheme.titleLarge),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 24),
-            FilledButton(onPressed: onAction, child: Text(actionLabel)),
-            if (secondaryLabel != null && onSecondary != null) ...[
-              const SizedBox(height: 8),
-              TextButton(
-                onPressed: onSecondary,
-                child: Text(secondaryLabel!),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
