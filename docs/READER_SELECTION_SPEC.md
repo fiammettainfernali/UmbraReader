@@ -144,8 +144,18 @@ readers behave.
   (select→Define, Copy→clipboard, Highlight→persisted range) and an updated
   `reader_quick_capture_test`. Handle-drag *re-adjustment* after release,
   deferred to a follow-up.
-- **Phase B — cross-block (scroll mode).** Extend handles across paragraphs;
-  multi-block box painting; Note.
+- **Phase B — cross-block (scroll mode). SHIPPED 2026-07-21.** The selection is
+  now a `(startBlock, startChar) → (endBlock, endChar)` range; a long-press drag
+  extends it across paragraphs in either direction from the seed word (drag
+  extension no longer requires landing on a word). `selectedText` joins spanned
+  blocks with paragraph breaks; a range highlight stores `endBlockIndex` and
+  renders by expanding into a per-block entry (first block startChar→end, whole
+  middles, last block →endChar) fed to `BlockView`'s range list. Added a **Note**
+  action (highlight + the one-field note sheet). Fixed a latent bug that
+  surfaced here: the note sheet disposed its `TextEditingController` before the
+  close animation finished — moved it into a `_NoteInputSheet` StatefulWidget so
+  the framework owns the lifecycle. Covered by `reader_tap_zones_test`
+  (cross-paragraph drag → multi-block highlight; Note → highlight + note editor).
 - **Phase C — Translate + Share**, and re-tapping a highlight to edit/remove.
 - **Phase D — paged-mode selection** (single page), if wanted.
 

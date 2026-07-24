@@ -113,14 +113,14 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// when there's nowhere to return to. Ephemeral — never saved or synced.
   ({int chapter, int block, String label})? _returnPoint;
 
-  /// Active text selection (Phase A: scroll mode, single block) — the block
-  /// index and the [start, end) char range in that block's joined run text.
-  /// Null when nothing is selected. Drives the selection tint + action bar.
-  ({int block, int start, int end})? _selection;
+  /// Active text selection (scroll mode) — a range from (startBlock, startChar)
+  /// to (endBlock, endChar), normalised so start ≤ end, in the blocks' joined
+  /// run text. Null when nothing is selected. Phase B spans paragraphs.
+  ({int startBlock, int startChar, int endBlock, int endChar})? _selection;
 
-  /// The selection block's full joined run text, and the seed word's bounds,
-  /// cached so a drag can extend the selection out from the long-pressed word.
-  String _selectionBlockText = '';
+  /// The seed word's block and char bounds, so a drag extends the selection
+  /// out from the long-pressed word (in either direction, across paragraphs).
+  int _selAnchorBlock = 0;
   int _selAnchorStart = 0;
   int _selAnchorEnd = 0;
 
@@ -1153,19 +1153,36 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   void _onContentLongPressMove(LongPressMoveUpdateDetails details) {
-    final sel = _selection;
-    if (sel == null) return;
-    final hit = _selectionHitAt(details.globalPosition);
-    // Phase A: stay within the block the selection started in.
-    if (hit == null || hit.block != sel.block) return;
-    _extendSelection(hit.offset);
+    if (_selection == null) return;
+    // Extension doesn't need to land on a word — dragging over whitespace or
+    // into another paragraph should still move the selection edge there.
+    final hit = _selectionHitAt(details.globalPosition, requireWord: false);
+    if (hit == null) return;
+    _extendSelection(hit.block, hit.offset);
   }
+
+  /// Joined run text of block [index] (paragraph or heading), or '' otherwise.
+  String _blockText(int index) {
+    final blocks = _blocks;
+    if (blocks == null || index < 0 || index >= blocks.length) return '';
+    final b = blocks[index];
+    return switch (b) {
+      ParagraphBlock p => p.runs.map((r) => r.text).join(),
+      HeadingBlock h => h.runs.map((r) => r.text).join(),
+      _ => '',
+    };
+  }
+
+  /// Lexicographic comparison of two (block, char) positions.
+  int _cmpPos(int b1, int c1, int b2, int c2) =>
+      b1 != b2 ? b1 - b2 : c1 - c2;
 
   /// Resolves a scroll-mode press to the block index and character offset (and
   /// the word boundary there) under the point — the selection counterpart to
-  /// [_wordAt], returning positions instead of the word string.
+  /// [_wordAt], returning positions instead of the word string. With
+  /// [requireWord] false the letter check is skipped (used while dragging).
   ({int block, int offset, int wordStart, int wordEnd, String text})?
-  _selectionHitAt(Offset global) {
+  _selectionHitAt(Offset global, {bool requireWord = true}) {
     final blocks = _blocks;
     if (blocks == null || blocks.isEmpty) return null;
     if (_settings.mode != ReadingMode.scroll || _settings.focusParagraph) {
@@ -1206,12 +1223,14 @@ class _ReaderScreenState extends State<ReaderScreen>
     final pos = painter.getPositionForOffset(Offset(localX, localY));
     final text = paragraph.runs.map((r) => r.text).join();
     final range = painter.getWordBoundary(pos);
-    if (range.start >= range.end || range.end > text.length) return null;
-    final word = text.substring(range.start, range.end);
-    if (!RegExp(r'\p{L}', unicode: true).hasMatch(word)) return null;
+    if (requireWord) {
+      if (range.start >= range.end || range.end > text.length) return null;
+      final word = text.substring(range.start, range.end);
+      if (!RegExp(r'\p{L}', unicode: true).hasMatch(word)) return null;
+    }
     return (
       block: blockIndex,
-      offset: pos.offset,
+      offset: pos.offset.clamp(0, text.length),
       wordStart: range.start,
       wordEnd: range.end,
       text: text,
@@ -1223,33 +1242,59 @@ class _ReaderScreenState extends State<ReaderScreen>
   ) {
     _hapticSelection();
     setState(() {
-      _selection = (block: hit.block, start: hit.wordStart, end: hit.wordEnd);
-      _selectionBlockText = hit.text;
+      _selection = (
+        startBlock: hit.block,
+        startChar: hit.wordStart,
+        endBlock: hit.block,
+        endChar: hit.wordEnd,
+      );
+      _selAnchorBlock = hit.block;
       _selAnchorStart = hit.wordStart;
       _selAnchorEnd = hit.wordEnd;
     });
   }
 
-  /// Extends the selection out from the seed word to [offset], snapping the
-  /// far end to the drag while keeping the seed word covered.
-  void _extendSelection(int offset) {
-    final sel = _selection;
-    if (sel == null) return;
-    final o = offset.clamp(0, _selectionBlockText.length);
-    final int start;
-    final int end;
-    if (o >= _selAnchorEnd) {
-      start = _selAnchorStart;
-      end = o;
-    } else if (o <= _selAnchorStart) {
-      start = o;
-      end = _selAnchorEnd;
+  /// Extends the selection out from the seed word to (block, offset), on
+  /// either side of the anchor and across paragraphs, keeping the seed word
+  /// covered.
+  void _extendSelection(int block, int offset) {
+    if (_selection == null) return;
+    final o = offset.clamp(0, _blockText(block).length);
+    final int sb, sc, eb, ec;
+    if (_cmpPos(block, o, _selAnchorBlock, _selAnchorEnd) > 0) {
+      // Past the anchor word — grow the end.
+      sb = _selAnchorBlock;
+      sc = _selAnchorStart;
+      eb = block;
+      ec = o;
+    } else if (_cmpPos(block, o, _selAnchorBlock, _selAnchorStart) < 0) {
+      // Before the anchor word — grow the start.
+      sb = block;
+      sc = o;
+      eb = _selAnchorBlock;
+      ec = _selAnchorEnd;
     } else {
-      start = _selAnchorStart;
-      end = _selAnchorEnd;
+      // Inside the anchor word — hold the whole word.
+      sb = _selAnchorBlock;
+      sc = _selAnchorStart;
+      eb = _selAnchorBlock;
+      ec = _selAnchorEnd;
     }
-    if (start == sel.start && end == sel.end) return;
-    setState(() => _selection = (block: sel.block, start: start, end: end));
+    final sel = _selection!;
+    if (sb == sel.startBlock &&
+        sc == sel.startChar &&
+        eb == sel.endBlock &&
+        ec == sel.endChar) {
+      return;
+    }
+    setState(
+      () => _selection = (
+        startBlock: sb,
+        startChar: sc,
+        endBlock: eb,
+        endChar: ec,
+      ),
+    );
   }
 
   void _clearSelection() {
@@ -1260,11 +1305,22 @@ class _ReaderScreenState extends State<ReaderScreen>
   String get _selectedText {
     final sel = _selection;
     if (sel == null) return '';
-    final t = _selectionBlockText;
-    return t.substring(
-      sel.start.clamp(0, t.length),
-      sel.end.clamp(0, t.length),
-    );
+    if (sel.startBlock == sel.endBlock) {
+      final t = _blockText(sel.startBlock);
+      return t.substring(
+        sel.startChar.clamp(0, t.length),
+        sel.endChar.clamp(0, t.length),
+      );
+    }
+    final buf = StringBuffer();
+    for (var b = sel.startBlock; b <= sel.endBlock; b++) {
+      final t = _blockText(b);
+      final s = b == sel.startBlock ? sel.startChar.clamp(0, t.length) : 0;
+      final e = b == sel.endBlock ? sel.endChar.clamp(0, t.length) : t.length;
+      buf.write(t.substring(s, e));
+      if (b != sel.endBlock) buf.write('\n\n');
+    }
+    return buf.toString();
   }
 
   void _copySelection() {
@@ -1286,30 +1342,48 @@ class _ReaderScreenState extends State<ReaderScreen>
     DictionaryService().define(text.split(RegExp(r'\s+')).first);
   }
 
-  Future<void> _highlightSelection(HighlightColor color) async {
+  /// Builds a range-highlight bookmark from the current selection, or null if
+  /// there's nothing selected.
+  Bookmark? _selectionBookmark(HighlightColor color) {
     final sel = _selection;
     final book = _book;
-    if (sel == null || book == null) return;
+    if (sel == null || book == null) return null;
     final text = _selectedText;
-    await BookmarkStore().add(
-      widget.volume,
-      Bookmark(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        chapterIndex: _chapterIndex,
-        blockIndex: sel.block,
-        chapterTitle: book.chapters[_chapterIndex].title,
-        snippet: _shortSnippet(text),
-        createdAt: DateTime.now(),
-        isHighlight: true,
-        color: color,
-        startChar: sel.start,
-        endChar: sel.end,
-        selectedText: text,
-      ),
+    return Bookmark(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      chapterIndex: _chapterIndex,
+      blockIndex: sel.startBlock,
+      endBlockIndex: sel.endBlock == sel.startBlock ? null : sel.endBlock,
+      chapterTitle: book.chapters[_chapterIndex].title,
+      snippet: _shortSnippet(text),
+      createdAt: DateTime.now(),
+      isHighlight: true,
+      color: color,
+      startChar: sel.startChar,
+      endChar: sel.endChar,
+      selectedText: text,
     );
+  }
+
+  Future<void> _highlightSelection(HighlightColor color) async {
+    final mark = _selectionBookmark(color);
+    if (mark == null) return;
+    await BookmarkStore().add(widget.volume, mark);
     _clearSelection();
     await _refreshHighlights();
     _hapticSelection();
+  }
+
+  /// Highlights the selection and immediately opens a note editor for it.
+  Future<void> _noteSelection() async {
+    final mark = _selectionBookmark(HighlightColor.yellow);
+    if (mark == null) return;
+    await BookmarkStore().add(widget.volume, mark);
+    _clearSelection();
+    await _refreshHighlights();
+    _hapticSelection();
+    // Reuses the quick-capture note sheet; add() upserts the note by id.
+    if (mounted) await _addWordsToThought(mark);
   }
 
   /// Quick thought capture (Phase 6): instantly drops a bookmark at the
@@ -1349,42 +1423,12 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// The optional second step of quick capture: one autofocused line, save
   /// on submit — a single field, not a flow.
   Future<void> _addWordsToThought(Bookmark mark) async {
-    final controller = TextEditingController();
     final note = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (sheetCtx) => Padding(
-        padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
-          bottom: MediaQuery.of(sheetCtx).viewInsets.bottom + 20,
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: controller,
-                autofocus: true,
-                textInputAction: TextInputAction.done,
-                decoration: const InputDecoration(
-                  labelText: 'Your thought',
-                  border: OutlineInputBorder(),
-                ),
-                onSubmitted: (text) => Navigator.of(sheetCtx).pop(text),
-              ),
-            ),
-            const SizedBox(width: 8),
-            IconButton(
-              icon: const Icon(Icons.check),
-              tooltip: 'Save',
-              onPressed: () => Navigator.of(sheetCtx).pop(controller.text),
-            ),
-          ],
-        ),
-      ),
+      builder: (_) => const _NoteInputSheet(),
     );
-    controller.dispose();
     if (note == null || note.trim().isEmpty) return;
     // add() upserts on the bookmark id, so this attaches the note to the
     // marker that was already saved.
@@ -2166,11 +2210,22 @@ class _ReaderScreenState extends State<ReaderScreen>
           !mark.isRange) {
         continue;
       }
-      ranges.putIfAbsent(mark.blockIndex, () => []).add((
-        start: mark.startChar!,
-        end: mark.endChar!,
-        color: mark.color,
-      ));
+      // Expand a (possibly multi-block) range highlight into a per-block
+      // entry: first block from startChar to end, whole middle blocks, last
+      // block up to endChar.
+      final first = mark.blockIndex;
+      final last = mark.rangeEndBlock;
+      for (var b = first; b <= last; b++) {
+        final len = _blockText(b).length;
+        final s = b == first ? mark.startChar! : 0;
+        final e = b == last ? mark.endChar! : len;
+        if (e <= s) continue;
+        ranges.putIfAbsent(b, () => []).add((
+          start: s,
+          end: e,
+          color: mark.color,
+        ));
+      }
     }
     setState(() {
       _highlightedBlocks = {
@@ -3089,6 +3144,12 @@ class _ReaderScreenState extends State<ReaderScreen>
               'Define',
               _defineSelection,
             ),
+            _selAction(
+              preset,
+              Icons.note_alt_outlined,
+              'Note',
+              _noteSelection,
+            ),
             const SizedBox(width: 2),
             for (final c in HighlightColor.values) _selHighlightDot(preset, c),
           ],
@@ -3341,8 +3402,16 @@ class _ReaderScreenState extends State<ReaderScreen>
         final ranges = <({int start, int end, Color color})>[
           for (final r in (_rangeHighlights[index] ?? const []))
             (start: r.start, end: r.end, color: highlightPaintFor(r.color)),
-          if (sel != null && sel.block == index)
-            (start: sel.start, end: sel.end, color: _selectionTint),
+          if (sel != null &&
+              index >= sel.startBlock &&
+              index <= sel.endBlock)
+            (
+              start: index == sel.startBlock ? sel.startChar : 0,
+              end: index == sel.endBlock
+                  ? sel.endChar
+                  : _blockText(index).length,
+              color: _selectionTint,
+            ),
         ];
         return BlockView(
           block: blocks[index],
@@ -3486,6 +3555,60 @@ class _ReaderScreenState extends State<ReaderScreen>
               highlightColor: _highlightedBlocks[pageBlocks[j].originIndex],
               reentry: _reentryBlock == pageBlocks[j].originIndex,
             ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One-field note editor shown in a bottom sheet — owns its
+/// [TextEditingController] so the framework disposes it only after the sheet's
+/// close animation finishes (disposing it eagerly used a controller that the
+/// closing field was still painting). Pops the entered text, or null.
+class _NoteInputSheet extends StatefulWidget {
+  const _NoteInputSheet();
+
+  @override
+  State<_NoteInputSheet> createState() => _NoteInputSheetState();
+}
+
+class _NoteInputSheetState extends State<_NoteInputSheet> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _controller,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              decoration: const InputDecoration(
+                labelText: 'Your thought',
+                border: OutlineInputBorder(),
+              ),
+              onSubmitted: (text) => Navigator.of(context).pop(text),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(Icons.check),
+            tooltip: 'Save',
+            onPressed: () => Navigator.of(context).pop(_controller.text),
+          ),
         ],
       ),
     );

@@ -484,4 +484,87 @@ void main() {
     await tester.pump();
     CloudSyncService().cancelPendingTimers();
   });
+
+  testWidgets('a long-press drag selects across paragraphs (Phase B)', (
+    tester,
+  ) async {
+    await tester.pumpWidget(MaterialApp(home: ReaderScreen(volume: _volume())));
+    await _settle(tester);
+
+    final heading = find.textContaining('Chapter One', findRichText: true);
+    final paragraph = find.textContaining('Short first', findRichText: true);
+    // Long-press a word in the heading, then drag down into the paragraph.
+    final gesture = await tester.startGesture(
+      tester.getTopLeft(heading) + const Offset(20, 8),
+    );
+    await tester.pump(const Duration(milliseconds: 700)); // trip the long-press
+    await gesture.moveTo(tester.getCenter(paragraph));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+
+    // Highlight the (now multi-block) selection.
+    await tester.tap(find.byKey(const ValueKey(HighlightColor.blue)));
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 300)),
+    );
+    await tester.pump();
+
+    final ranges = (await BookmarkStore().list(_volume()))
+        .where((m) => m.isHighlight && m.isRange)
+        .toList();
+    expect(ranges, hasLength(1));
+    expect(
+      ranges.single.endBlockIndex,
+      isNotNull,
+      reason: 'a cross-paragraph selection spans more than one block',
+    );
+    expect(ranges.single.rangeEndBlock, greaterThan(ranges.single.blockIndex));
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    CloudSyncService().cancelPendingTimers();
+  });
+
+  testWidgets('Note highlights the selection and opens a note editor', (
+    tester,
+  ) async {
+    await tester.pumpWidget(MaterialApp(home: ReaderScreen(volume: _volume())));
+    await _settle(tester);
+
+    final paragraph = find.textContaining('Short first', findRichText: true);
+    await tester.longPressAt(
+      tester.getTopLeft(paragraph) + const Offset(24, 12),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Note'));
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 300)),
+    );
+    await tester.pumpAndSettle(); // note sheet animation
+
+    // A highlight was saved, and the note editor is open.
+    expect(find.byType(TextField), findsOneWidget, reason: 'note editor opens');
+
+    // Typing and submitting attaches the note to the same highlight.
+    await tester.enterText(find.byType(TextField), 'the elder is the traitor');
+    await tester.tap(find.byIcon(Icons.check));
+    await tester.pump();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 300)),
+    );
+    await tester.pumpAndSettle();
+
+    final noted = (await BookmarkStore().list(_volume()))
+        .where((m) => m.isHighlight && m.isRange)
+        .toList();
+    expect(noted, hasLength(1), reason: 'Note saves one highlight');
+    expect(noted.single.note, 'the elder is the traitor');
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    CloudSyncService().cancelPendingTimers();
+  });
 }
