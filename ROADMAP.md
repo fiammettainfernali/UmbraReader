@@ -73,9 +73,14 @@ non-starter, so the personal pipeline never ships as part of the product.
       finished ones. 2,872 → 2,569 lines, 91 → 82 methods. Same test as the
       reader seams: it owns real state (the five bulk-progress fields plus the
       maintenance throttle) and borrows reads plus two refresh callbacks —
-      never a command that drives the screen. Remaining clusters there are
-      filters/sort/search and the recommendation shelf; both are more woven
-      into `build` and should only be split if that area is worked on again.*
+      never a command that drives the screen. Then `LibraryFiltering` — the
+      query, filter set, reading-state chip and sort order, plus the derived
+      `visibleLibrary`, the controls bar, and the filter model/sheet that had
+      been living in the screen file. 2,569 → 2,010 lines, and an earlier
+      hedge that this cluster was "too woven into build()" turned out to be
+      wrong: it owns five fields and borrows only reads, the same profile as
+      the seams that worked. Remaining there: the recommendation shelf, which
+      genuinely is interleaved with `build`.*
 - [x] **4. Sync durability.** Sync now rides on JSON documents in the app's
       private iCloud Drive container (`ICloudDocsBridge`, NSFileCoordinator
       + NSMetadataQuery live updates) — no more 1 MB key-value cap. Reads
