@@ -12,6 +12,55 @@ import '../services/reading_progress_store.dart';
 import '../services/settings_service.dart';
 import '../utils/volume_ordering.dart';
 
+/// Which downloaded volumes auto-delete should remove, given every known
+/// reading position and a way to ask whether a volume is on disk.
+///
+/// Pure and top-level on purpose: this decides what gets **deleted from the
+/// device**, so it is the one piece here that must be directly testable
+/// without standing up a screen. Everything it refuses to prune is a
+/// deliberate safety rule:
+///
+///  * only volumes *behind* the furthest one the reader has actually started
+///    — the current read and anything ahead of it stay;
+///  * only volumes read to the end (`isFinished`), never ones part-read;
+///  * only volumes already on disk;
+///  * never a volume whose number can't be parsed, since without an order
+///    there is no way to know it is behind anything;
+///  * nothing at all in a series the reader hasn't started, which is what
+///    stops a fresh library being pruned.
+///
+/// Series are considered independently.
+List<Volume> volumesToPrune(
+  List<ReadingEntry> entries,
+  bool Function(Volume) isDownloaded,
+) {
+  final bySeries = <int, List<ReadingEntry>>{};
+  for (final e in entries) {
+    bySeries.putIfAbsent(e.volume.seriesOpdsId, () => []).add(e);
+  }
+  final out = <Volume>[];
+  for (final group in bySeries.values) {
+    // Highest volume number the reader has actually started in this series.
+    int? maxStarted;
+    for (final e in group) {
+      if (!e.progress.isStarted) continue;
+      final n = volumeNumber(e.volume);
+      if (n != null && (maxStarted == null || n > maxStarted)) {
+        maxStarted = n;
+      }
+    }
+    if (maxStarted == null) continue;
+    for (final e in group) {
+      final n = volumeNumber(e.volume);
+      if (n == null || n >= maxStarted) continue;
+      if (!e.progress.isFinished) continue;
+      if (!isDownloaded(e.volume)) continue;
+      out.add(e.volume);
+    }
+  }
+  return out;
+}
+
 /// Everything the library screen does with *files on disk*, extracted from
 /// its State: the user-initiated whole-library download, and the background
 /// upkeep that keeps the next volume ready and prunes finished ones.
@@ -91,38 +140,20 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
     final downloads = downloadStore;
     if (settings == null || downloads == null) return;
 
-    final bySeries = <int, List<ReadingEntry>>{};
-    for (final e in readingEntries) {
-      bySeries.putIfAbsent(e.volume.seriesOpdsId, () => []).add(e);
-    }
+    final doomed = volumesToPrune(readingEntries, downloads.isDownloaded);
+    if (doomed.isEmpty) return;
     final service = DownloadService(
       settings: settings,
       storage: LibraryStorage(),
       store: downloads,
     );
     var changed = false;
-    for (final entries in bySeries.values) {
-      // Highest volume number the reader has actually started in this series.
-      int? maxStarted;
-      for (final e in entries) {
-        if (!e.progress.isStarted) continue;
-        final n = volumeNumber(e.volume);
-        if (n != null && (maxStarted == null || n > maxStarted)) {
-          maxStarted = n;
-        }
-      }
-      if (maxStarted == null) continue;
-      for (final e in entries) {
-        final n = volumeNumber(e.volume);
-        if (n == null || n >= maxStarted) continue;
-        if (!e.progress.isFinished) continue;
-        if (!downloads.isDownloaded(e.volume)) continue;
-        try {
-          await service.delete(e.volume);
-          changed = true;
-        } on Exception {
-          // Best-effort.
-        }
+    for (final volume in doomed) {
+      try {
+        await service.delete(volume);
+        changed = true;
+      } on Exception {
+        // Best-effort.
       }
     }
     if (changed && mounted) await reloadDownloads();
