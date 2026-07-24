@@ -217,6 +217,45 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
               },
             ),
             const SizedBox(height: 4),
+            // First in the sheet on purpose: this is the one thing you reach
+            // for mid-migraine, when scrolling a settings list is the last
+            // thing you want to do.
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              secondary: const Icon(Icons.dark_mode_outlined),
+              title: const Text('Migraine mode'),
+              subtitle: Text(
+                _settings.migraineMode
+                    ? 'Your normal settings come back when you switch this off'
+                    : 'Dim, soft contrast, no motion, roomier text',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.outline,
+                ),
+              ),
+              value: _settings.migraineMode,
+              onChanged: (on) =>
+                  _update(_settings.copyWith(migraineMode: on)),
+            ),
+            if (_settings.migraineMode)
+              Padding(
+                padding: const EdgeInsets.only(left: 16),
+                child: SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Green wash'),
+                  subtitle: Text(
+                    'Green is the band light-sensitivity tends to spare. '
+                    'Turn it off if the colour cast bothers you.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
+                  value: _settings.migraineGreen,
+                  onChanged: (on) =>
+                      _update(_settings.copyWith(migraineGreen: on)),
+                ),
+              ),
+            const SizedBox(height: 4),
             _section(
               theme,
               icon: Icons.view_agenda_outlined,

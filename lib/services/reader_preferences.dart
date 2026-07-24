@@ -46,6 +46,13 @@ class ReaderPreferences {
   static const _kExactNumbers = 'reader_exact_numbers';
   static const _kOverlayTint = 'reader_overlay_tint';
   static const _kOverlaySeverity = 'reader_overlay_severity';
+  static const _kMigraineMode = 'reader_migraine_mode';
+  static const _kMigraineGreen = 'reader_migraine_green';
+
+  /// JSON snapshot of the settings migraine mode overrides, taken when it's
+  /// switched on so they can be restored exactly when it's switched off.
+  static const _kMigraineSnapshot = 'reader_migraine_snapshot';
+
   static const _kTapTurnZones = 'reader_tap_turn_zones';
   static const _kLeftHandedTaps = 'reader_left_handed_taps';
   static const _kTapZoneWidth = 'reader_tap_zone_width';
@@ -76,6 +83,7 @@ class ReaderPreferences {
     _kCenteredColumn, _kKeepAwake, _kReduceAnimations, _kHapticFeedback,
     _kSessionMinutes, _kExactNumbers,
     _kOverlayTint, _kOverlaySeverity,
+    _kMigraineMode, _kMigraineGreen,
     _kTapTurnZones, _kLeftHandedTaps, _kTapZoneWidth, _kEdgeBrightnessGesture,
     _kPageAnimations, _kDoubleTapAction,
     _kAutoPageSeconds,
@@ -160,6 +168,8 @@ class ReaderPreferences {
       overlayTint: prefs.getString('$p$_kOverlayTint') ?? d.overlayTint,
       overlaySeverity:
           prefs.getDouble('$p$_kOverlaySeverity') ?? d.overlaySeverity,
+      migraineMode: prefs.getBool('$p$_kMigraineMode') ?? d.migraineMode,
+      migraineGreen: prefs.getBool('$p$_kMigraineGreen') ?? d.migraineGreen,
       tapTurnZones: prefs.getBool('$p$_kTapTurnZones') ?? d.tapTurnZones,
       leftHandedTaps:
           prefs.getBool('$p$_kLeftHandedTaps') ?? d.leftHandedTaps,
@@ -229,6 +239,8 @@ class ReaderPreferences {
     await prefs.setBool('$p$_kExactNumbers', settings.exactNumbers);
     await prefs.setString('$p$_kOverlayTint', settings.overlayTint);
     await prefs.setDouble('$p$_kOverlaySeverity', settings.overlaySeverity);
+    await prefs.setBool('$p$_kMigraineMode', settings.migraineMode);
+    await prefs.setBool('$p$_kMigraineGreen', settings.migraineGreen);
     await prefs.setBool('$p$_kTapTurnZones', settings.tapTurnZones);
     await prefs.setBool('$p$_kLeftHandedTaps', settings.leftHandedTaps);
     await prefs.setDouble('$p$_kTapZoneWidth', settings.tapZoneWidth);
@@ -341,6 +353,66 @@ class ReaderPreferences {
     } else {
       await prefs.setString(key, '$name|$locale');
     }
+  }
+
+  // ── migraine mode ────────────────────────────────────────────────────────
+
+  /// Remembers the settings migraine mode is about to override, so switching
+  /// it off restores the reader exactly as it was. Only the overridden fields
+  /// are kept — anything the reader changes *while* in migraine mode is a
+  /// migraine-specific tweak and is deliberately not carried back out.
+  Future<void> saveMigraineSnapshot(ReaderSettings s) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _kMigraineSnapshot,
+      jsonEncode({
+        'themeId': s.themeId,
+        'overlayTint': s.overlayTint,
+        'overlaySeverity': s.overlaySeverity,
+        'brightness': s.brightness,
+        'reduceAnimations': s.reduceAnimations,
+        'pageAnimations': s.pageAnimations,
+        'hapticFeedback': s.hapticFeedback,
+        'autoScroll': s.autoScroll,
+        'autoPageSeconds': s.autoPageSeconds,
+        'fontSize': s.fontSize,
+        'lineHeight': s.lineHeight,
+        'paragraphSpacing': s.paragraphSpacing,
+        'margin': s.margin,
+      }),
+    );
+  }
+
+  /// Returns [current] with the snapshotted settings restored, or [current]
+  /// unchanged when there's no snapshot (so switching migraine mode off can
+  /// never leave the reader stuck in the preset).
+  Future<ReaderSettings> restoreMigraineSnapshot(ReaderSettings current) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_kMigraineSnapshot);
+    if (raw == null || raw.isEmpty) return current;
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } on FormatException {
+      return current;
+    }
+    if (decoded is! Map) return current;
+    await prefs.remove(_kMigraineSnapshot);
+    return current.copyWith(
+      themeId: decoded['themeId'] as String?,
+      overlayTint: decoded['overlayTint'] as String?,
+      overlaySeverity: (decoded['overlaySeverity'] as num?)?.toDouble(),
+      brightness: (decoded['brightness'] as num?)?.toDouble(),
+      reduceAnimations: decoded['reduceAnimations'] as bool?,
+      pageAnimations: decoded['pageAnimations'] as bool?,
+      hapticFeedback: decoded['hapticFeedback'] as bool?,
+      autoScroll: decoded['autoScroll'] as bool?,
+      autoPageSeconds: (decoded['autoPageSeconds'] as num?)?.toInt(),
+      fontSize: (decoded['fontSize'] as num?)?.toDouble(),
+      lineHeight: (decoded['lineHeight'] as num?)?.toDouble(),
+      paragraphSpacing: (decoded['paragraphSpacing'] as num?)?.toDouble(),
+      margin: (decoded['margin'] as num?)?.toDouble(),
+    );
   }
 
   Future<bool> hasOverride(Volume volume) async {

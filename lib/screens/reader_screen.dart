@@ -1748,6 +1748,23 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   Future<void> _applySettings(ReaderSettings next) async {
+    // Migraine mode: entering snapshots what it's about to override and
+    // applies the preset; leaving puts the reader back exactly as it was.
+    // Toggling the green wash while already in the mode just re-tints.
+    if (next.migraineMode != _settings.migraineMode) {
+      if (next.migraineMode) {
+        await ReaderPreferences().saveMigraineSnapshot(_settings);
+        next = next.migraineAdjusted();
+      } else {
+        next = await ReaderPreferences().restoreMigraineSnapshot(next);
+      }
+    } else if (next.migraineMode &&
+        next.migraineGreen != _settings.migraineGreen) {
+      next = next.copyWith(
+        overlayTint: next.migraineGreen ? 'green' : kOverlayTintNone,
+        overlaySeverity: next.migraineGreen ? 0.45 : 0.0,
+      );
+    }
     final fontChanged = next.fontFamily != _settings.fontFamily;
     final rateChanged = next.speechRate != _settings.speechRate;
     final voiceChanged =

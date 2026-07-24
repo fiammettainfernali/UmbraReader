@@ -71,6 +71,8 @@ class ReaderSettings {
     required this.exactNumbers,
     required this.overlayTint,
     required this.overlaySeverity,
+    required this.migraineMode,
+    required this.migraineGreen,
     required this.tapTurnZones,
     required this.leftHandedTaps,
     required this.tapZoneWidth,
@@ -194,6 +196,16 @@ class ReaderSettings {
   /// How strong the [overlayTint] wash is, 0 (off) to 1 (full).
   final double overlaySeverity;
 
+  /// Migraine-comfort mode: dims, softens contrast, stills all motion and
+  /// (optionally) lays a green wash over the page. Toggling it snapshots the
+  /// reader's normal settings so they come back untouched afterwards.
+  final bool migraineMode;
+
+  /// Whether [migraineMode] includes the green wash. On by default — green is
+  /// the one part of the spectrum migraine photophobia tends to spare — but
+  /// separately switchable, since a green cast on text isn't for everyone.
+  final bool migraineGreen;
+
   /// When true, tapping the left/right edge zones turns the page. When false
   /// (the accidental-turn guard), edge taps are inert and only a swipe or the
   /// remote turns pages — any tap just toggles the chrome.
@@ -274,6 +286,8 @@ class ReaderSettings {
     exactNumbers: false,
     overlayTint: kOverlayTintNone,
     overlaySeverity: 0.0,
+    migraineMode: false,
+    migraineGreen: true,
     tapTurnZones: true,
     leftHandedTaps: false,
     // Thirds by default: a larger forward zone than the old 28%, and a
@@ -287,6 +301,32 @@ class ReaderSettings {
     ttsServerUrl: '',
     ttsServerToken: '',
     ttsSkips: <TtsSkip>{},
+  );
+
+  /// This settings set with the migraine-comfort preset applied.
+  ///
+  /// Composed from what the research points at rather than invented: a
+  /// charcoal/soft-grey theme (stark black-on-white or white-on-black is
+  /// itself a trigger), an optional green wash (green is the one band
+  /// migraine photophobia tends to spare, and it shifts away from blue — the
+  /// worst), low brightness, no motion at all, no haptics, and roomier text.
+  ///
+  /// Sizes only ever grow: someone already reading large keeps their size.
+  /// This is a comfort preset, not a treatment.
+  ReaderSettings migraineAdjusted() => copyWith(
+    themeId: 'dark',
+    overlayTint: migraineGreen ? 'green' : kOverlayTintNone,
+    overlaySeverity: migraineGreen ? 0.45 : 0.0,
+    brightness: 0.35,
+    reduceAnimations: true,
+    pageAnimations: false,
+    hapticFeedback: false,
+    autoScroll: false,
+    autoPageSeconds: 0,
+    fontSize: fontSize < 20 ? 20 : fontSize,
+    lineHeight: lineHeight < 1.75 ? 1.75 : lineHeight,
+    paragraphSpacing: paragraphSpacing < 10 ? 10 : paragraphSpacing,
+    margin: margin < 28 ? 28 : margin,
   );
 
   /// The active theme, already carrying any overlay wash — every reader
@@ -327,6 +367,8 @@ class ReaderSettings {
     bool? exactNumbers,
     String? overlayTint,
     double? overlaySeverity,
+    bool? migraineMode,
+    bool? migraineGreen,
     bool? tapTurnZones,
     bool? leftHandedTaps,
     double? tapZoneWidth,
@@ -370,6 +412,8 @@ class ReaderSettings {
       exactNumbers: exactNumbers ?? this.exactNumbers,
       overlayTint: overlayTint ?? this.overlayTint,
       overlaySeverity: overlaySeverity ?? this.overlaySeverity,
+      migraineMode: migraineMode ?? this.migraineMode,
+      migraineGreen: migraineGreen ?? this.migraineGreen,
       tapTurnZones: tapTurnZones ?? this.tapTurnZones,
       leftHandedTaps: leftHandedTaps ?? this.leftHandedTaps,
       tapZoneWidth: tapZoneWidth ?? this.tapZoneWidth,

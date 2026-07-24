@@ -301,6 +301,23 @@ distraction-free immersive mode, line-precision resume.
       Matching uses word-boundary lookarounds so "Al" doesn't match "Also",
       degrading to substring for scripts where `\w` doesn't apply.
 
+- [x] **Migraine mode.** A one-switch comfort preset for reading through an
+      attack, first in the settings sheet because mid-migraine is the worst
+      time to hunt through a list. Composed from primitives that already
+      existed rather than new machinery: the charcoal/soft-grey Dark theme
+      (stark black-on-white or white-on-black is itself a trigger), a green
+      overlay wash, low brightness, `reduceAnimations` + instant page turns,
+      haptics off, auto-scroll/auto-page off, and roomier text (sizes only
+      ever grow, so a large-print reader keeps theirs). Green is on by default
+      with its own sub-toggle — research (Burstein, *Brain*) found green is the
+      one band migraine photophobia tends to spare while blue is the worst,
+      but a green cast on text isn't for everyone. **Fully reversible:**
+      switching on snapshots the overridden settings and switching off restores
+      them exactly, so it can't eat your normal setup; a missing snapshot
+      leaves settings untouched rather than stranding you in the preset.
+      Honest scope: a comfort preset, not a treatment — a phone's green
+      primary is not the narrow-band 530nm light the studies used.
+
 ### Bigger bets
 - [ ] **Read-aloud resurrection as an accessibility feature.** The whole
       TTS + word-highlighting stack exists behind kReadAloudEnabled.
