@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
+import '../models/series.dart';
 import '../services/library_cache.dart';
 import '../services/library_storage.dart';
 import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
 import '../services/settings_service.dart';
 import '../widgets/section_header.dart';
+import 'series_detail_screen.dart';
 
 /// Shows reading statistics derived from saved reading positions and
 /// reading-time activity.
@@ -30,9 +32,12 @@ class _StatsScreenState extends State<StatsScreen> {
   ReadingActivity _activity = ReadingActivity.empty;
   int _dailyGoalMinutes = 0;
 
-  /// Series titles by opdsId, so the by-series list can name a series
-  /// properly instead of guessing it from a volume title.
-  Map<int, String> _seriesTitles = const {};
+  /// Series by opdsId, so the by-series list can name a series properly and
+  /// open it rather than being a dead end.
+  Map<int, Series> _seriesById = const {};
+
+  /// Needed to open a series; null until settings load.
+  OpdsSettings? _opdsSettings;
 
   /// The window every headline figure reports on. Defaults to a week — the
   /// question the screen should answer on open is "how am I doing lately",
@@ -56,12 +61,14 @@ class _StatsScreenState extends State<StatsScreen> {
     final goal = await _settingsService.readDailyMinuteGoal();
     final cache = LibraryCache(LibraryStorage());
     await cache.load();
+    final opds = await _settingsService.load();
     if (!mounted) return;
     setState(() {
       _entries = entries;
       _activity = activity;
       _dailyGoalMinutes = goal;
-      _seriesTitles = {for (final s in cache.series) s.opdsId: s.title};
+      _seriesById = {for (final s in cache.series) s.opdsId: s};
+      _opdsSettings = opds;
     });
   }
 
@@ -167,6 +174,20 @@ class _StatsScreenState extends State<StatsScreen> {
         .length;
   }
 
+  /// Opens a series from the breakdown. Null when the series is no longer in
+  /// the library cache — the row still shows its time, it just has nowhere to
+  /// go, so it is rendered as plain text rather than a tap that does nothing.
+  Future<void> _openSeries(Series? series) async {
+    final settings = _opdsSettings;
+    if (series == null || settings == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SeriesDetailScreen(series: series, settings: settings),
+      ),
+    );
+    await _load();
+  }
+
   int _secondsFor(ReadingEntry e) =>
       _activity.perVolumeSeconds[
           '${e.volume.seriesOpdsId}/${e.volume.fileName}'] ??
@@ -179,24 +200,28 @@ class _StatsScreenState extends State<StatsScreen> {
   /// from the library cache; a series that isn't cached (deleted from the
   /// server, say) falls back to one of its volume titles so the row is still
   /// recognisable rather than blank.
-  List<({String title, int seconds, int volumes, bool finished})> _seriesByTime(
+  List<({String title, int seconds, int volumes, bool finished, Series? series})>
+  _seriesByTime(
     List<ReadingEntry> entries,
   ) {
     final grouped = <int, List<ReadingEntry>>{};
     for (final e in entries) {
       grouped.putIfAbsent(e.volume.seriesOpdsId, () => []).add(e);
     }
-    final out = <({String title, int seconds, int volumes, bool finished})>[];
+    final out =
+        <({String title, int seconds, int volumes, bool finished, Series? series})>[];
     grouped.forEach((id, group) {
       var seconds = 0;
       for (final e in group) {
         seconds += _secondsFor(e);
       }
+      final series = _seriesById[id];
       out.add((
-        title: _seriesTitles[id] ?? group.first.volume.title,
+        title: series?.title ?? group.first.volume.title,
         seconds: seconds,
         volumes: group.length,
         finished: group.every((e) => e.progress.isFinished),
+        series: series,
       ));
     });
     out.sort((a, b) => b.seconds.compareTo(a.seconds));
@@ -414,7 +439,7 @@ class _StatsScreenState extends State<StatsScreen> {
         for (final row in _seriesByTime(entries).take(
           _showAllBooks ? 1 << 30 : _bookRowCap,
         ))
-          _SeriesRow(row: row),
+          _SeriesRow(row: row, onTap: () => _openSeries(row.series)),
         if (!_showAllBooks && _seriesByTime(entries).length > _bookRowCap)
           Align(
             alignment: Alignment.centerLeft,
@@ -445,18 +470,29 @@ class _StatsScreenState extends State<StatsScreen> {
 /// One series in the by-series list: title, how many volumes it covers, and
 /// the reading time behind it.
 class _SeriesRow extends StatelessWidget {
-  const _SeriesRow({required this.row});
+  const _SeriesRow({required this.row, required this.onTap});
 
-  final ({String title, int seconds, int volumes, bool finished}) row;
+  final ({
+    String title,
+    int seconds,
+    int volumes,
+    bool finished,
+    Series? series,
+  })
+  row;
+
+  /// Opens the series. Ignored when the series isn't in the library any more.
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final openable = row.series != null;
     final sub = [
       '${row.volumes} ${row.volumes == 1 ? "volume" : "volumes"}',
       if (row.finished) 'finished',
     ].join(' · ');
-    return Padding(
+    final content = Padding(
       padding: const EdgeInsets.symmetric(vertical: 7),
       child: Row(
         children: [
@@ -487,8 +523,22 @@ class _SeriesRow extends StatelessWidget {
               fontWeight: FontWeight.w600,
             ),
           ),
+          if (openable) ...[
+            const SizedBox(width: 4),
+            Icon(
+              Icons.chevron_right,
+              size: 18,
+              color: theme.colorScheme.outline,
+            ),
+          ],
         ],
       ),
+    );
+    if (!openable) return content;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: content,
     );
   }
 }

@@ -154,6 +154,16 @@ void main() {
       findsOneWidget,
       reason: 'one row covering all three, not three rows',
     );
+    // Nothing is in the library cache here, so the row has nowhere to go and
+    // must render as plain text rather than offering a tap that does nothing.
+    expect(
+      find.descendant(
+        of: find.byType(InkWell),
+        matching: find.text('3 volumes'),
+      ),
+      findsNothing,
+      reason: 'an uncached series is not falsely tappable',
+    );
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
