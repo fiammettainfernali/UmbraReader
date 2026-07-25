@@ -727,6 +727,11 @@ class _LibraryScreenState extends State<LibraryScreen>
               ],
             ),
             ..._buildContentSlivers(),
+            // Clears the glass bar the grid now scrolls behind, so the last
+            // row of covers can still be reached and tapped.
+            SliverToBoxAdapter(
+              child: SizedBox(height: MediaQuery.of(context).padding.bottom),
+            ),
           ],
         ),
       ),

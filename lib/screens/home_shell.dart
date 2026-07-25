@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/settings_service.dart';
+import '../widgets/glass_nav_bar.dart';
 import 'library_screen.dart';
 import 'manage_screen.dart';
 import 'notes_screen.dart';
@@ -43,22 +44,38 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     final settings = _settings;
+    final mq = MediaQuery.of(context);
     return Scaffold(
-      // IndexedStack keeps each tab alive, so switching away and back doesn't
-      // rebuild the library or lose a scroll position — which would read as
-      // the app moving under you.
-      body: IndexedStack(
-        index: _index,
-        children: [
-          const LibraryScreen(),
-          settings == null
-              ? const Scaffold(body: Center(child: CircularProgressIndicator()))
-              : ManageScreen(settings: settings),
-          const NotesScreen(),
-          const StatsScreen(),
-        ],
+      // The bar is glass, so the tabs have to scroll underneath it — with
+      // nothing passing behind it there is nothing to blur.
+      extendBody: true,
+      body: MediaQuery(
+        // Hand the tabs the bar's full footprint as bottom padding. They paint
+        // beneath it now, so their lists and floating buttons need to know to
+        // clear it; each tab reads this back as `padding.bottom`.
+        data: mq.copyWith(
+          padding: mq.padding.copyWith(
+            bottom: mq.padding.bottom + GlassNavBar.barHeight,
+          ),
+        ),
+        // IndexedStack keeps each tab alive, so switching away and back doesn't
+        // rebuild the library or lose a scroll position — which would read as
+        // the app moving under you.
+        child: IndexedStack(
+          index: _index,
+          children: [
+            const LibraryScreen(),
+            settings == null
+                ? const Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  )
+                : ManageScreen(settings: settings),
+            const NotesScreen(),
+            const StatsScreen(),
+          ],
+        ),
       ),
-      bottomNavigationBar: NavigationBar(
+      bottomNavigationBar: GlassNavBar(
         selectedIndex: _index,
         onDestinationSelected: (i) => setState(() => _index = i),
         destinations: const [

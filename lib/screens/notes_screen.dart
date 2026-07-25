@@ -122,7 +122,12 @@ class _NotesScreenState extends State<NotesScreen> {
           : visible.isEmpty
           ? _empty(context, all.isEmpty)
           : ListView.separated(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              padding: EdgeInsets.fromLTRB(
+                16,
+                8,
+                16,
+                24 + MediaQuery.of(context).padding.bottom,
+              ),
               itemCount: visible.length,
               separatorBuilder: (_, _) => const Divider(height: 1),
               itemBuilder: (context, i) =>
