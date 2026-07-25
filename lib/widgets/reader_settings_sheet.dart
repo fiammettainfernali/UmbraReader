@@ -181,6 +181,12 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
           children: [
             Row(
               children: [
+                Icon(
+                  Icons.auto_awesome,
+                  size: 16,
+                  color: theme.colorScheme.tertiary,
+                ),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     'Reader settings',
@@ -197,6 +203,9 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
               ],
             ),
             const SizedBox(height: 4),
+            // These sat loose above the cards; grouping them keeps the sheet
+            // reading as one thing.
+            _card(theme, [
             // A book-scoped override: when off, changes here mutate the
             // global defaults; when on, they only stick to this volume.
             SwitchListTile(
@@ -255,7 +264,8 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                       _update(_settings.copyWith(migraineGreen: on)),
                 ),
               ),
-            const SizedBox(height: 4),
+            ]),
+            const SizedBox(height: 12),
             _section(
               theme,
               icon: Icons.view_agenda_outlined,
@@ -953,6 +963,21 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
 
   /// A collapsible settings group, so the sheet reads as a few scannable
   /// sections rather than one long wall of controls.
+  /// Wraps loose controls in the same rounded surface the sections use.
+  Widget _card(ThemeData theme, List<Widget> children) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: theme.colorScheme.surfaceContainerHigh,
+      borderRadius: BorderRadius.circular(18),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: children,
+      ),
+    ),
+  );
+
   Widget _section(
     ThemeData theme, {
     required IconData icon,
@@ -960,21 +985,44 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
     bool expanded = false,
     required List<Widget> children,
   }) {
-    return Theme(
-      data: theme.copyWith(dividerColor: Colors.transparent),
-      child: ExpansionTile(
-        initiallyExpanded: expanded,
-        tilePadding: EdgeInsets.zero,
-        childrenPadding: const EdgeInsets.only(bottom: 12),
-        expandedCrossAxisAlignment: CrossAxisAlignment.start,
-        leading: Icon(icon, color: theme.colorScheme.primary),
-        title: Text(
-          title,
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
+    // Matches the action sheets: one rounded card per group, with the icon in
+    // its own candlelight-tinted tile. A settings sheet that looked different
+    // from every other sheet in the app was the odd one out.
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Theme(
+          data: theme.copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            initiallyExpanded: expanded,
+            tilePadding: const EdgeInsets.fromLTRB(14, 4, 14, 4),
+            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+            expandedCrossAxisAlignment: CrossAxisAlignment.start,
+            // The card already draws the shape; the tile must not add its own.
+            shape: const Border(),
+            collapsedShape: const Border(),
+            leading: Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.tertiary.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(11),
+              ),
+              child: Icon(icon, size: 20, color: theme.colorScheme.tertiary),
+            ),
+            title: Text(
+              title,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            children: children,
           ),
         ),
-        children: children,
       ),
     );
   }

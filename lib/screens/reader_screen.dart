@@ -1662,6 +1662,12 @@ class _ReaderScreenState extends State<ReaderScreen>
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
+      // Same corner and surface as the action sheets, so every sheet in the
+      // app reads as the same object.
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
       // Cap the height so the sheet never fully covers the screen — a scrim
       // strip stays visible (and tappable) above it to get back to the book.
       constraints: BoxConstraints(
