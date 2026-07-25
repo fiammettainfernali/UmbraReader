@@ -190,6 +190,59 @@ class ReadingActivity {
     return (current - prev) / prev;
   }
 
+  /// Buckets for the trend chart, oldest first: one per day for week and
+  /// month, one per calendar month for year. Empty for all-time, where the
+  /// heatmap is the better tool.
+  ///
+  /// Month buckets are unlabelled — thirty labels are unreadable at this size
+  /// and the shape is the point.
+  List<({String label, int seconds})> trendBuckets(
+    StatsPeriod period, {
+    DateTime? now,
+  }) {
+    const weekdayInitials = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+    const monthInitials = [
+      'J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D',
+    ];
+    final today = _today(now);
+    switch (period) {
+      case StatsPeriod.all:
+        return const [];
+      case StatsPeriod.week:
+      case StatsPeriod.month:
+        final days = period.days;
+        return [
+          for (var i = days - 1; i >= 0; i--)
+            (
+              label: period == StatsPeriod.week
+                  ? weekdayInitials[
+                        today.subtract(Duration(days: i)).weekday - 1]
+                  : '',
+              seconds:
+                  dailySeconds[_dateKey(today.subtract(Duration(days: i)))] ??
+                  0,
+            ),
+        ];
+      case StatsPeriod.year:
+        // Twelve calendar months ending with the current one.
+        final out = <({String label, int seconds})>[];
+        for (var back = 11; back >= 0; back--) {
+          final month = DateTime(today.year, today.month - back);
+          var total = 0;
+          dailySeconds.forEach((key, value) {
+            final parts = key.split('-');
+            if (parts.length < 2) return;
+            if (int.tryParse(parts[0]) == month.year &&
+                int.tryParse(parts[1]) == month.month) {
+              total += value;
+            }
+          });
+          out.add((label: monthInitials[month.month - 1], seconds: total));
+        }
+        return out;
+    }
+  }
+
   int _sumLast(Map<String, int> src, int days, DateTime? now, {int skip = 0}) {
     final today = _today(now);
     var total = 0;

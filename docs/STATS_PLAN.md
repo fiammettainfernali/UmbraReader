@@ -83,7 +83,13 @@ actionable number in the screen and currently sits below everything.
 
 *Effort ~1–2 days. Risk low: additive to a well-covered store.*
 
-### Tier 2 — Show the shape
+### Tier 2 — Show the shape — SHIPPED 2026-07-24
+
+`trendBuckets(period)` + a `_TrendBars` row: 7 daily bars for the week
+(weekday-labelled), 30 unlabelled for the month, 12 monthly for the year. The
+heatmap now shows only for All, where 'whether you read across a long stretch'
+is the right question. No charting dependency — fractional-height boxes.
+Empty days keep a faint stub so the row reads as a timeline, not a gap.
 
 **T2. A small bar chart of the period's buckets** — 7 days for Week, ~4–5 weeks
 for Month, 12 months for Year. The heatmap answers "did I read"; bars answer
@@ -93,7 +99,15 @@ genuinely the right tool.
 *Effort ~1–2 days. No dependency needed — this is a row of `FractionallySized`
 bars, not a charting library.*
 
-### Tier 3 — Honesty and ranking
+### Tier 3 — Honesty and ranking — SHIPPED 2026-07-24
+
+'Chapters read' needed no fix in the end — Tier 1's restructure dropped it.
+Pace is now period-aware on screen (the lifetime figure still drives the
+reader's time-left estimate, which wants stability); 'books finished' counts
+the window; and the by-book list is ranked by time spent, capped at 8 with a
+'show all' expander. Caveat recorded in code: finished-in-period keys on the
+position's last-saved time, not a real finish date, so re-opening a finished
+book moves it back into the window.
 
 - **Fix or rename "Chapters read"** so it stops overstating.
 - **Make words/min period-aware** (keep the lifetime figure for the reader's

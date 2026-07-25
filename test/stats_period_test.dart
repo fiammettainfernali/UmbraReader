@@ -127,6 +127,46 @@ void main() {
     });
   });
 
+  group('trend buckets', () {
+    test('a week is seven daily buckets, oldest first, weekday-labelled', () {
+      final a = _activity({0: 30, 6: 10});
+      final b = a.trendBuckets(StatsPeriod.week, now: _now);
+      expect(b, hasLength(7));
+      expect(b.first.seconds, 10, reason: 'six days ago comes first');
+      expect(b.last.seconds, 30, reason: 'today comes last');
+      expect(b.every((x) => x.label.isNotEmpty), isTrue);
+    });
+
+    test('a month is thirty daily buckets, unlabelled', () {
+      final b = _activity({0: 5}).trendBuckets(StatsPeriod.month, now: _now);
+      expect(b, hasLength(30));
+      expect(
+        b.every((x) => x.label.isEmpty),
+        isTrue,
+        reason: 'thirty labels are unreadable at this size',
+      );
+    });
+
+    test('a year is twelve monthly buckets ending with this month', () {
+      // 5s today (July) and 7s ~2 months back must land in different buckets.
+      final a = _activity({0: 5, 62: 7});
+      final b = a.trendBuckets(StatsPeriod.year, now: _now);
+      expect(b, hasLength(12));
+      expect(b.last.seconds, 5, reason: 'the current month is last');
+      expect(b.map((x) => x.seconds).reduce((p, c) => p + c), 12);
+    });
+
+    test('all-time has no buckets — the heatmap covers it', () {
+      expect(_activity({0: 5}).trendBuckets(StatsPeriod.all, now: _now), isEmpty);
+    });
+
+    test('an empty ledger still yields a full row of zero buckets', () {
+      final b = _activity(const {}).trendBuckets(StatsPeriod.week, now: _now);
+      expect(b, hasLength(7));
+      expect(b.every((x) => x.seconds == 0), isTrue);
+    });
+  });
+
   test('an empty ledger answers zero everywhere, not null', () {
     final a = _activity(const {});
     for (final p in StatsPeriod.values) {

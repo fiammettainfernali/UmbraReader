@@ -33,6 +33,11 @@ class _StatsScreenState extends State<StatsScreen> {
   /// not "what have I ever done".
   StatsPeriod _period = StatsPeriod.week;
 
+  /// The by-book list is ranked, so a handful covers most reading; the
+  /// rest are one tap away rather than an endless scroll.
+  static const int _bookRowCap = 8;
+  bool _showAllBooks = false;
+
   @override
   void initState() {
     super.initState();
@@ -137,6 +142,35 @@ class _StatsScreenState extends State<StatsScreen> {
     );
   }
 
+  /// Books whose *last* reading position falls in the window and which were
+  /// read to the end.
+  ///
+  /// Approximate by design: positions record when they were last saved, not
+  /// when a book was finished, so re-opening a finished book to check
+  /// something moves it back into the window. Tracking a real finish date
+  /// would need a schema change for a number that is decoration.
+  int _finishedIn(List<ReadingEntry> entries, StatsPeriod period) {
+    final finished = entries.where((e) => e.progress.isFinished);
+    if (period.isAllTime) return finished.length;
+    final cutoff = DateTime.now().subtract(Duration(days: period.days));
+    return finished
+        .where((e) => e.progress.updatedAt?.isAfter(cutoff) ?? false)
+        .length;
+  }
+
+  int _secondsFor(ReadingEntry e) =>
+      _activity.perVolumeSeconds[
+          '${e.volume.seriesOpdsId}/${e.volume.fileName}'] ??
+      0;
+
+  /// Entries ranked by time spent, most first. Lifetime rather than per
+  /// period: the per-volume ledger isn't dated, so a window would be a guess.
+  List<ReadingEntry> _booksByTime(List<ReadingEntry> entries) {
+    final out = [...entries];
+    out.sort((a, b) => _secondsFor(b).compareTo(_secondsFor(a)));
+    return out;
+  }
+
   /// "this week" / "this month" / "this year" — the window in words.
   String _periodPhrase(StatsPeriod period) => switch (period) {
     StatsPeriod.week => 'this week',
@@ -170,6 +204,8 @@ class _StatsScreenState extends State<StatsScreen> {
     final daysRead = _activity.daysReadIn(period);
     final trend = _activity.trendAgainstPrevious(period);
     final perDay = daysRead > 0 ? seconds ~/ daysRead : 0;
+    final pace = _activity.wordsPerMinuteIn(period);
+    final finishedInPeriod = _finishedIn(entries, period);
 
     // Lifetime figures — kept, but demoted to the strip at the bottom.
     final inProgress = entries
@@ -258,6 +294,26 @@ class _StatsScreenState extends State<StatsScreen> {
             const SizedBox(width: 12),
             Expanded(
               child: _StatCard(
+                icon: Icons.speed,
+                value: pace == 0 ? '—' : '$pace',
+                label: 'words / min',
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _StatCard(
+                icon: Icons.task_alt,
+                value: '$finishedInPeriod',
+                label: 'books finished',
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _StatCard(
                 icon: Icons.local_fire_department_outlined,
                 value: streak == 0 ? '—' : '$streak',
                 label: streak == 1 ? 'day streak' : 'days streak',
@@ -270,7 +326,13 @@ class _StatsScreenState extends State<StatsScreen> {
           'Reading activity',
           padding: EdgeInsets.only(bottom: 8),
         ),
-        _CalendarHeatmap(dailySeconds: _activity.dailySeconds),
+        // Bars for a window (how much, and which way), the heatmap for
+        // all-time (whether, across a long stretch) — each is the right tool
+        // for its question.
+        if (period.isAllTime)
+          _CalendarHeatmap(dailySeconds: _activity.dailySeconds)
+        else
+          _TrendBars(buckets: _activity.trendBuckets(period)),
         const SizedBox(height: 20),
 
         // ── lifetime totals, deliberately quiet
@@ -289,11 +351,22 @@ class _StatsScreenState extends State<StatsScreen> {
         const SizedBox(height: 20),
         const SectionHeader('By book', padding: EdgeInsets.only(bottom: 8)),
         const SizedBox(height: 4),
-        for (final entry in entries)
+        // Ranked by time spent, so the list answers "where did it go" rather
+        // than listing everything ever opened in arbitrary order.
+        for (final entry in _booksByTime(entries).take(
+          _showAllBooks ? entries.length : _bookRowCap,
+        ))
           _BookRow(
             entry: entry,
-            seconds: _activity.perVolumeSeconds[
-                '${entry.volume.seriesOpdsId}/${entry.volume.fileName}'] ?? 0,
+            seconds: _secondsFor(entry),
+          ),
+        if (!_showAllBooks && entries.length > _bookRowCap)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: () => setState(() => _showAllBooks = true),
+              child: Text('Show all ${entries.length}'),
+            ),
           ),
       ],
     );
@@ -306,6 +379,75 @@ class _StatsScreenState extends State<StatsScreen> {
 /// These are the figures that only ever grow — a trophy case. They are worth
 /// keeping, but they answer "what have I ever done", not "how am I doing", so
 /// they get the least visual weight on the screen rather than the most.
+/// A compact bar per bucket, scaled to the busiest one.
+///
+/// Deliberately not a charting dependency: this is a row of rounded boxes with
+/// a fractional height, which is all the question "how much, and which way"
+/// needs. Days with no reading keep a faint stub so the row still reads as a
+/// timeline rather than a gap.
+class _TrendBars extends StatelessWidget {
+  const _TrendBars({required this.buckets});
+
+  final List<({String label, int seconds})> buckets;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    if (buckets.isEmpty) return const SizedBox.shrink();
+    final peak = buckets.fold<int>(0, (m, b) => b.seconds > m ? b.seconds : m);
+    final labelled = buckets.any((b) => b.label.isNotEmpty);
+    return Semantics(
+      label: 'Reading time per period, most recent last',
+      child: SizedBox(
+        height: labelled ? 92 : 76,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            for (final b in buckets)
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 1.5),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: FractionallySizedBox(
+                          alignment: Alignment.bottomCenter,
+                          heightFactor: peak == 0
+                              ? 0.02
+                              : (b.seconds / peak).clamp(0.02, 1.0),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: b.seconds == 0
+                                  ? theme.colorScheme.outlineVariant
+                                        .withValues(alpha: 0.4)
+                                  : theme.colorScheme.primary
+                                        .withValues(alpha: 0.75),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (labelled) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          b.label,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _AllTimeStrip extends StatelessWidget {
   const _AllTimeStrip({
     required this.entries,
