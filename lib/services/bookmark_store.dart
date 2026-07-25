@@ -77,6 +77,23 @@ class BookmarkStore {
     return marks;
   }
 
+  /// Every saved mark across every book, newest first, each with the
+  /// `seriesId/fileName` key of the volume it belongs to.
+  ///
+  /// The store is keyed by volume and had no way to ask across the library, so
+  /// annotations could only ever be seen one book at a time. The key is
+  /// returned rather than a [Volume] because rows don't carry the volume
+  /// itself — callers join it against reading positions to get a title.
+  Future<List<({String volumeKey, Bookmark mark})>> allMarks() async {
+    await _ensureMigrated();
+    final rows = await _db.select(_table).get();
+    final out = [
+      for (final row in rows) (volumeKey: row.volumeKey, mark: _fromRow(row)),
+    ];
+    out.sort((a, b) => b.mark.createdAt.compareTo(a.mark.createdAt));
+    return out;
+  }
+
   /// Bookmark/highlight counts grouped by series opdsId — the love-signal
   /// feed for the recommendation engine (saving passages = caring).
   Future<Map<int, int>> countBySeries() async {

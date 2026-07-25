@@ -61,7 +61,19 @@ four. Adding a book is three. None of that reflects how often each is done.
 
 ## Plan
 
-### Tier 1 — Give the app a spine
+### Tier 1 — Give the app a spine — SHIPPED 2026-07-24
+
+Both parts built. Scope grew once constructors were checked: `HighlightsScreen`
+turned out to be *per-book* (it requires a Volume) and `BookmarkStore` had no
+cross-volume query, so a Notes tab meant a new `allMarks()` and a new
+library-wide `NotesScreen`, not wiring. That is also why the dead end was so
+complete — nothing in the app could ask the question.
+
+`HomeShell` holds Library / Discover / Notes / You in an `IndexedStack`, so
+tabs keep their scroll position (Tier 3's item, free). Stats and Manage left
+the More menu; settings, storage, backup and imported books stayed there as
+configuration. The reader still pushes over the shell, so reading is
+full-screen. 4 tests.
 
 **T1a. Replace the "More" junk drawer with a bottom navigation bar.**
 Four destinations, chosen by how often they are actually used:

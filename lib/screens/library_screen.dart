@@ -31,7 +31,6 @@ import 'library_filters.dart';
 import 'library_recommendations.dart';
 import 'library_search_screen.dart';
 import '../widgets/pro_sheet.dart';
-import 'manage_screen.dart';
 import 'reader_screen.dart';
 import 'series_detail_screen.dart';
 import 'settings_screen.dart';
@@ -461,14 +460,6 @@ class _LibraryScreenState extends State<LibraryScreen>
     await _loadReading();
   }
 
-  void _openManage() {
-    final settings = _settings;
-    if (settings == null || !settings.isConfigured) return;
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => ManageScreen(settings: settings)),
-    );
-  }
-
   Future<void> _openStorage() async {
     final settings = _settings;
     if (settings == null) return;
@@ -730,14 +721,10 @@ class _LibraryScreenState extends State<LibraryScreen>
                     switch (action) {
                       case 'collections':
                         _openCollections();
-                      case 'stats':
-                        _openStats();
                       case 'storage':
                         _openStorage();
                       case 'imported':
                         _openImported();
-                      case 'manage':
-                        _openManage();
                       case 'backup':
                         _openBackup();
                       case 'settings':
@@ -754,14 +741,6 @@ class _LibraryScreenState extends State<LibraryScreen>
                       ),
                     ),
                     PopupMenuItem(
-                      value: 'stats',
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.insights_outlined),
-                        title: Text('Reading stats'),
-                      ),
-                    ),
-                    PopupMenuItem(
                       value: 'storage',
                       child: ListTile(
                         contentPadding: EdgeInsets.zero,
@@ -775,14 +754,6 @@ class _LibraryScreenState extends State<LibraryScreen>
                         contentPadding: EdgeInsets.zero,
                         leading: Icon(Icons.upload_file_outlined),
                         title: Text('Imported books'),
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: 'manage',
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.cloud_sync_outlined),
-                        title: Text('Manage server'),
                       ),
                     ),
                     PopupMenuItem(

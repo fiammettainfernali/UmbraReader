@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
-import 'screens/library_screen.dart';
+import 'screens/home_shell.dart';
 import 'screens/onboarding_screen.dart';
 import 'services/cloud_sync_service.dart';
 import 'services/custom_theme_store.dart';
@@ -172,6 +172,6 @@ class _RootGateState extends State<_RootGate> {
         onFinished: () => setState(() => _showOnboarding = false),
       );
     }
-    return const LibraryScreen();
+    return const HomeShell();
   }
 }
