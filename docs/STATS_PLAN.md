@@ -54,7 +54,14 @@ migration, no lost history.
 
 ## Plan
 
-### Tier 1 — Periods and hierarchy (the actual fix)
+### Tier 1 — Periods and hierarchy (the actual fix) — SHIPPED 2026-07-24
+
+Built as described. `StatsPeriod` (week/month/year/all, sized in rolling days
+so a part-finished calendar month can't read as a collapse) plus period
+accessors on `ReadingActivity`; the screen now leads with the window's reading
+time, the change against the previous window, then today-vs-goal, then
+supporting figures, with lifetime totals demoted to a quiet `All time` strip.
+14 tests on the period maths, 3 driving the real screen — it had none before.
 
 **T1a. A period selector.** Segmented control at the top: **Week · Month ·
 Year · All**, defaulting to **Week**, not All. Every headline figure respects

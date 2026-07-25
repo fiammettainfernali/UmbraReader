@@ -9,6 +9,28 @@ import '../db/app_database.dart';
 import '../models/volume.dart';
 import 'cloud_sync_service.dart';
 
+/// The window the stats screen is reporting on.
+///
+/// Sized in days rather than calendar months/years deliberately: a rolling
+/// window compares cleanly against the one before it ("this week vs last
+/// week"), whereas calendar periods would compare a part-finished month
+/// against a whole one and look like a collapse every time a month turned.
+enum StatsPeriod {
+  week('Week', 7),
+  month('Month', 30),
+  year('Year', 365),
+  all('All', 0);
+
+  const StatsPeriod(this.label, this.days);
+
+  final String label;
+
+  /// Length of the window; 0 means all recorded history.
+  final int days;
+
+  bool get isAllTime => this == StatsPeriod.all;
+}
+
 /// A snapshot of the user's reading-time activity: how many seconds were
 /// spent reading on each calendar day, and the per-volume total.
 class ReadingActivity {
@@ -89,6 +111,90 @@ class ReadingActivity {
     var total = 0;
     for (var i = 0; i < 7; i++) {
       total += dailySeconds[_dateKey(today.subtract(Duration(days: i)))] ?? 0;
+    }
+    return total;
+  }
+
+  // ── period windows ──────────────────────────────────────────────────────
+  //
+  // The daily ledger has always held enough to answer "how did last month go";
+  // only today and this week had accessors, so the stats screen fell back to
+  // all-time everywhere else. These read the same maps over an arbitrary
+  // window, which is what lets the screen offer Week / Month / Year / All.
+
+  /// Seconds read across the [days] ending today, inclusive.
+  int secondsInLast(int days, {DateTime? now}) =>
+      _sumLast(dailySeconds, days, now);
+
+  /// Words read across the [days] ending today, inclusive.
+  int wordsInLast(int days, {DateTime? now}) => _sumLast(dailyWords, days, now);
+
+  /// Seconds read across the [days] ending [days] ago — the window
+  /// immediately before [secondsInLast], for period-on-period comparison.
+  int secondsInPrevious(int days, {DateTime? now}) =>
+      _sumLast(dailySeconds, days, now, skip: days);
+
+  /// Days with any reading in the [days] ending today. Distinct from the
+  /// streak: this counts total days, not consecutive ones.
+  int daysReadInLast(int days, {DateTime? now}) {
+    final today = _today(now);
+    var count = 0;
+    for (var i = 0; i < days; i++) {
+      final v = dailySeconds[_dateKey(today.subtract(Duration(days: i)))] ?? 0;
+      if (v > 0) count++;
+    }
+    return count;
+  }
+
+  /// Per-day seconds over the [days] ending today, oldest first — the series
+  /// a trend bar chart draws.
+  List<int> dailySeriesLast(int days, {DateTime? now}) {
+    final today = _today(now);
+    return [
+      for (var i = days - 1; i >= 0; i--)
+        dailySeconds[_dateKey(today.subtract(Duration(days: i)))] ?? 0,
+    ];
+  }
+
+  /// Seconds read in [period] — all-time when the period is [StatsPeriod.all].
+  int secondsIn(StatsPeriod period, {DateTime? now}) =>
+      period.isAllTime ? totalSeconds : secondsInLast(period.days, now: now);
+
+  /// Words read in [period].
+  int wordsIn(StatsPeriod period, {DateTime? now}) =>
+      period.isAllTime ? totalWords : wordsInLast(period.days, now: now);
+
+  /// Days with any reading in [period].
+  int daysReadIn(StatsPeriod period, {DateTime? now}) => period.isAllTime
+      ? dailySeconds.values.where((v) => v > 0).length
+      : daysReadInLast(period.days, now: now);
+
+  /// Reading pace in [period], or 0 without measured time. The lifetime figure
+  /// ([wordsPerMinute]) still drives the reader's time-left estimate, which
+  /// wants stability over recency.
+  int wordsPerMinuteIn(StatsPeriod period, {DateTime? now}) {
+    final minutes = secondsIn(period, now: now) / 60.0;
+    if (minutes <= 0) return 0;
+    return (wordsIn(period, now: now) / minutes).round();
+  }
+
+  /// Change in reading time against the window immediately before [period],
+  /// as a fraction (0.38 = up 38%). Null when there is no prior window to
+  /// compare against, or it was empty — a first week has no "last week", and
+  /// dividing by zero would read as an infinite improvement.
+  double? trendAgainstPrevious(StatsPeriod period, {DateTime? now}) {
+    if (period.isAllTime) return null;
+    final prev = secondsInPrevious(period.days, now: now);
+    if (prev <= 0) return null;
+    final current = secondsInLast(period.days, now: now);
+    return (current - prev) / prev;
+  }
+
+  int _sumLast(Map<String, int> src, int days, DateTime? now, {int skip = 0}) {
+    final today = _today(now);
+    var total = 0;
+    for (var i = skip; i < skip + days; i++) {
+      total += src[_dateKey(today.subtract(Duration(days: i)))] ?? 0;
     }
     return total;
   }
