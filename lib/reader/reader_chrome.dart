@@ -5,7 +5,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../feature_flags.dart';
-import '../widgets/menu_row.dart';
+import '../widgets/action_sheet.dart';
 import '../models/reader_theme.dart';
 import '../widgets/seek_button.dart';
 
@@ -97,11 +97,89 @@ class ReaderTopBar extends StatelessWidget {
                   tooltip: 'Listen mode',
                   onPressed: onToggleListen,
                 ),
-              PopupMenuButton<ReaderMenu>(
-                icon: Icon(Icons.more_vert, color: preset.text),
+              IconButton(
+                icon: Icon(Icons.more_horiz, color: preset.text),
                 tooltip: 'More',
-                onSelected: (action) {
-                  switch (action) {
+                onPressed: () async {
+                  final choice = await showActionSheet<ReaderMenu>(
+                    context,
+                    title: 'This book',
+                    groups: [
+                      SheetGroup(
+                        actions: const [
+                          SheetAction(
+                            value: ReaderMenu.contents,
+                            icon: Icons.list,
+                            label: 'Contents',
+                            subtitle: 'Jump to a chapter',
+                          ),
+                          SheetAction(
+                            value: ReaderMenu.search,
+                            icon: Icons.search,
+                            label: 'Search in book',
+                          ),
+                          SheetAction(
+                            value: ReaderMenu.series,
+                            icon: Icons.auto_stories_outlined,
+                            label: 'Go to series',
+                            subtitle: 'Other volumes and downloads',
+                          ),
+                        ],
+                      ),
+                      SheetGroup(
+                        title: 'Notes',
+                        actions: const [
+                          SheetAction(
+                            value: ReaderMenu.bookmarks,
+                            icon: Icons.bookmark_outline,
+                            label: 'Bookmarks',
+                            subtitle: 'Saved spots and highlights in this book',
+                          ),
+                          SheetAction(
+                            value: ReaderMenu.glossary,
+                            icon: Icons.people_outline,
+                            label: 'Glossary',
+                            subtitle: 'Who is who, and where you last saw them',
+                          ),
+                        ],
+                      ),
+                      if (kReadAloudEnabled)
+                        SheetGroup(
+                          title: 'Read aloud',
+                          actions: const [
+                            SheetAction(
+                              value: ReaderMenu.skip,
+                              icon: Icons.filter_alt_outlined,
+                              label: 'Skip while reading',
+                            ),
+                            SheetAction(
+                              value: ReaderMenu.pronunciations,
+                              icon: Icons.record_voice_over_outlined,
+                              label: 'Pronunciations',
+                            ),
+                            SheetAction(
+                              value: ReaderMenu.prepareOffline,
+                              icon: Icons.download_for_offline_outlined,
+                              label: 'Prepare for offline',
+                            ),
+                          ],
+                        ),
+                      SheetGroup(
+                        title: 'Reading',
+                        actions: const [
+                          SheetAction(
+                            value: ReaderMenu.settings,
+                            icon: Icons.text_fields,
+                            label: 'Reading settings',
+                            subtitle: 'Text, theme, layout and comfort',
+                          ),
+                        ],
+                      ),
+                    ],
+                  );
+                  switch (choice) {
+                    case null:
+                      break;
                     case ReaderMenu.contents:
                       onShowContents();
                     case ReaderMenu.series:
@@ -122,59 +200,6 @@ class ReaderTopBar extends StatelessWidget {
                       onOpenSettings();
                   }
                 },
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: ReaderMenu.contents,
-                    child: MenuRow(Icons.list, 'Contents'),
-                  ),
-                  const PopupMenuItem(
-                    value: ReaderMenu.search,
-                    child: MenuRow(Icons.search, 'Search in book'),
-                  ),
-                  const PopupMenuItem(
-                    value: ReaderMenu.series,
-                    child: MenuRow(Icons.auto_stories_outlined, 'Go to series'),
-                  ),
-                  // navigate ── annotate
-                  const PopupMenuDivider(),
-                  const PopupMenuItem(
-                    value: ReaderMenu.bookmarks,
-                    child: MenuRow(Icons.bookmark_outline, 'Bookmarks'),
-                  ),
-                  const PopupMenuItem(
-                    value: ReaderMenu.glossary,
-                    child: MenuRow(Icons.people_outline, 'Glossary'),
-                  ),
-                  if (kReadAloudEnabled) ...[
-                    const PopupMenuItem(
-                      value: ReaderMenu.skip,
-                      child: MenuRow(
-                        Icons.filter_alt_outlined,
-                        'Skip while reading',
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: ReaderMenu.pronunciations,
-                      child: MenuRow(
-                        Icons.record_voice_over_outlined,
-                        'Pronunciations',
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: ReaderMenu.prepareOffline,
-                      child: MenuRow(
-                        Icons.download_for_offline_outlined,
-                        'Prepare for offline',
-                      ),
-                    ),
-                  ],
-                  // ── configure
-                  const PopupMenuDivider(),
-                  const PopupMenuItem(
-                    value: ReaderMenu.settings,
-                    child: MenuRow(Icons.text_fields, 'Reading settings'),
-                  ),
-                ],
               ),
             ],
           ),

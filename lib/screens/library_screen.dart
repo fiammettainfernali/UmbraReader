@@ -20,7 +20,7 @@ import '../services/series_status_store.dart';
 import '../services/reading_activity_store.dart';
 import '../services/settings_service.dart';
 import '../widgets/add_to_collection_sheet.dart';
-import '../widgets/menu_row.dart';
+import '../widgets/action_sheet.dart';
 import '../widgets/section_header.dart';
 import 'backup_screen.dart';
 import 'collections_screen.dart';
@@ -711,59 +711,18 @@ class _LibraryScreenState extends State<LibraryScreen>
                   tooltip: 'Search inside your books',
                   onPressed: openLibrarySearch,
                 ),
-                PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert),
+                // Download-all earns a bar slot: on a library this size it
+                // is a real, repeated action, not an occasional one.
+                if (canDownloadAll)
+                  IconButton(
+                    icon: const Icon(Icons.download_for_offline_outlined),
+                    tooltip: 'Download whole library',
+                    onPressed: confirmDownloadEverything,
+                  ),
+                IconButton(
+                  icon: const Icon(Icons.more_horiz),
                   tooltip: 'More',
-                  onSelected: (action) {
-                    switch (action) {
-                      case 'random':
-                        _openRandom();
-                      case 'downloadAll':
-                        confirmDownloadEverything();
-                      case 'collections':
-                        _openCollections();
-                      case 'storage':
-                        _openStorage();
-                      case 'imported':
-                        _openImported();
-                      case 'backup':
-                        _openBackup();
-                      case 'settings':
-                        _openSettings();
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    if (_library?.isNotEmpty ?? false)
-                      const PopupMenuItem(
-                        value: 'random',
-                        child: MenuRow(Icons.shuffle, 'Open a random book'),
-                      ),
-                    if (canDownloadAll)
-                      const PopupMenuItem(
-                        value: 'downloadAll',
-                        child: MenuRow(Icons.download_for_offline_outlined, 'Download whole library'),
-                      ),
-                    const PopupMenuItem(
-                      value: 'collections',
-                      child: MenuRow(Icons.collections_bookmark_outlined, 'Collections'),
-                    ),
-                    PopupMenuItem(
-                      value: 'storage',
-                      child: MenuRow(Icons.sd_storage_outlined, 'Manage storage'),
-                    ),
-                    PopupMenuItem(
-                      value: 'imported',
-                      child: MenuRow(Icons.upload_file_outlined, 'Imported books'),
-                    ),
-                    PopupMenuItem(
-                      value: 'backup',
-                      child: MenuRow(Icons.cloud_upload_outlined, 'Backup & restore'),
-                    ),
-                    PopupMenuItem(
-                      value: 'settings',
-                      child: MenuRow(Icons.settings_outlined, 'Server settings'),
-                    ),
-                  ],
+                  onPressed: _openLibraryMenu,
                 ),
               ],
             ),
@@ -772,6 +731,82 @@ class _LibraryScreenState extends State<LibraryScreen>
         ),
       ),
     );
+  }
+
+  /// The library's "more" menu.
+  ///
+  /// A sheet rather than a popup: it opens under the thumb instead of in the
+  /// top-right corner, has room to say what each destination is for, and
+  /// groups jumping-off points apart from the things you only visit
+  /// occasionally.
+  Future<void> _openLibraryMenu() async {
+    final action = await showActionSheet<String>(
+      context,
+      title: 'Library',
+      groups: [
+        SheetGroup(
+          actions: [
+            SheetAction(
+              value: 'collections',
+              icon: Icons.collections_bookmark_outlined,
+              label: 'Collections',
+              subtitle: 'Your own shelves',
+            ),
+            SheetAction(
+              value: 'imported',
+              icon: Icons.upload_file_outlined,
+              label: 'Imported books',
+              subtitle: 'EPUBs you added from Files',
+            ),
+            if (_library?.isNotEmpty ?? false)
+              SheetAction(
+                value: 'random',
+                icon: Icons.shuffle,
+                label: 'Open a random book',
+                subtitle: 'Pick something for me',
+              ),
+          ],
+        ),
+        SheetGroup(
+          title: 'Manage',
+          actions: const [
+            SheetAction(
+              value: 'storage',
+              icon: Icons.sd_storage_outlined,
+              label: 'Manage storage',
+              subtitle: 'See what downloads are taking up space',
+            ),
+            SheetAction(
+              value: 'backup',
+              icon: Icons.cloud_upload_outlined,
+              label: 'Backup & restore',
+              subtitle: 'Export your library, progress and notes',
+            ),
+            SheetAction(
+              value: 'settings',
+              icon: Icons.settings_outlined,
+              label: 'Server settings',
+              subtitle: 'Where your books come from',
+            ),
+          ],
+        ),
+      ],
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'collections':
+        _openCollections();
+      case 'imported':
+        _openImported();
+      case 'random':
+        _openRandom();
+      case 'storage':
+        _openStorage();
+      case 'backup':
+        _openBackup();
+      case 'settings':
+        _openSettings();
+    }
   }
 
   List<Widget> _buildContentSlivers() {
