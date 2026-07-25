@@ -190,6 +190,66 @@ class ReadingActivity {
     return (current - prev) / prev;
   }
 
+  /// The heaviest single day in [period], or null when nothing was read.
+  ({DateTime day, int seconds})? bestDayIn(
+    StatsPeriod period, {
+    DateTime? now,
+  }) {
+    final today = _today(now);
+    ({DateTime day, int seconds})? best;
+    void consider(DateTime day, int seconds) {
+      if (seconds <= 0) return;
+      if (best == null || seconds > best!.seconds) {
+        best = (day: day, seconds: seconds);
+      }
+    }
+
+    if (period.isAllTime) {
+      dailySeconds.forEach((key, value) {
+        final day = DateTime.tryParse(key);
+        if (day != null) consider(day, value);
+      });
+    } else {
+      for (var i = 0; i < period.days; i++) {
+        final day = today.subtract(Duration(days: i));
+        consider(day, dailySeconds[_dateKey(day)] ?? 0);
+      }
+    }
+    return best;
+  }
+
+  /// The heaviest rolling seven days ending inside [period], or null when
+  /// nothing was read. Rolling rather than calendar weeks, to match how the
+  /// periods themselves are measured.
+  int bestWeekIn(StatsPeriod period, {DateTime? now}) {
+    final today = _today(now);
+    // Across all time, walk back to the oldest recorded day.
+    var span = period.days;
+    if (period.isAllTime) {
+      var oldest = 0;
+      dailySeconds.forEach((key, _) {
+        final day = DateTime.tryParse(key);
+        if (day == null) return;
+        final age = today.difference(day).inDays;
+        if (age > oldest) oldest = age;
+      });
+      span = oldest + 1;
+    }
+    var best = 0;
+    for (var offset = 0; offset < span; offset++) {
+      var total = 0;
+      for (var i = 0; i < 7; i++) {
+        total +=
+            dailySeconds[_dateKey(
+              today.subtract(Duration(days: offset + i)),
+            )] ??
+            0;
+      }
+      if (total > best) best = total;
+    }
+    return best;
+  }
+
   /// Buckets for the trend chart, oldest first: one per day for week and
   /// month, one per calendar month for year. Empty for all-time, where the
   /// heatmap is the better tool.

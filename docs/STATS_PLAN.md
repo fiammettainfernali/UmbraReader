@@ -119,7 +119,14 @@ book moves it back into the window.
 
 *Effort ~1 day.*
 
-### Tier 4 — Optional colour
+### Tier 4 — Optional colour — SHIPPED 2026-07-24
+
+Best day ("today"/"yesterday"/date) and best rolling week under the trend.
+The by-book list became **by series**: grouped on seriesOpdsId, ranked by
+time, showing volume count and whether the series is finished — a forty-volume
+webnovel is now one line, not forty rows. Series titles come from the library
+cache, falling back to a volume title when a series isn't cached. "Read on N
+days" was already covered by Tier 1's days-read card.
 
 Best day and best week; a "you read on N of the last 30 days" line; per-series
 rather than per-volume totals, which for a 40-volume webnovel is far more

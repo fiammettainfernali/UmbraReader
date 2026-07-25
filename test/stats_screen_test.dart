@@ -124,4 +124,39 @@ void main() {
     await tester.pump();
     CloudSyncService().cancelPendingTimers();
   });
+
+  testWidgets('groups the breakdown by series, not by volume', (tester) async {
+    // Three volumes of one series must collapse to a single row.
+    for (var v = 1; v <= 3; v++) {
+      final vol = Volume(
+        seriesOpdsId: 1,
+        title: 'Saga Vol $v',
+        fileName: 'saga-v$v.epub',
+        downloadUrl: 'http://unused/x.epub',
+        fileSizeBytes: 0,
+        updatedAt: DateTime.utc(2026, 6, 1),
+      );
+      await ReadingProgressStore().save(
+        vol,
+        const ReadingProgress(chapterIndex: 2, blockIndex: 0, chapterCount: 10),
+      );
+      await ReadingActivityStore().record(vol, const Duration(minutes: 10));
+    }
+
+    await tester.pumpWidget(const MaterialApp(home: StatsScreen()));
+    await _settle(tester);
+    await tester.scrollUntilVisible(find.text('By series'), 300);
+    await tester.pumpAndSettle();
+
+    expect(find.text('By series'), findsOneWidget);
+    expect(
+      find.text('3 volumes'),
+      findsOneWidget,
+      reason: 'one row covering all three, not three rows',
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    CloudSyncService().cancelPendingTimers();
+  });
 }

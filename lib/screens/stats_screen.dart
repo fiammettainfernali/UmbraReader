@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/library_cache.dart';
+import '../services/library_storage.dart';
 import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
 import '../services/settings_service.dart';
@@ -28,6 +30,10 @@ class _StatsScreenState extends State<StatsScreen> {
   ReadingActivity _activity = ReadingActivity.empty;
   int _dailyGoalMinutes = 0;
 
+  /// Series titles by opdsId, so the by-series list can name a series
+  /// properly instead of guessing it from a volume title.
+  Map<int, String> _seriesTitles = const {};
+
   /// The window every headline figure reports on. Defaults to a week — the
   /// question the screen should answer on open is "how am I doing lately",
   /// not "what have I ever done".
@@ -48,11 +54,14 @@ class _StatsScreenState extends State<StatsScreen> {
     final entries = await ReadingProgressStore().allEntries();
     final activity = await ReadingActivityStore().load();
     final goal = await _settingsService.readDailyMinuteGoal();
+    final cache = LibraryCache(LibraryStorage());
+    await cache.load();
     if (!mounted) return;
     setState(() {
       _entries = entries;
       _activity = activity;
       _dailyGoalMinutes = goal;
+      _seriesTitles = {for (final s in cache.series) s.opdsId: s.title};
     });
   }
 
@@ -163,12 +172,49 @@ class _StatsScreenState extends State<StatsScreen> {
           '${e.volume.seriesOpdsId}/${e.volume.fileName}'] ??
       0;
 
-  /// Entries ranked by time spent, most first. Lifetime rather than per
-  /// period: the per-volume ledger isn't dated, so a window would be a guess.
-  List<ReadingEntry> _booksByTime(List<ReadingEntry> entries) {
-    final out = [...entries];
-    out.sort((a, b) => _secondsFor(b).compareTo(_secondsFor(a)));
+  /// Reading time grouped by series and ranked, most time first.
+  ///
+  /// Lifetime rather than per period: the per-volume ledger records totals,
+  /// not dated entries, so windowing it would be a guess. Series titles come
+  /// from the library cache; a series that isn't cached (deleted from the
+  /// server, say) falls back to one of its volume titles so the row is still
+  /// recognisable rather than blank.
+  List<({String title, int seconds, int volumes, bool finished})> _seriesByTime(
+    List<ReadingEntry> entries,
+  ) {
+    final grouped = <int, List<ReadingEntry>>{};
+    for (final e in entries) {
+      grouped.putIfAbsent(e.volume.seriesOpdsId, () => []).add(e);
+    }
+    final out = <({String title, int seconds, int volumes, bool finished})>[];
+    grouped.forEach((id, group) {
+      var seconds = 0;
+      for (final e in group) {
+        seconds += _secondsFor(e);
+      }
+      out.add((
+        title: _seriesTitles[id] ?? group.first.volume.title,
+        seconds: seconds,
+        volumes: group.length,
+        finished: group.every((e) => e.progress.isFinished),
+      ));
+    });
+    out.sort((a, b) => b.seconds.compareTo(a.seconds));
     return out;
+  }
+
+  /// "today" / "yesterday" / a short date — whichever reads most naturally.
+  String _dayLabel(DateTime day) {
+    final today = DateTime.now();
+    final midnight = DateTime(today.year, today.month, today.day);
+    final diff = midnight.difference(DateTime(day.year, day.month, day.day)).inDays;
+    if (diff == 0) return 'today';
+    if (diff == 1) return 'yesterday';
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${day.day} ${months[day.month - 1]}';
   }
 
   /// "this week" / "this month" / "this year" — the window in words.
@@ -206,6 +252,8 @@ class _StatsScreenState extends State<StatsScreen> {
     final perDay = daysRead > 0 ? seconds ~/ daysRead : 0;
     final pace = _activity.wordsPerMinuteIn(period);
     final finishedInPeriod = _finishedIn(entries, period);
+    final bestDay = _activity.bestDayIn(period);
+    final bestWeek = _activity.bestWeekIn(period);
 
     // Lifetime figures — kept, but demoted to the strip at the bottom.
     final inProgress = entries
@@ -333,6 +381,16 @@ class _StatsScreenState extends State<StatsScreen> {
           _CalendarHeatmap(dailySeconds: _activity.dailySeconds)
         else
           _TrendBars(buckets: _activity.trendBuckets(period)),
+        if (bestDay != null) ...[
+          const SizedBox(height: 10),
+          Text(
+            'Best day ${_dayLabel(bestDay.day)} · ${_formatDuration(bestDay.seconds)}'
+            '${bestWeek > 0 ? '   ·   Best week ${_formatDuration(bestWeek)}' : ''}',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.outline,
+            ),
+          ),
+        ],
         const SizedBox(height: 20),
 
         // ── lifetime totals, deliberately quiet
@@ -349,23 +407,22 @@ class _StatsScreenState extends State<StatsScreen> {
           longestStreak: _activity.longestStreak(),
         ),
         const SizedBox(height: 20),
-        const SectionHeader('By book', padding: EdgeInsets.only(bottom: 8)),
+        const SectionHeader('By series', padding: EdgeInsets.only(bottom: 8)),
         const SizedBox(height: 4),
-        // Ranked by time spent, so the list answers "where did it go" rather
-        // than listing everything ever opened in arbitrary order.
-        for (final entry in _booksByTime(entries).take(
-          _showAllBooks ? entries.length : _bookRowCap,
+        // Grouped by series and ranked by time: a forty-volume webnovel is one
+        // line about where the time went, not forty rows to scroll past.
+        for (final row in _seriesByTime(entries).take(
+          _showAllBooks ? 1 << 30 : _bookRowCap,
         ))
-          _BookRow(
-            entry: entry,
-            seconds: _secondsFor(entry),
-          ),
-        if (!_showAllBooks && entries.length > _bookRowCap)
+          _SeriesRow(row: row),
+        if (!_showAllBooks && _seriesByTime(entries).length > _bookRowCap)
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton(
               onPressed: () => setState(() => _showAllBooks = true),
-              child: Text('Show all ${entries.length}'),
+              child: Text(
+                'Show all ${_seriesByTime(entries).length}',
+              ),
             ),
           ),
       ],
@@ -385,6 +442,57 @@ class _StatsScreenState extends State<StatsScreen> {
 /// a fractional height, which is all the question "how much, and which way"
 /// needs. Days with no reading keep a faint stub so the row still reads as a
 /// timeline rather than a gap.
+/// One series in the by-series list: title, how many volumes it covers, and
+/// the reading time behind it.
+class _SeriesRow extends StatelessWidget {
+  const _SeriesRow({required this.row});
+
+  final ({String title, int seconds, int volumes, bool finished}) row;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final sub = [
+      '${row.volumes} ${row.volumes == 1 ? "volume" : "volumes"}',
+      if (row.finished) 'finished',
+    ].join(' · ');
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  row.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  sub,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Text(
+            row.seconds == 0 ? '—' : _formatDuration(row.seconds),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _TrendBars extends StatelessWidget {
   const _TrendBars({required this.buckets});
 
@@ -712,89 +820,6 @@ class _CalendarHeatmap extends StatelessWidget {
   }
 }
 
-/// A per-book row: progress ring, title, chapter position, time spent, and
-/// last-read date.
-class _BookRow extends StatelessWidget {
-  const _BookRow({required this.entry, required this.seconds});
-
-  final ReadingEntry entry;
-  final int seconds;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final progress = entry.progress;
-    final finished = progress.isFinished;
-    final chapterLabel = progress.chapterCount > 0
-        ? 'Chapter ${progress.chapterIndex + 1} of ${progress.chapterCount}'
-        : 'Chapter ${progress.chapterIndex + 1}';
-    final timeText = seconds > 0 ? '  ·  ${_formatDuration(seconds)} read' : '';
-    // Reading pace, only shown after at least 5 minutes — shorter sessions
-    // skew the number wildly.
-    final hours = seconds / 3600;
-    final speedText = (seconds >= 300 && hours > 0)
-        ? '  ·  ${((progress.chapterIndex + 1) / hours).toStringAsFixed(1)}'
-              ' ch/hr'
-        : '';
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: SizedBox(
-        width: 44,
-        height: 44,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            CircularProgressIndicator(
-              value: finished ? 1.0 : progress.fraction,
-              strokeWidth: 4,
-              backgroundColor: theme.colorScheme.surfaceContainerHighest,
-            ),
-            if (finished)
-              Icon(Icons.check, size: 18, color: theme.colorScheme.primary)
-            else
-              Text(
-                '${(progress.fraction * 100).round()}%',
-                style: theme.textTheme.labelSmall,
-              ),
-          ],
-        ),
-      ),
-      title: Text(
-        entry.volume.title,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: Text(
-        '$chapterLabel$timeText$speedText  ·  '
-        '${finished ? 'Finished' : 'Last read'} '
-        '${_formatDate(progress.updatedAt)}',
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: theme.colorScheme.outline,
-        ),
-      ),
-    );
-  }
-}
-
-/// Formats a date relative to today, falling back to `Mon D`.
-String _formatDate(DateTime? date) {
-  if (date == null) return '';
-  final local = date.toLocal();
-  final now = DateTime.now();
-  final today = DateTime(now.year, now.month, now.day);
-  final that = DateTime(local.year, local.month, local.day);
-  final days = today.difference(that).inDays;
-  if (days <= 0) return 'today';
-  if (days == 1) return 'yesterday';
-  if (days < 7) return '$days days ago';
-  const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-  return '${months[local.month - 1]} ${local.day}';
-}
-
-/// Formats a large count compactly: 1_240_000 → "1.2M", 34_500 → "34.5k".
 String _formatCount(int n) {
   if (n < 1000) return '$n';
   if (n < 1000000) {

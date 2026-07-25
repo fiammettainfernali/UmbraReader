@@ -167,6 +167,34 @@ void main() {
     });
   });
 
+  group('best day / best week', () {
+    test('finds the heaviest day in the window', () {
+      final a = _activity({0: 30, 2: 900, 5: 60});
+      final best = a.bestDayIn(StatsPeriod.week, now: _now);
+      expect(best?.seconds, 900);
+    });
+
+    test('ignores heavier days outside the window', () {
+      final a = _activity({1: 60, 40: 9999});
+      expect(a.bestDayIn(StatsPeriod.week, now: _now)?.seconds, 60);
+      expect(a.bestDayIn(StatsPeriod.all, now: _now)?.seconds, 9999);
+    });
+
+    test('is null when nothing was read', () {
+      expect(_activity(const {}).bestDayIn(StatsPeriod.week, now: _now), isNull);
+    });
+
+    test('best week sums a rolling seven days, not a calendar week', () {
+      // 100 on each of three consecutive days sits inside one rolling week.
+      final a = _activity({1: 100, 2: 100, 3: 100});
+      expect(a.bestWeekIn(StatsPeriod.month, now: _now), 300);
+    });
+
+    test('best week is zero on an empty ledger', () {
+      expect(_activity(const {}).bestWeekIn(StatsPeriod.week, now: _now), 0);
+    });
+  });
+
   test('an empty ledger answers zero everywhere, not null', () {
     final a = _activity(const {});
     for (final p in StatsPeriod.values) {
