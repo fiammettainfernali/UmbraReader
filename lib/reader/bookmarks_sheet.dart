@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/bookmark.dart';
+import '../widgets/menu_row.dart';
 import '../widgets/undo_snack.dart';
 import '../models/volume.dart';
 import '../screens/highlights_screen.dart';
@@ -374,11 +375,18 @@ class _BookmarksSheetState extends State<BookmarksSheet> {
                               if (mark.isHighlight)
                                 const PopupMenuItem(
                                   value: 'edit',
-                                  child: Text('Edit note'),
+                                  child: MenuRow(
+                                    Icons.edit_note,
+                                    'Edit note',
+                                  ),
                                 ),
                               const PopupMenuItem(
                                 value: 'delete',
-                                child: Text('Delete'),
+                                child: MenuRow(
+                                  Icons.delete_outline,
+                                  'Delete',
+                                  isDestructive: true,
+                                ),
                               ),
                             ],
                           ),

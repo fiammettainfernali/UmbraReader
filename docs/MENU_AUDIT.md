@@ -88,11 +88,20 @@ bookmark/highlight delete both get an undo snackbar. Small, self-contained,
 and it closes the only place where a single tap silently destroys something
 the reader authored.
 
-**Tier 2 — one menu-item widget.** Promote `_MenuRow` to a shared widget and
+**Tier 2 — one menu-item widget. SHIPPED 2026-07-24.** `MenuRow` is now a
+shared widget (`lib/widgets/menu_row.dart`) carrying an icon, a label, an
+optional destructive tint and a semantics label. 29 items across five surfaces
+adopted it. The audit under-reported the problem: `series_detail_screen` and
+`bookmarks_sheet` were *also* bare `Text` with no icons, not just Collections
+— four surfaces, not one. Two menus were deliberately left alone because they
+are not action lists: the sort menu is a selection list with checkmarks, and
+the reader's chapter-jump menu is a quantity picker. Original item: Promote `_MenuRow` to a shared widget and
 adopt it in all six popups, starting with Collections, which currently has no
 icons at all.
 
-**Tier 3 — group the reader menu** with dividers if it gains anything further,
+**Tier 3 — SHIPPED 2026-07-24.** The reader menu now has dividers grouping it
+navigate / annotate / configure, and `MenuRow` carries semantics labels so a
+screen reader announces the row rather than icon-then-text. Original item: with dividers if it gains anything further,
 and add semantics labels to menu items.
 
 ## Recommendation

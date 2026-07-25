@@ -5,6 +5,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../feature_flags.dart';
+import '../widgets/menu_row.dart';
 import '../models/reader_theme.dart';
 import '../widgets/seek_button.dart';
 
@@ -20,22 +21,6 @@ enum ReaderMenu {
   pronunciations,
   prepareOffline,
   settings,
-}
-
-/// An icon + label row for a [PopupMenuItem].
-class _MenuRow extends StatelessWidget {
-  const _MenuRow(this.icon, this.label);
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [Icon(icon, size: 20), const SizedBox(width: 12), Text(label)],
-    );
-  }
 }
 
 class ReaderTopBar extends StatelessWidget {
@@ -140,50 +125,54 @@ class ReaderTopBar extends StatelessWidget {
                 itemBuilder: (context) => [
                   const PopupMenuItem(
                     value: ReaderMenu.contents,
-                    child: _MenuRow(Icons.list, 'Contents'),
+                    child: MenuRow(Icons.list, 'Contents'),
                   ),
                   const PopupMenuItem(
                     value: ReaderMenu.search,
-                    child: _MenuRow(Icons.search, 'Search in book'),
+                    child: MenuRow(Icons.search, 'Search in book'),
                   ),
                   const PopupMenuItem(
                     value: ReaderMenu.series,
-                    child: _MenuRow(Icons.auto_stories_outlined, 'Go to series'),
+                    child: MenuRow(Icons.auto_stories_outlined, 'Go to series'),
                   ),
+                  // navigate ── annotate
+                  const PopupMenuDivider(),
                   const PopupMenuItem(
                     value: ReaderMenu.bookmarks,
-                    child: _MenuRow(Icons.bookmark_outline, 'Bookmarks'),
+                    child: MenuRow(Icons.bookmark_outline, 'Bookmarks'),
                   ),
                   const PopupMenuItem(
                     value: ReaderMenu.glossary,
-                    child: _MenuRow(Icons.people_outline, 'Glossary'),
+                    child: MenuRow(Icons.people_outline, 'Glossary'),
                   ),
                   if (kReadAloudEnabled) ...[
                     const PopupMenuItem(
                       value: ReaderMenu.skip,
-                      child: _MenuRow(
+                      child: MenuRow(
                         Icons.filter_alt_outlined,
                         'Skip while reading',
                       ),
                     ),
                     const PopupMenuItem(
                       value: ReaderMenu.pronunciations,
-                      child: _MenuRow(
+                      child: MenuRow(
                         Icons.record_voice_over_outlined,
                         'Pronunciations',
                       ),
                     ),
                     const PopupMenuItem(
                       value: ReaderMenu.prepareOffline,
-                      child: _MenuRow(
+                      child: MenuRow(
                         Icons.download_for_offline_outlined,
                         'Prepare for offline',
                       ),
                     ),
                   ],
+                  // ── configure
+                  const PopupMenuDivider(),
                   const PopupMenuItem(
                     value: ReaderMenu.settings,
-                    child: _MenuRow(Icons.text_fields, 'Reading settings'),
+                    child: MenuRow(Icons.text_fields, 'Reading settings'),
                   ),
                 ],
               ),

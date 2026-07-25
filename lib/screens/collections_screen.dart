@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../widgets/menu_row.dart';
+
 import '../models/collection.dart';
 import '../services/collection_store.dart';
 import '../services/settings_service.dart';
@@ -129,8 +131,18 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
                       if (action == 'delete') _delete(c);
                     },
                     itemBuilder: (context) => const [
-                      PopupMenuItem(value: 'rename', child: Text('Rename')),
-                      PopupMenuItem(value: 'delete', child: Text('Delete')),
+                      PopupMenuItem(
+                        value: 'rename',
+                        child: MenuRow(Icons.edit_outlined, 'Rename'),
+                      ),
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: MenuRow(
+                          Icons.delete_outline,
+                          'Delete',
+                          isDestructive: true,
+                        ),
+                      ),
                     ],
                   ),
                 );

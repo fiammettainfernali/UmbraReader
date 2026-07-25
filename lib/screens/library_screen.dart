@@ -20,6 +20,7 @@ import '../services/series_status_store.dart';
 import '../services/reading_activity_store.dart';
 import '../services/settings_service.dart';
 import '../widgets/add_to_collection_sheet.dart';
+import '../widgets/menu_row.dart';
 import '../widgets/section_header.dart';
 import 'backup_screen.dart';
 import 'collections_screen.dart';
@@ -735,60 +736,32 @@ class _LibraryScreenState extends State<LibraryScreen>
                     if (_library?.isNotEmpty ?? false)
                       const PopupMenuItem(
                         value: 'random',
-                        child: ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(Icons.shuffle),
-                          title: Text('Open a random book'),
-                        ),
+                        child: MenuRow(Icons.shuffle, 'Open a random book'),
                       ),
                     if (canDownloadAll)
                       const PopupMenuItem(
                         value: 'downloadAll',
-                        child: ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(Icons.download_for_offline_outlined),
-                          title: Text('Download whole library'),
-                        ),
+                        child: MenuRow(Icons.download_for_offline_outlined, 'Download whole library'),
                       ),
                     const PopupMenuItem(
                       value: 'collections',
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.collections_bookmark_outlined),
-                        title: Text('Collections'),
-                      ),
+                      child: MenuRow(Icons.collections_bookmark_outlined, 'Collections'),
                     ),
                     PopupMenuItem(
                       value: 'storage',
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.sd_storage_outlined),
-                        title: Text('Manage storage'),
-                      ),
+                      child: MenuRow(Icons.sd_storage_outlined, 'Manage storage'),
                     ),
                     PopupMenuItem(
                       value: 'imported',
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.upload_file_outlined),
-                        title: Text('Imported books'),
-                      ),
+                      child: MenuRow(Icons.upload_file_outlined, 'Imported books'),
                     ),
                     PopupMenuItem(
                       value: 'backup',
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.cloud_upload_outlined),
-                        title: Text('Backup & restore'),
-                      ),
+                      child: MenuRow(Icons.cloud_upload_outlined, 'Backup & restore'),
                     ),
                     PopupMenuItem(
                       value: 'settings',
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.settings_outlined),
-                        title: Text('Server settings'),
-                      ),
+                      child: MenuRow(Icons.settings_outlined, 'Server settings'),
                     ),
                   ],
                 ),

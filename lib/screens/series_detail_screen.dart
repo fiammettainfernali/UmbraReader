@@ -19,6 +19,7 @@ import '../services/series_status_store.dart';
 import '../services/settings_service.dart';
 import '../utils/volume_ordering.dart';
 import '../widgets/add_to_collection_sheet.dart';
+import '../widgets/menu_row.dart';
 import '../widgets/cached_cover.dart';
 import '../widgets/section_header.dart';
 import 'filtered_series_screen.dart';
@@ -1048,19 +1049,32 @@ class _VolumeTile extends StatelessWidget {
           itemBuilder: (context) => const [
             PopupMenuItem(
               value: _VolumeAction.share,
-              child: Text('Share story'),
+              child: MenuRow(
+                Icons.ios_share,
+                'Share story',
+              ),
             ),
             PopupMenuItem(
               value: _VolumeAction.markFinished,
-              child: Text('Mark as finished'),
+              child: MenuRow(
+                Icons.task_alt,
+                'Mark as finished',
+              ),
             ),
             PopupMenuItem(
               value: _VolumeAction.resetProgress,
-              child: Text('Reset reading progress'),
+              child: MenuRow(
+                Icons.restart_alt,
+                'Reset reading progress',
+              ),
             ),
             PopupMenuItem(
               value: _VolumeAction.delete,
-              child: Text('Delete download'),
+              child: MenuRow(
+                Icons.delete_outline,
+                'Delete download',
+                isDestructive: true,
+              ),
             ),
           ],
         );
@@ -1072,23 +1086,39 @@ class _VolumeTile extends StatelessWidget {
           itemBuilder: (context) => const [
             PopupMenuItem(
               value: _VolumeAction.download,
-              child: Text('Re-download (update)'),
+              child: MenuRow(
+                Icons.download_outlined,
+                'Re-download (update)',
+              ),
             ),
             PopupMenuItem(
               value: _VolumeAction.share,
-              child: Text('Share story'),
+              child: MenuRow(
+                Icons.ios_share,
+                'Share story',
+              ),
             ),
             PopupMenuItem(
               value: _VolumeAction.markFinished,
-              child: Text('Mark as finished'),
+              child: MenuRow(
+                Icons.task_alt,
+                'Mark as finished',
+              ),
             ),
             PopupMenuItem(
               value: _VolumeAction.resetProgress,
-              child: Text('Reset reading progress'),
+              child: MenuRow(
+                Icons.restart_alt,
+                'Reset reading progress',
+              ),
             ),
             PopupMenuItem(
               value: _VolumeAction.delete,
-              child: Text('Delete download'),
+              child: MenuRow(
+                Icons.delete_outline,
+                'Delete download',
+                isDestructive: true,
+              ),
             ),
           ],
         );
