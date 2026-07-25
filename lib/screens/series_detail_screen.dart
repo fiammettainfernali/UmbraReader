@@ -19,7 +19,7 @@ import '../services/series_status_store.dart';
 import '../services/settings_service.dart';
 import '../utils/volume_ordering.dart';
 import '../widgets/add_to_collection_sheet.dart';
-import '../widgets/menu_row.dart';
+import '../widgets/action_sheet.dart';
 import '../widgets/cached_cover.dart';
 import '../widgets/section_header.dart';
 import 'filtered_series_screen.dart';
@@ -1042,87 +1042,85 @@ class _VolumeTile extends StatelessWidget {
           ),
         );
       case _VolumeStatus.downloaded:
-        return PopupMenuButton<_VolumeAction>(
+        return IconButton(
           icon: const Icon(Icons.download_done, color: Colors.green),
-          tooltip: 'Downloaded',
-          onSelected: _onAction,
-          itemBuilder: (context) => const [
-            PopupMenuItem(
-              value: _VolumeAction.share,
-              child: MenuRow(
-                Icons.ios_share,
-                'Share story',
-              ),
-            ),
-            PopupMenuItem(
-              value: _VolumeAction.markFinished,
-              child: MenuRow(
-                Icons.task_alt,
-                'Mark as finished',
-              ),
-            ),
-            PopupMenuItem(
-              value: _VolumeAction.resetProgress,
-              child: MenuRow(
-                Icons.restart_alt,
-                'Reset reading progress',
-              ),
-            ),
-            PopupMenuItem(
-              value: _VolumeAction.delete,
-              child: MenuRow(
-                Icons.delete_outline,
-                'Delete download',
-                isDestructive: true,
-              ),
-            ),
-          ],
+          tooltip: 'Downloaded — more actions',
+          onPressed: () => _openVolumeSheet(context, updateAvailable: false),
         );
       case _VolumeStatus.updateAvailable:
-        return PopupMenuButton<_VolumeAction>(
+        return IconButton(
           icon: const Icon(Icons.update, color: Colors.orange),
-          tooltip: 'Update available',
-          onSelected: _onAction,
-          itemBuilder: (context) => const [
-            PopupMenuItem(
-              value: _VolumeAction.download,
-              child: MenuRow(
-                Icons.download_outlined,
-                'Re-download (update)',
-              ),
-            ),
-            PopupMenuItem(
-              value: _VolumeAction.share,
-              child: MenuRow(
-                Icons.ios_share,
-                'Share story',
-              ),
-            ),
-            PopupMenuItem(
-              value: _VolumeAction.markFinished,
-              child: MenuRow(
-                Icons.task_alt,
-                'Mark as finished',
-              ),
-            ),
-            PopupMenuItem(
-              value: _VolumeAction.resetProgress,
-              child: MenuRow(
-                Icons.restart_alt,
-                'Reset reading progress',
-              ),
-            ),
-            PopupMenuItem(
-              value: _VolumeAction.delete,
-              child: MenuRow(
-                Icons.delete_outline,
-                'Delete download',
-                isDestructive: true,
-              ),
-            ),
-          ],
+          tooltip: 'Update available — more actions',
+          onPressed: () => _openVolumeSheet(context, updateAvailable: true),
         );
     }
+  }
+
+  /// The per-volume actions, as a sheet titled with the volume it acts on.
+  ///
+  /// A popup anchored to the row said what it applied to by pointing at it,
+  /// but at five entries it was cramped, unreachable at the top of a long
+  /// list, and every item was a bare label. Naming the volume in the title
+  /// keeps the connection the anchoring gave, and there is now room to say
+  /// what each action does.
+  Future<void> _openVolumeSheet(
+    BuildContext context, {
+    required bool updateAvailable,
+  }) async {
+    final choice = await showActionSheet<_VolumeAction>(
+      context,
+      title: volume.title,
+      groups: [
+        SheetGroup(
+          actions: [
+            if (updateAvailable)
+              const SheetAction(
+                value: _VolumeAction.download,
+                icon: Icons.download_outlined,
+                label: 'Re-download',
+                subtitle: 'The server has newer chapters than this copy',
+              ),
+            const SheetAction(
+              value: _VolumeAction.share,
+              icon: Icons.ios_share,
+              label: 'Share story',
+              subtitle: 'Send the EPUB to another app',
+            ),
+          ],
+        ),
+        SheetGroup(
+          title: 'Progress',
+          actions: const [
+            SheetAction(
+              value: _VolumeAction.markFinished,
+              icon: Icons.task_alt,
+              label: 'Mark as finished',
+              subtitle: 'Counts it as read without opening it',
+            ),
+            SheetAction(
+              value: _VolumeAction.resetProgress,
+              icon: Icons.restart_alt,
+              label: 'Reset reading progress',
+              subtitle: 'Start this volume from the beginning',
+            ),
+          ],
+        ),
+        SheetGroup(
+          title: 'Storage',
+          actions: const [
+            SheetAction(
+              value: _VolumeAction.delete,
+              icon: Icons.delete_outline,
+              label: 'Delete download',
+              subtitle: 'Frees space; your place is kept and it can '
+                  're-download',
+              isDestructive: true,
+            ),
+          ],
+        ),
+      ],
+    );
+    if (choice != null) _onAction(choice);
   }
 
   void _onAction(_VolumeAction action) {
