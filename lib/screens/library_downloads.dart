@@ -61,6 +61,77 @@ List<Volume> volumesToPrune(
   return out;
 }
 
+/// The in-progress series to check for new volumes, most recently read first
+/// — one entry each, the furthest-read volume of that series.
+///
+/// Order matters because the checks are sequential network calls: the loop can
+/// be cut short by connectivity, backgrounding, or simply taking a while, and
+/// the throttle means a poor ordering isn't retried for half an hour. Checking
+/// the book you read this morning before one you last opened in March means
+/// the series you actually care about get their new chapters first.
+///
+/// Entries with no recorded read time sort last — they're the least likely to
+/// be what the reader is waiting on.
+List<ReadingEntry> seriesCheckOrder(List<ReadingEntry> entries) {
+  final perSeries = <int, ReadingEntry>{};
+  for (final e in entries) {
+    if (!e.progress.isStarted) continue;
+    final existing = perSeries[e.volume.seriesOpdsId];
+    final et = e.progress.updatedAt;
+    final xt = existing?.progress.updatedAt;
+    if (existing == null || (et != null && (xt == null || et.isAfter(xt)))) {
+      perSeries[e.volume.seriesOpdsId] = e;
+    }
+  }
+  final out = perSeries.values.toList();
+  out.sort((a, b) {
+    final at = a.progress.updatedAt;
+    final bt = b.progress.updatedAt;
+    if (at == null && bt == null) return 0;
+    if (at == null) return 1;
+    if (bt == null) return -1;
+    return bt.compareTo(at);
+  });
+  return out;
+}
+
+/// [library] ordered for a whole-library scan: series read most recently
+/// first, then everything else in its existing order.
+///
+/// Same reasoning as [seriesCheckOrder], and it matters more here — the
+/// whole-library download can be stopped part-way, so whatever is scanned
+/// first is what the reader keeps.
+List<Series> libraryScanOrder(
+  List<Series> library,
+  List<ReadingEntry> entries,
+) {
+  final lastRead = <int, DateTime>{};
+  for (final e in entries) {
+    final t = e.progress.updatedAt;
+    if (t == null) continue;
+    final id = e.volume.seriesOpdsId;
+    final prev = lastRead[id];
+    if (prev == null || t.isAfter(prev)) lastRead[id] = t;
+  }
+  // Sort on (hasBeenRead, when) while carrying the original index, so unread
+  // series keep their existing relative order rather than being shuffled.
+  final indexed = [
+    for (var i = 0; i < library.length; i++) (i, library[i]),
+  ];
+  indexed.sort((a, b) {
+    final at = lastRead[a.$2.opdsId];
+    final bt = lastRead[b.$2.opdsId];
+    if (at != null && bt != null) {
+      final byTime = bt.compareTo(at);
+      return byTime != 0 ? byTime : a.$1.compareTo(b.$1);
+    }
+    if (at != null) return -1;
+    if (bt != null) return 1;
+    return a.$1.compareTo(b.$1);
+  });
+  return [for (final pair in indexed) pair.$2];
+}
+
 /// Everything the library screen does with *files on disk*, extracted from
 /// its State: the user-initiated whole-library download, and the background
 /// upkeep that keeps the next volume ready and prunes finished ones.
@@ -172,19 +243,10 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
       return;
     }
 
-    // Most-recently-read entry per started series (so the just-finished
-    // volume's successor is the one we pull).
-    final perSeries = <int, ReadingEntry>{};
-    for (final e in readingEntries) {
-      if (!e.progress.isStarted) continue;
-      final existing = perSeries[e.volume.seriesOpdsId];
-      final et = e.progress.updatedAt;
-      final xt = existing?.progress.updatedAt;
-      if (existing == null || (et != null && (xt == null || et.isAfter(xt)))) {
-        perSeries[e.volume.seriesOpdsId] = e;
-      }
-    }
-    if (perSeries.isEmpty) return;
+    // One entry per started series (the just-finished volume's successor is
+    // what we pull), most recently read first — see [seriesCheckOrder].
+    final toCheck = seriesCheckOrder(readingEntries);
+    if (toCheck.isEmpty) return;
 
     final client = OpdsClient(settings);
     final service = DownloadService(
@@ -193,7 +255,7 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
       store: downloads,
     );
     var pulled = false;
-    for (final entry in perSeries.values) {
+    for (final entry in toCheck) {
       try {
         final fetched = await client.fetchVolumes(entry.volume.seriesOpdsId);
         // Cache the list so the series opens (and reads) offline later.
@@ -296,9 +358,10 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
     final opds = OpdsClient(settings);
     var failures = 0;
 
-    // Phase 1 — scan every series for volumes that need downloading.
+    // Phase 1 — scan every series for volumes that need downloading, the
+    // recently-read ones first so stopping part-way keeps what matters.
     final pending = <Volume>[];
-    for (final series in library) {
+    for (final series in libraryScanOrder(library, readingEntries)) {
       if (_bulkCancel || !mounted) break;
       setState(() => _bulkCurrent = series.title);
       try {
