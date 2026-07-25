@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/bookmark.dart';
+import '../widgets/undo_snack.dart';
 import '../models/volume.dart';
 import '../screens/highlights_screen.dart';
 import '../services/bookmark_store.dart';
@@ -80,9 +81,20 @@ class _BookmarksSheetState extends State<BookmarksSheet> {
     await _load();
   }
 
-  Future<void> _remove(String id) async {
-    await _store.remove(widget.volume, id);
+  /// Deletes [mark], offering to put it back. `add` upserts by id, so the
+  /// undo restores it exactly — colour, note, range and all.
+  Future<void> _remove(Bookmark mark) async {
+    await _store.remove(widget.volume, mark.id);
     await _load();
+    if (!mounted) return;
+    showUndoSnackBar(
+      context,
+      mark.isHighlight ? 'Highlight deleted' : 'Bookmark deleted',
+      onUndo: () async {
+        await _store.add(widget.volume, mark);
+        await _load();
+      },
+    );
   }
 
   Future<void> _editNote(Bookmark mark) async {
@@ -355,7 +367,7 @@ class _BookmarksSheetState extends State<BookmarksSheet> {
                                 case 'edit':
                                   _editNote(mark);
                                 case 'delete':
-                                  _remove(mark.id);
+                                  _remove(mark);
                               }
                             },
                             itemBuilder: (_) => [

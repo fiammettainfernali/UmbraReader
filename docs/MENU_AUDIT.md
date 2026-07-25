@@ -77,7 +77,13 @@ Genuinely well done, and I want it recorded so it does not drift:
 
 ## Plan
 
-**Tier 1 — undo for destructive edits.** Glossary entry delete and
+**Tier 1 — undo for destructive edits. SHIPPED 2026-07-24.** Both deletions
+now offer an undo via a shared `showUndoSnackBar`, which also establishes the
+pattern the app was missing (it had exactly one SnackBarAction before). The
+restore paths are exact: a highlight comes back with its colour, note and
+character range; a glossary entry with its term, note and accumulated
+last-seen sighting. Tested, including that a double-tap on Undo doesn't
+duplicate. Original item: Glossary entry delete and
 bookmark/highlight delete both get an undo snackbar. Small, self-contained,
 and it closes the only place where a single tap silently destroys something
 the reader authored.

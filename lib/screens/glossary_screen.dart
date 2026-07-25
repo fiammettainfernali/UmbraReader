@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/glossary_store.dart';
+import '../widgets/undo_snack.dart';
 
 /// A per-series character / term glossary the user builds as they read —
 /// handy for webnovels with sprawling casts and unfamiliar translated names.
@@ -55,9 +56,22 @@ class _GlossaryScreenState extends State<GlossaryScreen> {
     await _load();
   }
 
+  /// Deletes [entry], offering to put it back. The entry is hand-written and
+  /// its sightings are accumulated over a long read, so losing one to a
+  /// mis-tap costs more than it looks — `upsert` restores term, note and the
+  /// last-seen sighting together.
   Future<void> _delete(GlossaryEntry entry) async {
     await _store.remove(widget.seriesId, entry.id);
     await _load();
+    if (!mounted) return;
+    showUndoSnackBar(
+      context,
+      '${entry.term.isEmpty ? "Entry" : entry.term} deleted',
+      onUndo: () async {
+        await _store.upsert(widget.seriesId, entry);
+        await _load();
+      },
+    );
   }
 
   @override
