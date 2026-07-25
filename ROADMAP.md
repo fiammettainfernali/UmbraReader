@@ -19,24 +19,26 @@ non-starter, so the personal pipeline never ships as part of the product.
 
 ## Phase 1 — Foundation & tech debt (everything else builds on this)
 
-- [ ] **1. Storage engine.** All library state lives in `SharedPreferences`
+- [ ] **1. Storage engine.** All library state lived in `SharedPreferences`
       (progress, bookmarks, collections, activity — ~10 stores of string-blob
       JSON). Migrate to SQLite (`drift`) with a one-time import. Unlocks real
-      queries for stats and full-library search.
+      queries for stats and full-library search. *Urgency dropped 2026-07-21:
+      the five stores still on prefs (glossary, series status, rec feedback,
+      pronunciations, custom themes) all sync now, so what's left is about
+      queryability, not correctness — migrate opportunistically.*
       *In progress — done: `AppDatabase` (drift, schema v2) with
       `ReadingProgressStore`, `BookmarkStore`, `CollectionStore` and
       `ReadingActivityStore`, all with non-destructive one-time prefs
       imports; `BackupService` serialises SQLite stores back into the
       legacy prefs shape so old and new backup files stay interchangeable.
       Remaining (small, low-risk): glossary, series status, recommendation
-      feedback, pronunciations — migrate opportunistically.*
+      feedback, pronunciations, custom themes.*
 - [x] **2. Credentials to Keychain.** OPDS password moved from plain
       SharedPreferences to `flutter_secure_storage` (Keychain), with one-time
       migration and a prefs fallback where Keychain is unavailable (tests).
-- [ ] **3. Break up `reader_screen.dart`** (~3,900 lines, 25 `setState`
-      sites; owns pagination, TTS, chrome, gestures, menus). Extract a
-      `ReaderController` + separate widgets for chrome/page-view/selection.
-      Biggest velocity tax in the codebase.
+- [~] **3. Break up `reader_screen.dart`** (was ~3,900 lines; **2,880 as of
+      2026-07-21**). Owns pagination, TTS, chrome, gestures, menus. Extract
+      separate widgets/mixins for chrome, page-view and selection.
       *In progress — done: mechanical split into `lib/reader/` modules
       (layout/pagination engine, block renderer, chrome bars, book search,
       bookmarks sheet), plus the whole read-aloud session extracted into
@@ -189,7 +191,10 @@ non-starter, so the personal pipeline never ships as part of the product.
       gesture-arena conflicts with taps/page-turns. Translate + text
       selection/copy deferred to their own slice — SelectionArea fought
       the reader's gesture stack and lost.
-- [ ] **14.** Footnote popovers (ties into #11).
+- [x] **14.** Footnote popovers. *Was still marked open on 2026-07-24 but has
+      been shipped for some time: the parser extracts `footnoteBody` onto the
+      run, `BlockView` renders the marker as a tappable inline span, and
+      `_showFootnote` pops the note body in a bottom sheet.*
 - [x] **15.** Full-library search: `LibrarySearch` streams full-text
       matches across every downloaded book (index-free scan, per-book +
       total caps, unreadable books skipped); `LibrarySearchScreen` (via
@@ -242,9 +247,16 @@ non-starter, so the personal pipeline never ships as part of the product.
 - [ ] **22. App Store package.** Privacy policy + nutrition labels (nothing
       is collected — say so loudly), screenshots per device class,
       description, support URL, EULA. Verify font licensing (OFL is fine).
-- [ ] **23. Android.** No `android/` exists; Star Library is a separate
-      codebase. Decision: unify into Umbra (one codebase, both stores, e-ink
-      mode as a theme preset) — more work now, half the maintenance forever.
+- [ ] **23. Android.** No `android/` exists. **Decision reversed
+      (2026-07-24): do NOT unify into Umbra.** The earlier plan here was one
+      codebase for both stores; the call now is a *standalone* Android reader
+      for the Boox Palma 2, keeping this codebase iOS-only. Reasons: an audit
+      found Umbra's cross-device sync is 100% iCloud (two native Swift
+      bridges), which no Android device can join, so "one codebase" would
+      still need a second sync transport; and the Flutter UI is OLED-tuned
+      while the Palma 2 is e-ink, which is what a port fights hardest.
+      Spec for the standalone build: `docs/BOOX_ANDROID_BRIEF.md`. Note
+      Star Library (`D:\The Star Library`) is the existing native attempt.
 - [ ] **24. Beta pipeline.** TestFlight external group, staged rollouts,
       generalized feature flags (`lib/feature_flags.dart` is the seed).
 - [ ] **25. Localization.** Do `intl`/ARB *extraction* early (brutal to
