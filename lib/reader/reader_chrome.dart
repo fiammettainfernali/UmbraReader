@@ -12,6 +12,7 @@ import '../widgets/seek_button.dart';
 /// Actions in the reader's top-bar overflow menu.
 enum ReaderMenu {
   contents,
+  series,
   search,
   bookmarks,
   glossary,
@@ -47,6 +48,7 @@ class ReaderTopBar extends StatelessWidget {
     required this.onToggleListen,
     required this.onOpenSettings,
     required this.onShowContents,
+    required this.onGoToSeries,
     required this.onSearch,
     required this.onBookmarks,
     required this.onGlossary,
@@ -62,6 +64,10 @@ class ReaderTopBar extends StatelessWidget {
   final VoidCallback onToggleListen;
   final VoidCallback onOpenSettings;
   final VoidCallback onShowContents;
+
+  /// Opens the series this volume belongs to — so finishing one volume
+  /// leads to the next instead of a dead end at the back button.
+  final VoidCallback onGoToSeries;
   final VoidCallback onSearch;
   final VoidCallback onBookmarks;
   final VoidCallback onGlossary;
@@ -113,6 +119,8 @@ class ReaderTopBar extends StatelessWidget {
                   switch (action) {
                     case ReaderMenu.contents:
                       onShowContents();
+                    case ReaderMenu.series:
+                      onGoToSeries();
                     case ReaderMenu.search:
                       onSearch();
                     case ReaderMenu.bookmarks:
@@ -137,6 +145,10 @@ class ReaderTopBar extends StatelessWidget {
                   const PopupMenuItem(
                     value: ReaderMenu.search,
                     child: _MenuRow(Icons.search, 'Search in book'),
+                  ),
+                  const PopupMenuItem(
+                    value: ReaderMenu.series,
+                    child: _MenuRow(Icons.auto_stories_outlined, 'Go to series'),
                   ),
                   const PopupMenuItem(
                     value: ReaderMenu.bookmarks,

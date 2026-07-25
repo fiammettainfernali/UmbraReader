@@ -702,23 +702,23 @@ class _LibraryScreenState extends State<LibraryScreen>
                 ],
               ),
               actions: [
-                if ((_library?.isNotEmpty ?? false))
-                  IconButton(
-                    icon: const Icon(Icons.shuffle),
-                    tooltip: 'Open a random book',
-                    onPressed: _openRandom,
-                  ),
-                if (canDownloadAll)
-                  IconButton(
-                    icon: const Icon(Icons.download_for_offline_outlined),
-                    tooltip: 'Download whole library',
-                    onPressed: confirmDownloadEverything,
-                  ),
+                // Random and download-all moved into the menu below: both are
+                // occasional, and permanent bar space belongs to what is used
+                // often. Search is the exception — it earns its place.
+                IconButton(
+                  icon: const Icon(Icons.search),
+                  tooltip: 'Search inside your books',
+                  onPressed: openLibrarySearch,
+                ),
                 PopupMenuButton<String>(
                   icon: const Icon(Icons.more_vert),
                   tooltip: 'More',
                   onSelected: (action) {
                     switch (action) {
+                      case 'random':
+                        _openRandom();
+                      case 'downloadAll':
+                        confirmDownloadEverything();
                       case 'collections':
                         _openCollections();
                       case 'storage':
@@ -731,8 +731,26 @@ class _LibraryScreenState extends State<LibraryScreen>
                         _openSettings();
                     }
                   },
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(
+                  itemBuilder: (context) => [
+                    if (_library?.isNotEmpty ?? false)
+                      const PopupMenuItem(
+                        value: 'random',
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.shuffle),
+                          title: Text('Open a random book'),
+                        ),
+                      ),
+                    if (canDownloadAll)
+                      const PopupMenuItem(
+                        value: 'downloadAll',
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.download_for_offline_outlined),
+                          title: Text('Download whole library'),
+                        ),
+                      ),
+                    const PopupMenuItem(
                       value: 'collections',
                       child: ListTile(
                         contentPadding: EdgeInsets.zero,

@@ -101,7 +101,13 @@ routes to that series. One line of wiring; removes the dead end.
 
 *Effort: under a day.*
 
-### Tier 2 — Cross-navigation
+### Tier 2 — Cross-navigation — SHIPPED 2026-07-24
+
+Reader gains **Go to series**, so finishing a volume leads to the next rather
+than ending at the back button; a series no longer in the library says so
+instead of failing. Notes → passage already landed with the Notes screen.
+Library search was promoted to a permanent app-bar icon, so the three search
+entry points (library, in-book, novel) are each one tap from their context.
 
 - **Reader → series.** A "go to series" item in the reader menu, so finishing a
   volume leads naturally to the next.
@@ -111,7 +117,12 @@ routes to that series. One line of wiring; removes the dead end.
   three separate entry points; at minimum they should be findable from one
   another.
 
-### Tier 3 — Polish
+### Tier 3 — Polish — SHIPPED 2026-07-24
+
+Per-tab scroll position and the Notes empty state both landed with the shell
+(`IndexedStack`). The two rare app-bar icons — random book, download-whole-
+library — moved into the menu, and search took the freed space: permanent bar
+real estate should go to what is used often.
 
 - A consistent empty state per tab (Notes with no highlights should explain how
   to make one).

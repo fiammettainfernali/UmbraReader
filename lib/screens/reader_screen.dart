@@ -22,12 +22,14 @@ import '../services/bookmark_store.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/dictionary_service.dart';
 import '../services/epub_parser.dart';
+import '../models/series.dart';
 import '../services/glossary_store.dart';
 import '../services/library_cache.dart';
 import '../services/cover_cache.dart';
 import '../services/library_storage.dart';
 import '../services/network_tts_service.dart';
 import '../services/reader_preferences.dart';
+import '../services/settings_service.dart';
 import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
 import '../services/tts_engine.dart';
@@ -38,6 +40,7 @@ import '../widgets/reader_settings_sheet.dart';
 import '../reader/reader_selection.dart';
 import '../reader/reader_session.dart';
 import 'glossary_screen.dart';
+import 'series_detail_screen.dart';
 
 /// Reads a downloaded volume: parses the EPUB and renders its chapters, with
 /// scroll or paged layout, an immersive (fade-away) chrome, a colour-theme /
@@ -2151,6 +2154,33 @@ class _ReaderScreenState extends State<ReaderScreen>
     return KeyEventResult.ignored;
   }
 
+  /// Opens the series this volume belongs to. Reading a volume used to end
+  /// at the back button; from the series you can start the next one.
+  Future<void> _goToSeries() async {
+    final cache = LibraryCache(LibraryStorage());
+    await cache.load();
+    final settings = await SettingsService().load();
+    Series? series;
+    for (final s in cache.series) {
+      if (s.opdsId == widget.volume.seriesOpdsId) {
+        series = s;
+        break;
+      }
+    }
+    if (!mounted) return;
+    if (series == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('That series isn\'t in your library.')),
+      );
+      return;
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SeriesDetailScreen(series: series!, settings: settings),
+      ),
+    );
+  }
+
   void _showTableOfContents() {
     final book = _book;
     if (book == null) return;
@@ -2394,6 +2424,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                       onToggleListen: toggleListen,
                       onOpenSettings: _openSettings,
                       onShowContents: _showTableOfContents,
+                      onGoToSeries: _goToSeries,
                       onSearch: _openSearch,
                       onBookmarks: _openBookmarks,
                       onGlossary: _openGlossary,
