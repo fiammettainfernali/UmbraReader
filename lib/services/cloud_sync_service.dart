@@ -146,9 +146,9 @@ class CloudSyncService {
     _progressDebounce = Timer(const Duration(seconds: 3), pushReadingProgress);
   }
 
-  Future<void> pushReadingProgress() async {
-    if (_merging) return;
-    _set(_kProgress, await ReadingProgressStore().exportSyncBlob());
+  Future<void> pushReadingProgress({bool force = false}) async {
+    if (_merging && !force) return;
+    await _set(_kProgress, await ReadingProgressStore().exportSyncBlob());
   }
 
   /// Forces an immediate reading-progress push, cancelling any pending
@@ -161,20 +161,30 @@ class CloudSyncService {
   /// older spot. Pushing synchronously here hands the write to the native
   /// iCloud bridge before suspension, where its own background queue and the
   /// iCloud daemon can finish the upload.
+  ///
+  /// A flush pushes even mid-merge. The [_merging] guard exists to stop
+  /// routine pushes stampeding a pull, but silently dropping the one push
+  /// that happens as the process suspends strands the session that just
+  /// ended. Overlapping is safe: every merge here is either per-entry
+  /// last-writer-wins or monotonic, so a push that crosses one cannot take
+  /// data away.
   Future<void> flushReadingProgress() async {
     _progressDebounce?.cancel();
     _progressDebounce = null;
-    await pushReadingProgress();
+    await pushReadingProgress(force: true);
   }
 
   Future<void> pushCollections() async {
     if (_merging) return;
-    _set(_kCollections, await CollectionStore().exportSyncBlob());
+    await _set(_kCollections, await CollectionStore().exportSyncBlob());
   }
 
   Future<void> pushRecFeedback() async {
     if (_merging) return;
-    _set(_kRecFeedback, await RecommendationFeedbackStore().exportSyncBlob());
+    await _set(
+      _kRecFeedback,
+      await RecommendationFeedbackStore().exportSyncBlob(),
+    );
   }
 
   /// Pushes the reading-activity ledger, debounced — session flushes fire
@@ -185,9 +195,9 @@ class CloudSyncService {
     _activityDebounce = Timer(const Duration(seconds: 5), pushActivity);
   }
 
-  Future<void> pushActivity() async {
-    if (_merging) return;
-    _set(_kActivity, await ReadingActivityStore().exportSyncBlob());
+  Future<void> pushActivity({bool force = false}) async {
+    if (_merging && !force) return;
+    await _set(_kActivity, await ReadingActivityStore().exportSyncBlob());
   }
 
   /// Forces an immediate activity-ledger push, cancelling any pending
@@ -197,32 +207,32 @@ class CloudSyncService {
   Future<void> flushActivity() async {
     _activityDebounce?.cancel();
     _activityDebounce = null;
-    await pushActivity();
+    await pushActivity(force: true);
   }
 
   Future<void> pushBookmarks() async {
     if (_merging) return;
-    _set(_kBookmarks, await BookmarkStore().exportSyncBlob());
+    await _set(_kBookmarks, await BookmarkStore().exportSyncBlob());
   }
 
   Future<void> pushReaderSettings() async {
     if (_merging) return;
-    _set(_kReaderSettings, await ReaderPreferences().exportSyncBlob());
+    await _set(_kReaderSettings, await ReaderPreferences().exportSyncBlob());
   }
 
   Future<void> pushSeriesStatus() async {
     if (_merging) return;
-    _set(_kSeriesStatus, await SeriesStatusStore().exportSyncBlob());
+    await _set(_kSeriesStatus, await SeriesStatusStore().exportSyncBlob());
   }
 
   Future<void> pushGlossary() async {
     if (_merging) return;
-    _set(_kGlossary, await GlossaryStore().exportSyncBlob());
+    await _set(_kGlossary, await GlossaryStore().exportSyncBlob());
   }
 
   Future<void> pushCustomThemes() async {
     if (_merging) return;
-    _set(_kCustomThemes, await CustomThemeStore().exportSyncBlob());
+    await _set(_kCustomThemes, await CustomThemeStore().exportSyncBlob());
   }
 
   // ── pull + merge: cloud → local ────────────────────────────────────────
@@ -247,8 +257,7 @@ class CloudSyncService {
         changed = true;
       }
       final bookmarks = await _get(_kBookmarks);
-      if (bookmarks != null &&
-          await BookmarkStore().mergeSyncBlob(bookmarks)) {
+      if (bookmarks != null && await BookmarkStore().mergeSyncBlob(bookmarks)) {
         changed = true;
       }
       final readerSettings = await _get(_kReaderSettings);
@@ -271,8 +280,7 @@ class CloudSyncService {
         changed = true;
       }
       final themes = await _get(_kCustomThemes);
-      if (themes != null &&
-          await CustomThemeStore().mergeSyncBlob(themes)) {
+      if (themes != null && await CustomThemeStore().mergeSyncBlob(themes)) {
         changed = true;
       }
     } finally {

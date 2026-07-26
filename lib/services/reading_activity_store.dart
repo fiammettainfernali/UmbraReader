@@ -72,8 +72,7 @@ class ReadingActivity {
   }
 
   /// Seconds read today (local time).
-  int todaySeconds({DateTime? now}) =>
-      dailySeconds[_dateKey(_today(now))] ?? 0;
+  int todaySeconds({DateTime? now}) => dailySeconds[_dateKey(_today(now))] ?? 0;
 
   /// Total words read across every day on record.
   int get totalWords {
@@ -262,7 +261,18 @@ class ReadingActivity {
   }) {
     const weekdayInitials = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
     const monthInitials = [
-      'J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D',
+      'J',
+      'F',
+      'M',
+      'A',
+      'M',
+      'J',
+      'J',
+      'A',
+      'S',
+      'O',
+      'N',
+      'D',
     ];
     final today = _today(now);
     switch (period) {
@@ -275,8 +285,8 @@ class ReadingActivity {
           for (var i = days - 1; i >= 0; i--)
             (
               label: period == StatsPeriod.week
-                  ? weekdayInitials[
-                        today.subtract(Duration(days: i)).weekday - 1]
+                  ? weekdayInitials[today.subtract(Duration(days: i)).weekday -
+                        1]
                   : '',
               seconds:
                   dailySeconds[_dateKey(today.subtract(Duration(days: i)))] ??
@@ -427,9 +437,7 @@ class ReadingActivityStore {
     final perVolumeWords = Map<String, int>.of(local.perVolumeWords);
     // Fold in every other device's ledger.
     for (final ledger in (await _remoteLedgers()).values) {
-      ledger.dailySeconds.forEach(
-        (k, v) => daily[k] = (daily[k] ?? 0) + v,
-      );
+      ledger.dailySeconds.forEach((k, v) => daily[k] = (daily[k] ?? 0) + v);
       ledger.perVolumeSeconds.forEach(
         (k, v) => perVolume[k] = (perVolume[k] ?? 0) + v,
       );
@@ -477,10 +485,7 @@ class ReadingActivityStore {
     var id = prefs.getString(_kDeviceId);
     if (id == null || id.isEmpty) {
       final rng = Random.secure();
-      id = List.generate(
-        16,
-        (_) => rng.nextInt(16).toRadixString(16),
-      ).join();
+      id = List.generate(16, (_) => rng.nextInt(16).toRadixString(16)).join();
       await prefs.setString(_kDeviceId, id);
     }
     return id;
@@ -544,9 +549,18 @@ class ReadingActivityStore {
     return jsonEncode(map);
   }
 
-  /// Caches every ledger in the cloud map EXCEPT this device's own (the
-  /// local tables are always authoritative for it). Returns true when the
-  /// remote cache changed.
+  /// Folds every ledger in the cloud map EXCEPT this device's own into the
+  /// cache (the local tables are always authoritative for this device).
+  /// Returns true when the cache changed.
+  ///
+  /// Folds rather than replaces, which is the difference between a streak
+  /// crossing devices and not. A blob is only ever as complete as the device
+  /// that wrote it: whenever the other device pushes before it has seen this
+  /// one — a push triggered by some unrelated store, or a read of the
+  /// activity key that came back empty because iCloud hadn't materialised
+  /// the file yet — the cloud copy is missing a device outright. Replacing
+  /// the cache with that blob dropped a whole device's history, and its
+  /// share of the daily totals with it.
   Future<bool> mergeSyncBlob(String blob) async {
     if (blob.isEmpty) return false;
     final Object? decoded;
@@ -557,17 +571,46 @@ class ReadingActivityStore {
     }
     if (decoded is! Map) return false;
     final id = await _deviceId();
-    final remote = <String, dynamic>{};
+    final merged = Map<String, ReadingActivity>.of(await _remoteLedgers());
     for (final entry in decoded.entries) {
-      if (entry.key is! String || entry.key == id) continue;
-      if (entry.value is! Map) continue;
-      remote[entry.key as String] = entry.value;
+      final key = entry.key;
+      final value = entry.value;
+      if (key is! String || key == id || value is! Map) continue;
+      final incoming = _ledgerFromJson(value);
+      final existing = merged[key];
+      merged[key] = existing == null
+          ? incoming
+          : _mergeLedgers(existing, incoming);
     }
-    final encoded = jsonEncode(remote);
+    final encoded = jsonEncode({
+      for (final e in merged.entries) e.key: _ledgerToJson(e.value),
+    });
     final existing = await _db.kvGet(_kRemote);
     if (existing == encoded) return false;
     await _db.kvSet(_kRemote, encoded);
     return true;
+  }
+
+  /// Combines two copies of one device's ledger by taking the larger value
+  /// for each day and volume.
+  ///
+  /// A tally only ever grows, and only on the device that owns it, so the
+  /// bigger number is always the newer one. That makes the merge
+  /// order-independent: a blob that arrives late carrying an out-of-date
+  /// copy of a device can no longer walk that device's totals backwards.
+  static ReadingActivity _mergeLedgers(ReadingActivity a, ReadingActivity b) {
+    Map<String, int> larger(Map<String, int> x, Map<String, int> y) {
+      final out = Map<String, int>.of(x);
+      y.forEach((k, v) => out[k] = max(out[k] ?? 0, v));
+      return out;
+    }
+
+    return ReadingActivity(
+      dailySeconds: larger(a.dailySeconds, b.dailySeconds),
+      perVolumeSeconds: larger(a.perVolumeSeconds, b.perVolumeSeconds),
+      dailyWords: larger(a.dailyWords, b.dailyWords),
+      perVolumeWords: larger(a.perVolumeWords, b.perVolumeWords),
+    );
   }
 
   /// Adds [delta] seconds to today's tally and to the per-volume tally for
@@ -635,7 +678,9 @@ class ReadingActivityStore {
   Future<void> _ensureMigrated() async {
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool(_kMigrated) ?? false) return;
-    _migration ??= _importFromPrefs(prefs).whenComplete(() => _migration = null);
+    _migration ??= _importFromPrefs(
+      prefs,
+    ).whenComplete(() => _migration = null);
     await _migration;
   }
 
@@ -665,7 +710,9 @@ class ReadingActivityStore {
                     DailyActivityRowsCompanion(
                       day: Value(entry.key.toString()),
                       seconds: Value((entry.value as num).toInt()),
-                      words: Value(wordsFor(dailyWordsRaw, entry.key.toString())),
+                      words: Value(
+                        wordsFor(dailyWordsRaw, entry.key.toString()),
+                      ),
                     ),
               ], mode: InsertMode.insertOrIgnore);
             }
