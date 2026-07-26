@@ -4,8 +4,24 @@ import 'package:flutter/material.dart';
 
 import '../services/control_client.dart';
 import '../services/settings_service.dart';
+import '../widgets/action_sheet.dart';
 import '../widgets/section_header.dart';
 import 'novel_search_screen.dart';
+
+/// The queue entries whose title matches [query], each paired with its real
+/// position in the unfiltered queue.
+///
+/// Pulled out of the widget because that pairing is the load-bearing part: a
+/// filtered row's position on screen says nothing about where it sits in the
+/// queue, and acting on the wrong one is invisible until the wrong book
+/// downloads.
+List<(int, QueueEntry)> filterQueue(List<QueueEntry> queue, String query) {
+  final q = query.trim().toLowerCase();
+  return [
+    for (final (i, e) in queue.indexed)
+      if (q.isEmpty || e.title.toLowerCase().contains(q)) (i, e),
+  ];
+}
 
 /// Remote control for Novel Grabber: server/job status, a live download
 /// queue, add-by-URL, and library-wide update checks — over the control API.
@@ -29,6 +45,16 @@ class _ManageScreenState extends State<ManageScreen> {
   bool _busy = false;
   StreamSubscription<ControlEvent>? _events;
 
+  /// Filters the queue by title. A library-wide "Check all" queues every
+  /// series at once, so the queue is routinely hundreds of rows long and
+  /// scrolling to the one you care about is hopeless.
+  final TextEditingController _queueSearch = TextEditingController();
+  String _queueQuery = '';
+
+  /// Below this the list is short enough to read at a glance, and the field
+  /// would be clutter.
+  static const int _searchThreshold = 8;
+
   @override
   void initState() {
     super.initState();
@@ -39,6 +65,7 @@ class _ManageScreenState extends State<ManageScreen> {
   @override
   void dispose() {
     _events?.cancel();
+    _queueSearch.dispose();
     super.dispose();
   }
 
@@ -110,9 +137,9 @@ class _ManageScreenState extends State<ManageScreen> {
       await _refreshQuiet();
     } on ControlException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.message)));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -123,18 +150,16 @@ class _ManageScreenState extends State<ManageScreen> {
     final sites = _status?.searchSites ?? const <String>[];
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => NovelSearchScreen(
-          settings: widget.settings,
-          sites: sites,
-        ),
+        builder: (_) =>
+            NovelSearchScreen(settings: widget.settings, sites: sites),
       ),
     );
     await _refreshQuiet();
   }
 
   Future<void> _editSchedule() async {
-    final current = _schedule ??
-        const AutoUpdateSchedule(mode: 'off', intervalMinutes: 60);
+    final current =
+        _schedule ?? const AutoUpdateSchedule(mode: 'off', intervalMinutes: 60);
     final result = await showDialog<AutoUpdateSchedule>(
       context: context,
       builder: (_) => _ScheduleDialog(initial: current),
@@ -222,8 +247,11 @@ class _ManageScreenState extends State<ManageScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.cloud_off_outlined,
-                size: 56, color: theme.colorScheme.outline),
+            Icon(
+              Icons.cloud_off_outlined,
+              size: 56,
+              color: theme.colorScheme.outline,
+            ),
             const SizedBox(height: 16),
             Text("Can't reach the server", style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
@@ -251,201 +279,264 @@ class _ManageScreenState extends State<ManageScreen> {
     final status = _status!;
     final p = _progress;
     final showProgress = p != null && !p.isIdle;
+    final queue = status.queue;
+    final query = _queueQuery.trim().toLowerCase();
+    // Each entry keeps its real queue position: the row displays it (so a
+    // filtered list still says where things actually sit) and falls back to
+    // it when talking to a server too old to hand out uids.
+    final visible = filterQueue(queue, query);
+
     return RefreshIndicator(
       onRefresh: _refresh,
-      child: ListView(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          16,
-          16,
-          16 + MediaQuery.of(context).padding.bottom,
-        ),
-        children: [
-          // ── activity card ──────────────────────────────────────────
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerHigh,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      // A sliver list rather than a plain ListView: a progress tick arrives
+      // several times a second and rebuilds this screen, and building every
+      // queued row each time is what made a long queue stutter.
+      child: CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            sliver: SliverList.list(
               children: [
+                // ── activity card ──────────────────────────────────────────
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            status.paused
+                                ? Icons.pause_circle
+                                : status.active
+                                ? Icons.downloading
+                                : Icons.check_circle_outline,
+                            color: theme.colorScheme.primary,
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            status.paused
+                                ? 'Paused'
+                                : status.active
+                                ? 'Working'
+                                : 'Idle',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (showProgress) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          p.novelTitle.isEmpty ? '—' : p.novelTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          p.chapterTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(3),
+                          child: LinearProgressIndicator(
+                            value: p.total > 0
+                                ? (p.percent / 100).clamp(0, 1)
+                                : null,
+                            minHeight: 6,
+                            backgroundColor:
+                                theme.colorScheme.surfaceContainerHighest,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          p.total > 0
+                              ? '${p.current} / ${p.total}  ·  ${p.percent.round()}%'
+                              : p.state,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                      ] else if (status.current != null) ...[
+                        const SizedBox(height: 10),
+                        Text(
+                          status.current!.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          if (status.paused)
+                            FilledButton.tonalIcon(
+                              onPressed: _busy
+                                  ? null
+                                  : () => _run(_client.resume, 'Resumed'),
+                              icon: const Icon(Icons.play_arrow),
+                              label: const Text('Resume'),
+                            )
+                          else
+                            FilledButton.tonalIcon(
+                              onPressed: _busy
+                                  ? null
+                                  : () => _run(_client.pause, 'Paused'),
+                              icon: const Icon(Icons.pause),
+                              label: const Text('Pause'),
+                            ),
+                          OutlinedButton.icon(
+                            onPressed: _busy
+                                ? null
+                                : () => _run(_client.skip, 'Skipped current'),
+                            icon: const Icon(Icons.skip_next),
+                            label: const Text('Skip'),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: _busy
+                                ? null
+                                : () => _run(_client.stop, 'Stopped'),
+                            icon: const Icon(Icons.stop),
+                            label: const Text('Stop'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // ── actions ────────────────────────────────────────────────
                 Row(
                   children: [
-                    Icon(
-                      status.paused
-                          ? Icons.pause_circle
-                          : status.active
-                          ? Icons.downloading
-                          : Icons.check_circle_outline,
-                      color: theme.colorScheme.primary,
+                    Expanded(
+                      child: FilledButton.icon(
+                        onPressed: _busy ? null : _addByUrl,
+                        icon: const Icon(Icons.add_link),
+                        label: const Text('Add by URL'),
+                      ),
                     ),
-                    const SizedBox(width: 10),
-                    Text(
-                      status.paused
-                          ? 'Paused'
-                          : status.active
-                          ? 'Working'
-                          : 'Idle',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton.tonalIcon(
+                        onPressed: _busy
+                            ? null
+                            : () => _run(
+                                _client.checkAllUpdates,
+                                'Checking all series for new chapters…',
+                              ),
+                        icon: const Icon(Icons.sync),
+                        label: const Text('Check all'),
                       ),
                     ),
                   ],
                 ),
-                if (showProgress) ...[
+                const SizedBox(height: 20),
+
+                // ── auto-update schedule ───────────────────────────────────
+                if (_schedule != null) ...[
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.schedule),
+                    title: const Text('Auto-update'),
+                    subtitle: Text(
+                      _scheduleLabel(_schedule!),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.outline,
+                      ),
+                    ),
+                    trailing: TextButton(
+                      onPressed: _busy ? null : _editSchedule,
+                      child: const Text('Edit'),
+                    ),
+                  ),
                   const SizedBox(height: 12),
-                  Text(
-                    p.novelTitle.isEmpty ? '—' : p.novelTitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  Text(
-                    p.chapterTitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.outline,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(3),
-                    child: LinearProgressIndicator(
-                      value: p.total > 0 ? (p.percent / 100).clamp(0, 1) : null,
-                      minHeight: 6,
-                      backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    p.total > 0
-                        ? '${p.current} / ${p.total}  ·  ${p.percent.round()}%'
-                        : p.state,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.outline,
-                    ),
-                  ),
-                ] else if (status.current != null) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    status.current!.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium,
-                  ),
                 ],
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    if (status.paused)
-                      FilledButton.tonalIcon(
-                        onPressed: _busy
-                            ? null
-                            : () => _run(_client.resume, 'Resumed'),
-                        icon: const Icon(Icons.play_arrow),
-                        label: const Text('Resume'),
-                      )
-                    else
-                      FilledButton.tonalIcon(
-                        onPressed: _busy
-                            ? null
-                            : () => _run(_client.pause, 'Paused'),
-                        icon: const Icon(Icons.pause),
-                        label: const Text('Pause'),
-                      ),
-                    OutlinedButton.icon(
-                      onPressed: _busy
-                          ? null
-                          : () => _run(_client.skip, 'Skipped current'),
-                      icon: const Icon(Icons.skip_next),
-                      label: const Text('Skip'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: _busy
-                          ? null
-                          : () => _run(_client.stop, 'Stopped'),
-                      icon: const Icon(Icons.stop),
-                      label: const Text('Stop'),
-                    ),
-                  ],
+
+                // ── queue ──────────────────────────────────────────────────
+                SectionHeader(
+                  query.isEmpty
+                      ? 'Queue (${queue.length})'
+                      : 'Queue (${visible.length} of ${queue.length})',
+                  padding: const EdgeInsets.only(bottom: 4),
                 ),
+                if (queue.length >= _searchThreshold) _queueSearchField(theme),
               ],
             ),
           ),
-          const SizedBox(height: 16),
-
-          // ── actions ────────────────────────────────────────────────
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: _busy ? null : _addByUrl,
-                  icon: const Icon(Icons.add_link),
-                  label: const Text('Add by URL'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton.tonalIcon(
-                  onPressed: _busy
-                      ? null
-                      : () => _run(
-                          _client.checkAllUpdates,
-                          'Checking all series for new chapters…',
-                        ),
-                  icon: const Icon(Icons.sync),
-                  label: const Text('Check all'),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          // ── auto-update schedule ───────────────────────────────────
-          if (_schedule != null) ...[
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.schedule),
-              title: const Text('Auto-update'),
-              subtitle: Text(
-                _scheduleLabel(_schedule!),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              ),
-              trailing: TextButton(
-                onPressed: _busy ? null : _editSchedule,
-                child: const Text('Edit'),
-              ),
+          SliverPadding(
+            padding: EdgeInsets.fromLTRB(
+              16,
+              0,
+              16,
+              16 + MediaQuery.of(context).padding.bottom,
             ),
-            const SizedBox(height: 12),
-          ],
-
-          // ── queue ──────────────────────────────────────────────────
-          SectionHeader(
-            'Queue (${status.queue.length})',
-            padding: const EdgeInsets.only(bottom: 4),
+            sliver: visible.isEmpty
+                ? SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Text(
+                        queue.isEmpty
+                            ? 'Nothing queued.'
+                            : 'No queued series matches “$_queueQuery”.',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                    ),
+                  )
+                : SliverList.builder(
+                    itemCount: visible.length,
+                    itemBuilder: (_, i) => _queueRow(
+                      theme,
+                      visible[i].$2,
+                      visible[i].$1,
+                      queue.length,
+                    ),
+                  ),
           ),
-          if (status.queue.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Text(
-                'Nothing queued.',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.outline,
-                ),
-              ),
-            )
-          else
-            for (var i = 0; i < status.queue.length; i++)
-              _queueRow(theme, status.queue[i], i, status.queue.length),
         ],
+      ),
+    );
+  }
+
+  Widget _queueSearchField(ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: TextField(
+        controller: _queueSearch,
+        textInputAction: TextInputAction.search,
+        onChanged: (v) => setState(() => _queueQuery = v),
+        decoration: InputDecoration(
+          isDense: true,
+          hintText: 'Find in queue',
+          prefixIcon: const Icon(Icons.search, size: 20),
+          suffixIcon: _queueQuery.isEmpty
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  tooltip: 'Clear',
+                  onPressed: () {
+                    _queueSearch.clear();
+                    setState(() => _queueQuery = '');
+                  },
+                ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        ),
       ),
     );
   }
@@ -466,58 +557,116 @@ class _ManageScreenState extends State<ManageScreen> {
     }
   }
 
+  /// What this entry will do, including the chapter range when it has one —
+  /// without it, a novel queued twice shows two identical rows.
+  static String _queueSubtitle(QueueEntry e) {
+    final what = e.action == 'update' ? 'Check for updates' : 'Download';
+    final r = e.chapterRange;
+    if (r != null && r.length == 2) return '$what · ch. ${r[0]}–${r[1]}';
+    return what;
+  }
+
   Widget _queueRow(ThemeData theme, QueueEntry e, int index, int count) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      title: Text(e.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      // The real position, which a filtered list would otherwise hide: the
+      // point of finding a series here is usually to see how far down it is.
+      leading: SizedBox(
+        width: 34,
+        child: Text(
+          '${index + 1}',
+          textAlign: TextAlign.center,
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: index == 0
+                ? theme.colorScheme.tertiary
+                : theme.colorScheme.outline,
+            fontWeight: index == 0 ? FontWeight.w700 : FontWeight.w500,
+          ),
+        ),
+      ),
+      title: Text(e.title, maxLines: 2, overflow: TextOverflow.ellipsis),
       subtitle: Text(
-        e.action == 'update' ? 'Check for updates' : 'Download',
+        _queueSubtitle(e),
         style: theme.textTheme.bodySmall?.copyWith(
           color: theme.colorScheme.outline,
         ),
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            icon: const Icon(Icons.vertical_align_top, size: 20),
-            tooltip: 'Move to top',
-            // The server's move is remove-and-insert, so a delta of -index
-            // lands this item at the front and keeps the rest of the order.
-            onPressed: _busy || index == 0
-                ? null
-                : () => _run(
-                    () => _client.move(index, -index),
-                    'Moved to top — it downloads next',
-                  ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.arrow_upward, size: 20),
-            tooltip: 'Move up',
-            onPressed: _busy || index == 0
-                ? null
-                : () => _run(() => _client.move(index, -1), 'Moved up'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.arrow_downward, size: 20),
-            tooltip: 'Move down',
-            onPressed: _busy || index == count - 1
-                ? null
-                : () => _run(() => _client.move(index, 1), 'Moved down'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.close, size: 20),
-            tooltip: 'Remove',
-            onPressed: _busy
-                ? null
-                : () => _run(
-                    () => _client.removeFromQueue(e.novelId),
-                    'Removed from queue',
-                  ),
-          ),
-        ],
+      // Promoting something is the reason to come looking for it, so that
+      // one action stays a single tap; the rest moved into the sheet, which
+      // four cramped icon buttons were never a good substitute for.
+      trailing: IconButton(
+        icon: const Icon(Icons.vertical_align_top, size: 20),
+        tooltip: 'Move to top',
+        onPressed: _busy || index == 0
+            ? null
+            : () => _run(
+                () => _client.moveToTop(e, index: index),
+                'Moved “${e.title}” to the top — it goes next',
+              ),
       ),
+      onTap: _busy ? null : () => _openQueueItemSheet(e, index, count),
     );
+  }
+
+  Future<void> _openQueueItemSheet(QueueEntry e, int index, int count) async {
+    final moves = <SheetAction<String>>[
+      if (index > 0)
+        const SheetAction(
+          value: 'top',
+          icon: Icons.vertical_align_top,
+          label: 'Move to top',
+          subtitle: 'Goes next, ahead of everything else',
+        ),
+      if (index > 0)
+        const SheetAction(
+          value: 'up',
+          icon: Icons.arrow_upward,
+          label: 'Move up one',
+        ),
+      if (index < count - 1)
+        const SheetAction(
+          value: 'down',
+          icon: Icons.arrow_downward,
+          label: 'Move down one',
+        ),
+    ];
+
+    final choice = await showActionSheet<String>(
+      context,
+      title: e.title,
+      groups: [
+        if (moves.isNotEmpty)
+          SheetGroup(title: 'Position ${index + 1} of $count', actions: moves),
+        SheetGroup(
+          actions: const [
+            SheetAction(
+              value: 'remove',
+              icon: Icons.close,
+              label: 'Remove from queue',
+              subtitle: 'Chapters already downloaded are kept',
+              isDestructive: true,
+            ),
+          ],
+        ),
+      ],
+    );
+    if (!mounted || choice == null) return;
+    switch (choice) {
+      case 'top':
+        await _run(
+          () => _client.moveToTop(e, index: index),
+          'Moved “${e.title}” to the top — it goes next',
+        );
+      case 'up':
+        await _run(() => _client.nudge(e, -1, index: index), 'Moved up');
+      case 'down':
+        await _run(() => _client.nudge(e, 1, index: index), 'Moved down');
+      case 'remove':
+        await _run(
+          () => _client.removeFromQueue(e),
+          'Removed “${e.title}” from the queue',
+        );
+    }
   }
 }
 
@@ -593,11 +742,12 @@ class _ScheduleDialogState extends State<_ScheduleDialog> {
         FilledButton(
           onPressed: () {
             final mode = isScheduleMode ? 'interval' : _mode;
-            final minutes = int.tryParse(_interval.text.trim()) ??
+            final minutes =
+                int.tryParse(_interval.text.trim()) ??
                 widget.initial.intervalMinutes;
-            Navigator.of(context).pop(
-              AutoUpdateSchedule(mode: mode, intervalMinutes: minutes),
-            );
+            Navigator.of(
+              context,
+            ).pop(AutoUpdateSchedule(mode: mode, intervalMinutes: minutes));
           },
           child: const Text('Save'),
         ),

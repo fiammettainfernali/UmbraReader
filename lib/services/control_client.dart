@@ -21,6 +21,7 @@ class QueueEntry {
     required this.title,
     required this.action,
     this.chapterRange,
+    this.uid,
   });
 
   final int novelId;
@@ -32,6 +33,11 @@ class QueueEntry {
   /// Inclusive (start, end) chapter range for a partial download, or null.
   final List<int>? chapterRange;
 
+  /// This entry's stable identity on the server, used to reorder or remove
+  /// it. Null against a Novel Grabber build older than the one that added
+  /// it, in which case the caller has to fall back to a position.
+  final int? uid;
+
   factory QueueEntry.fromJson(Map<String, dynamic> json) => QueueEntry(
     novelId: (json['novelId'] as num?)?.toInt() ?? 0,
     title: json['title'] as String? ?? '',
@@ -39,6 +45,7 @@ class QueueEntry {
     chapterRange: (json['chapterRange'] as List?)
         ?.map((e) => (e as num).toInt())
         .toList(),
+    uid: (json['uid'] as num?)?.toInt(),
   );
 }
 
@@ -183,8 +190,7 @@ class ControlClient {
     return ControlStatus.fromJson(json);
   }
 
-  Future<void> addNovel(String url) =>
-      _post('/api/novels', {'url': url});
+  Future<void> addNovel(String url) => _post('/api/novels', {'url': url});
 
   /// Searches a single source (by SITE_NAME) for novels matching [query].
   Future<List<SearchHit>> search(
@@ -219,10 +225,7 @@ class ControlClient {
   /// "interval".
   Future<void> setSchedule(String mode, {int? intervalMinutes}) => _post(
     '/api/schedule',
-    {
-      'mode': mode,
-      'intervalMinutes': ?intervalMinutes,
-    },
+    {'mode': mode, 'intervalMinutes': ?intervalMinutes},
   );
 
   Future<void> checkUpdates(int novelId) =>
@@ -240,10 +243,27 @@ class ControlClient {
   Future<void> resume() => _post('/api/queue/resume', null);
   Future<void> stop() => _post('/api/queue/stop', null);
   Future<void> skip() => _post('/api/queue/skip', null);
-  Future<void> removeFromQueue(int novelId) =>
-      _post('/api/queue/remove', {'novel_id': novelId});
-  Future<void> move(int index, int delta) =>
-      _post('/api/queue/move', {'index': index, 'delta': delta});
+
+  /// Reorders or removes one queue entry.
+  ///
+  /// These address the entry by [QueueEntry.uid] wherever the server offers
+  /// one. A position is not a safe handle from here: the server pops the
+  /// queue from the front while the app is showing a snapshot of it, so an
+  /// index read a moment ago can already belong to a different novel. The
+  /// index forms remain only as a fallback for an older server.
+  Future<void> moveToTop(QueueEntry entry, {required int index}) =>
+      entry.uid != null
+      ? _post('/api/queue/move', {'uid': entry.uid, 'to': 0})
+      : _post('/api/queue/move', {'index': index, 'delta': -index});
+
+  Future<void> nudge(QueueEntry entry, int delta, {required int index}) =>
+      entry.uid != null
+      ? _post('/api/queue/move', {'uid': entry.uid, 'delta': delta})
+      : _post('/api/queue/move', {'index': index, 'delta': delta});
+
+  Future<void> removeFromQueue(QueueEntry entry) => entry.uid != null
+      ? _post('/api/queue/remove', {'uid': entry.uid})
+      : _post('/api/queue/remove', {'novel_id': entry.novelId});
 
   // ── low-level ──────────────────────────────────────────────────────────
 
@@ -345,9 +365,7 @@ class ControlClient {
                 try {
                   final m = jsonDecode(payload);
                   if (m is Map<String, dynamic>) {
-                    controller.add(
-                      ControlEvent(m['type'] as String? ?? '', m),
-                    );
+                    controller.add(ControlEvent(m['type'] as String? ?? '', m));
                   }
                 } on FormatException {
                   // skip a malformed event
