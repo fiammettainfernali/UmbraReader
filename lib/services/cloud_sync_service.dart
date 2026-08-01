@@ -7,6 +7,7 @@ import 'bookmark_store.dart';
 import 'collection_store.dart';
 import 'custom_theme_store.dart';
 import 'glossary_store.dart';
+import 'library_view_store.dart';
 import 'reader_preferences.dart';
 import 'reading_activity_store.dart';
 import 'reading_progress_store.dart';
@@ -51,6 +52,7 @@ class CloudSyncService {
   static const _kSeriesStatus = 'cloud_series_status';
   static const _kGlossary = 'cloud_glossary';
   static const _kCustomThemes = 'cloud_custom_themes';
+  static const _kLibraryView = 'cloud_library_view';
 
   /// True while a cloud→local merge is in flight, so the store-write hooks
   /// don't bounce the just-merged data straight back up to the cloud.
@@ -63,6 +65,7 @@ class CloudSyncService {
   Timer? _progressDebounce;
   Timer? _activityDebounce;
   Timer? _mergeDebounce;
+  Timer? _libraryViewDebounce;
 
   /// Cancels any pending debounced work. Tests use this so a 3-second push
   /// timer armed by a progress save can't outlive the test body.
@@ -74,6 +77,8 @@ class CloudSyncService {
     _activityDebounce = null;
     _mergeDebounce?.cancel();
     _mergeDebounce = null;
+    _libraryViewDebounce?.cancel();
+    _libraryViewDebounce = null;
   }
 
   /// Wires the external-change listeners and kicks off the initial pull.
@@ -230,6 +235,19 @@ class CloudSyncService {
     await _set(_kGlossary, await GlossaryStore().exportSyncBlob());
   }
 
+  /// Pushes the library view, debounced — toggling filter chips in a sheet
+  /// fires on every tap, and only the arrangement you settle on matters.
+  void pushLibraryViewSoon() {
+    if (_merging) return;
+    _libraryViewDebounce?.cancel();
+    _libraryViewDebounce = Timer(const Duration(seconds: 2), pushLibraryView);
+  }
+
+  Future<void> pushLibraryView() async {
+    if (_merging) return;
+    await _set(_kLibraryView, await LibraryViewStore().exportSyncBlob());
+  }
+
   Future<void> pushCustomThemes() async {
     if (_merging) return;
     await _set(_kCustomThemes, await CustomThemeStore().exportSyncBlob());
@@ -279,6 +297,11 @@ class CloudSyncService {
       if (glossary != null && await GlossaryStore().mergeSyncBlob(glossary)) {
         changed = true;
       }
+      final libraryView = await _get(_kLibraryView);
+      if (libraryView != null &&
+          await LibraryViewStore().mergeSyncBlob(libraryView)) {
+        changed = true;
+      }
       final themes = await _get(_kCustomThemes);
       if (themes != null && await CustomThemeStore().mergeSyncBlob(themes)) {
         changed = true;
@@ -299,6 +322,7 @@ class CloudSyncService {
       await pushSeriesStatus();
       await pushGlossary();
       await pushCustomThemes();
+      await pushLibraryView();
       onRemoteMerge?.call();
     }
   }

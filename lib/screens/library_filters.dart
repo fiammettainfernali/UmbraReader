@@ -1,37 +1,16 @@
 import 'package:flutter/material.dart';
 
+import '../models/library_view.dart';
 import '../models/series.dart';
 import '../services/library_storage.dart';
+import '../services/library_view_store.dart';
 import '../services/reading_progress_store.dart';
 import '../services/series_status_store.dart';
+import '../widgets/action_sheet.dart';
+import '../widgets/section_header.dart';
+import 'library_cards.dart';
 
-/// How the library grid is ordered.
-enum LibrarySort {
-  titleAsc('Title (A–Z)'),
-  recentlyUpdated('Recently updated'),
-  recentlyRead('Recently read'),
-  author('Author'),
-  readingStatus('Reading status');
-
-  const LibrarySort(this.label);
-
-  /// Human-readable label shown in the sort menu.
-  final String label;
-}
-
-/// Quick reading-state chip selection above the library grid.
-enum ReadingStateFilter {
-  any('All'),
-  inProgress('Reading'),
-  unread('Unread'),
-  finished('Finished'),
-  dropped('Dropped');
-
-  const ReadingStateFilter(this.label);
-
-  final String label;
-}
-
+export '../models/library_view.dart';
 
 /// Sort rank for reading statuses — active series first, finished/abandoned last.
 int _statusRank(String status) => switch (status.toLowerCase()) {
@@ -65,9 +44,53 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
   final TextEditingController searchController = TextEditingController();
 
   String searchQuery = '';
-  LibrarySort sort = LibrarySort.titleAsc;
-  ReadingStateFilter readingState = ReadingStateFilter.any;
-  LibraryFilters filters = const LibraryFilters();
+
+  /// The persisted arrangement: sort, direction, chip and filter set. The
+  /// search query is deliberately not part of it — see [LibraryView].
+  LibraryView view = LibraryView.initial;
+
+  final LibraryViewStore _viewStore = LibraryViewStore();
+
+  LibrarySort get sort => view.sort;
+  bool get sortDescending => view.descending;
+  ReadingStateFilter get readingState => view.readingState;
+  LibraryFilters get filters => view.filters;
+
+  /// Loads the saved arrangement. Call from the screen's initState; the grid
+  /// renders unsorted-by-preference for the one frame before this lands,
+  /// which is invisible next to the library fetch it happens under.
+  Future<void> loadSavedView() async {
+    final saved = await _viewStore.load();
+    if (mounted) setState(() => view = saved);
+  }
+
+  /// Applies a change and persists it. Every mutation goes through here so
+  /// there is no way to change the view without saving it.
+  void _updateView(LibraryView next) {
+    setState(() => view = next);
+    _viewStore.save(next);
+  }
+
+  /// Re-reads the arrangement after a sync merged a newer one from another
+  /// device, so the grid doesn't keep showing the superseded view.
+  Future<void> reloadSavedView() => loadSavedView();
+
+  void setSort(LibrarySort next) => _updateView(view.copyWith(sort: next));
+
+  void setSortDescending(bool value) =>
+      _updateView(view.copyWith(descending: value));
+
+  void setReadingState(ReadingStateFilter next) =>
+      _updateView(view.copyWith(readingState: next));
+
+  /// Clears every filter clause and the reading-state chip, but leaves the
+  /// sort alone — the arrangement isn't what made the grid empty.
+  void clearAllFilters() => _updateView(
+    view.copyWith(
+      filters: const LibraryFilters(),
+      readingState: ReadingStateFilter.any,
+    ),
+  );
 
   /// True when nothing is narrowing the grid — the empty state differs
   /// between "no books" and "no matches".
@@ -136,7 +159,8 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
       }
       filtered.add(series);
     }
-    filtered.sort(_comparatorFor(sort, readState.lastReadAt));
+    final compare = _comparatorFor(sort, readState.lastReadAt);
+    filtered.sort(sortDescending ? (a, b) => compare(b, a) : compare);
     return filtered;
   }
 
@@ -208,7 +232,7 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
       ),
     );
     if (next == null) return;
-    setState(() => filters = next);
+    _updateView(view.copyWith(filters: next));
   }
 
   Comparator<Series> _comparatorFor(
@@ -246,6 +270,103 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
         return c != 0 ? c : byTitle(a, b);
       },
     };
+  }
+
+  String get _directionLabel =>
+      sortDescending ? sort.directionLabels.$2 : sort.directionLabels.$1;
+
+  /// The sort picker.
+  ///
+  /// A sheet rather than the popup this used to be — same reasons as
+  /// everywhere else in the app — and with a direction row, which the popup
+  /// had no room for. Each option names its own directions: "Oldest first"
+  /// means something for a date and nothing for a title.
+  Future<void> _openSortSheet() async {
+    final choice = await showActionSheet<String>(
+      context,
+      title: 'Sort library',
+      groups: [
+        SheetGroup(
+          actions: [
+            for (final option in LibrarySort.values)
+              SheetAction(
+                value: 'sort:${option.name}',
+                icon: option == sort ? Icons.check : Icons.sort,
+                label: option.label,
+                subtitle: option == sort ? 'Current order' : null,
+              ),
+          ],
+        ),
+        SheetGroup(
+          title: 'Direction',
+          actions: [
+            SheetAction(
+              value: 'dir:asc',
+              icon: Icons.arrow_upward,
+              label: sort.directionLabels.$1,
+              subtitle: sortDescending ? null : 'Current direction',
+            ),
+            SheetAction(
+              value: 'dir:desc',
+              icon: Icons.arrow_downward,
+              label: sort.directionLabels.$2,
+              subtitle: sortDescending ? 'Current direction' : null,
+            ),
+          ],
+        ),
+      ],
+    );
+    if (!mounted || choice == null) return;
+    if (choice.startsWith('dir:')) {
+      setSortDescending(choice == 'dir:desc');
+    } else {
+      setSort(LibrarySort.fromName(choice.substring(5)));
+    }
+  }
+
+  /// Why the grid came back empty, and the way out of it.
+  ///
+  /// This used to be one message that blamed the search — so narrowing with
+  /// only a filter produced 'No series match ""' and offered "Clear search"
+  /// as the fix, which did nothing. Name whichever thing is actually
+  /// responsible, and clear all of them.
+  Widget buildEmptyState() {
+    if (filtersAreClear) {
+      return const MessageView(
+        icon: Icons.menu_book_outlined,
+        title: 'Your library is empty',
+        message: 'Series you add in Novel Grabber appear here.',
+        actionLabel: '',
+        onAction: _noop,
+      );
+    }
+    final query = searchQuery.trim();
+    final narrowedBy = <String>[
+      if (query.isNotEmpty) '“$query”',
+      if (readingState != ReadingStateFilter.any)
+        'the ${readingState.label} chip',
+      if (!filters.isEmpty)
+        '${filters.activeCount} filter${filters.activeCount == 1 ? '' : 's'}',
+    ];
+    return MessageView(
+      icon: Icons.filter_alt_off_outlined,
+      title: 'Nothing matches',
+      message: 'No series get past ${_join(narrowedBy)}.',
+      actionLabel: 'Clear all',
+      onAction: () {
+        clearSearch();
+        clearAllFilters();
+      },
+    );
+  }
+
+  static void _noop() {}
+
+  /// "a, b and c" — so the message reads as a sentence rather than a list.
+  static String _join(List<String> parts) {
+    if (parts.length <= 1) return parts.join();
+    return '${parts.sublist(0, parts.length - 1).join(', ')} '
+        'and ${parts.last}';
   }
 
   void clearSearch() {
@@ -292,34 +413,16 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
               IconButton(
                 icon: Badge(
                   isLabelVisible: !filters.isEmpty,
-                  smallSize: 8,
+                  label: Text('${filters.activeCount}'),
                   child: const Icon(Icons.filter_list),
                 ),
                 tooltip: 'Filter library',
                 onPressed: _openFilters,
               ),
-              PopupMenuButton<LibrarySort>(
+              IconButton(
                 icon: const Icon(Icons.sort),
                 tooltip: 'Sort',
-                initialValue: sort,
-                onSelected: (value) => setState(() => sort = value),
-                itemBuilder: (context) => [
-                  for (final option in LibrarySort.values)
-                    PopupMenuItem<LibrarySort>(
-                      value: option,
-                      child: Row(
-                        children: [
-                          SizedBox(
-                            width: 28,
-                            child: option == sort
-                                ? const Icon(Icons.check, size: 18)
-                                : null,
-                          ),
-                          Text(option.label),
-                        ],
-                      ),
-                    ),
-                ],
+                onPressed: _openSortSheet,
               ),
             ],
           ),
@@ -335,7 +438,7 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
                   ChoiceChip(
                     label: Text(state.label),
                     selected: readingState == state,
-                    onSelected: (_) => setState(() => readingState = state),
+                    onSelected: (_) => setReadingState(state),
                   ),
                   if (state != ReadingStateFilter.values.last)
                     const SizedBox(width: 8),
@@ -346,8 +449,9 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
           const SizedBox(height: 8),
           Text(
             visible == total
-                ? '$total series  ·  ${sort.label}'
-                : '$visible of $total series  ·  ${sort.label}',
+                ? '$total series  ·  ${sort.label} · $_directionLabel'
+                : '$visible of $total series  ·  ${sort.label} · '
+                      '$_directionLabel',
             style: theme.textTheme.labelMedium?.copyWith(
               color: theme.colorScheme.outline,
             ),
@@ -356,71 +460,6 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
       ),
     );
   }
-}
-
-/// The active set of library filters, applied alongside search + sort.
-class LibraryFilters {
-  const LibraryFilters({
-    this.genres = const {},
-    this.statuses = const {},
-    this.downloaded,
-    this.multiVolume,
-  });
-
-  /// Genres the user wants to see; empty = no genre filter.
-  final Set<String> genres;
-
-  /// Reading statuses the user wants to see; empty = no status filter.
-  final Set<String> statuses;
-
-  /// null = either, true = only downloaded series, false = only not-downloaded.
-  final bool? downloaded;
-
-  /// null = either, true = only multi-volume, false = only single-volume.
-  final bool? multiVolume;
-
-  bool get isEmpty =>
-      genres.isEmpty &&
-      statuses.isEmpty &&
-      downloaded == null &&
-      multiVolume == null;
-
-  /// True when [series] satisfies every active filter clause.
-  bool matches(Series series, {required bool isDownloaded}) {
-    if (genres.isNotEmpty) {
-      final seriesGenres = {for (final g in series.genres) g.trim()};
-      if (!seriesGenres.any(genres.contains)) return false;
-    }
-    if (statuses.isNotEmpty &&
-        !statuses.contains(series.readingStatus.trim().toLowerCase())) {
-      return false;
-    }
-    if (downloaded != null && isDownloaded != downloaded) return false;
-    if (multiVolume != null && series.hasMultipleVolumes != multiVolume) {
-      return false;
-    }
-    return true;
-  }
-
-  LibraryFilters copyWith({
-    Set<String>? genres,
-    Set<String>? statuses,
-    Object? downloaded = _unset,
-    Object? multiVolume = _unset,
-  }) {
-    return LibraryFilters(
-      genres: genres ?? this.genres,
-      statuses: statuses ?? this.statuses,
-      downloaded: identical(downloaded, _unset)
-          ? this.downloaded
-          : downloaded as bool?,
-      multiVolume: identical(multiVolume, _unset)
-          ? this.multiVolume
-          : multiVolume as bool?,
-    );
-  }
-
-  static const Object _unset = Object();
 }
 
 /// Bottom-sheet UI for picking [LibraryFilters]. Returns the new filter set
@@ -454,97 +493,120 @@ class _LibraryFilterSheetState extends State<_LibraryFilterSheet> {
     final theme = Theme.of(context);
     return SafeArea(
       top: false,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Filter library',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      const Expanded(
+                        child: SectionHeader(
+                          'Filter library',
+                          padding: EdgeInsets.fromLTRB(4, 0, 4, 0),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _draft.isEmpty
+                            ? null
+                            : () => setState(
+                                () => _draft = const LibraryFilters(),
+                              ),
+                        child: const Text('Reset'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  if (widget.allGenres.isNotEmpty)
+                    _card(
+                      theme,
+                      'Genre',
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final genre in widget.allGenres)
+                            FilterChip(
+                              label: Text(genre),
+                              selected: _draft.genres.contains(genre),
+                              onSelected: (selected) {
+                                final next = {..._draft.genres};
+                                if (selected) {
+                                  next.add(genre);
+                                } else {
+                                  next.remove(genre);
+                                }
+                                setState(
+                                  () => _draft = _draft.copyWith(genres: next),
+                                );
+                              },
+                            ),
+                        ],
+                      ),
+                    ),
+                  if (widget.allStatuses.isNotEmpty)
+                    _card(
+                      theme,
+                      'Reading status',
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final status in widget.allStatuses)
+                            FilterChip(
+                              label: Text(_titleCase(status)),
+                              selected: _draft.statuses.contains(status),
+                              onSelected: (selected) {
+                                final next = {..._draft.statuses};
+                                if (selected) {
+                                  next.add(status);
+                                } else {
+                                  next.remove(status);
+                                }
+                                setState(
+                                  () =>
+                                      _draft = _draft.copyWith(statuses: next),
+                                );
+                              },
+                            ),
+                        ],
+                      ),
+                    ),
+                  _card(
+                    theme,
+                    'Downloaded',
+                    _triStateRow(
+                      value: _draft.downloaded,
+                      labels: const ['Any', 'Downloaded', 'Not yet'],
+                      onChanged: (v) => setState(
+                        () => _draft = _draft.copyWith(downloaded: v),
+                      ),
                     ),
                   ),
-                ),
-                TextButton(
-                  onPressed: _draft.isEmpty
-                      ? null
-                      : () => setState(() => _draft = const LibraryFilters()),
-                  child: const Text('Reset'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (widget.allGenres.isNotEmpty) ...[
-              _sectionLabel(theme, 'Genre'),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final genre in widget.allGenres)
-                    FilterChip(
-                      label: Text(genre),
-                      selected: _draft.genres.contains(genre),
-                      onSelected: (selected) {
-                        final next = {..._draft.genres};
-                        if (selected) {
-                          next.add(genre);
-                        } else {
-                          next.remove(genre);
-                        }
-                        setState(() => _draft = _draft.copyWith(genres: next));
-                      },
+                  _card(
+                    theme,
+                    'Volumes',
+                    _triStateRow(
+                      value: _draft.multiVolume,
+                      labels: const ['Any', 'Multi', 'Single'],
+                      onChanged: (v) => setState(
+                        () => _draft = _draft.copyWith(multiVolume: v),
+                      ),
                     ),
+                  ),
                 ],
               ),
-              const SizedBox(height: 16),
-            ],
-            if (widget.allStatuses.isNotEmpty) ...[
-              _sectionLabel(theme, 'Reading status'),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final status in widget.allStatuses)
-                    FilterChip(
-                      label: Text(_titleCase(status)),
-                      selected: _draft.statuses.contains(status),
-                      onSelected: (selected) {
-                        final next = {..._draft.statuses};
-                        if (selected) {
-                          next.add(status);
-                        } else {
-                          next.remove(status);
-                        }
-                        setState(
-                          () => _draft = _draft.copyWith(statuses: next),
-                        );
-                      },
-                    ),
-                ],
-              ),
-              const SizedBox(height: 16),
-            ],
-            _sectionLabel(theme, 'Downloaded'),
-            _triStateRow(
-              value: _draft.downloaded,
-              labels: const ['Any', 'Downloaded', 'Not yet'],
-              onChanged: (v) =>
-                  setState(() => _draft = _draft.copyWith(downloaded: v)),
             ),
-            const SizedBox(height: 16),
-            _sectionLabel(theme, 'Volumes'),
-            _triStateRow(
-              value: _draft.multiVolume,
-              labels: const ['Any', 'Multi-volume', 'Single volume'],
-              onChanged: (v) =>
-                  setState(() => _draft = _draft.copyWith(multiVolume: v)),
-            ),
-            const SizedBox(height: 24),
-            Row(
+          ),
+          // Pinned rather than scrolled away: with a long genre list, Apply
+          // used to sit below the fold on a phone.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            child: Row(
               children: [
                 Expanded(
                   child: OutlinedButton(
@@ -561,19 +623,37 @@ class _LibraryFilterSheetState extends State<_LibraryFilterSheet> {
                 ),
               ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _sectionLabel(ThemeData theme, String text) {
+  /// One filter group as a rounded card, matching the action sheets.
+  Widget _card(ThemeData theme, String title, Widget child) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        text,
-        style: theme.textTheme.titleSmall?.copyWith(
-          fontWeight: FontWeight.w600,
+      padding: const EdgeInsets.only(bottom: 12),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: theme.colorScheme.tertiary,
+                ),
+              ),
+              const SizedBox(height: 10),
+              child,
+            ],
+          ),
         ),
       ),
     );

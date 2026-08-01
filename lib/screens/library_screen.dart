@@ -77,7 +77,6 @@ class _LibraryScreenState extends State<LibraryScreen>
   /// last sync couldn't reach the server.
   bool _offline = false;
 
-
   /// Every saved reading entry — drives the per-series reading-state map
   /// used by the filter chips. Distinct from [_reading], which is the
   /// in-progress-only subset that powers the Continue Reading hero and
@@ -145,6 +144,7 @@ class _LibraryScreenState extends State<LibraryScreen>
     CloudSyncService().onRemoteMerge = () {
       if (mounted) _remoteMergePending = true;
     };
+    loadSavedView();
     _initialize();
   }
 
@@ -154,6 +154,10 @@ class _LibraryScreenState extends State<LibraryScreen>
     // while they were away can safely surface now.
     if (state == AppLifecycleState.resumed && _remoteMergePending) {
       _loadReading();
+      // The merge may have carried a newer arrangement from the other
+      // device. Same reasoning as the shelf reload: apply it at a boundary
+      // the user caused, never under their finger.
+      reloadSavedView();
     }
   }
 
@@ -259,9 +263,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       volumeWords: activity.perVolumeWords,
       highlightsPerSeries: highlights,
       hiddenVolumeKeys: hidden,
-      collectionSeriesIds: {
-        for (final c in collections) ...c.seriesIds,
-      },
+      collectionSeriesIds: {for (final c in collections) ...c.seriesIds},
       outcomes: outcomes,
       // The user's own status picker, translated to engine vocabulary —
       // "caught up" on a series listened to entirely outside the app is a
@@ -421,10 +423,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<void> _openStats() async {
-    if (!await requirePro(
-      context,
-      feature: 'Reading stats, goals & streaks',
-    )) {
+    if (!await requirePro(context, feature: 'Reading stats, goals & streaks')) {
       return;
     }
     if (!mounted) return;
@@ -560,8 +559,8 @@ class _LibraryScreenState extends State<LibraryScreen>
       );
     } else if (action == 'collection' && settings != null) {
       if (!await requirePro(context, feature: 'Collections')) return;
-    if (!mounted) return;
-    await showModalBottomSheet<void>(
+      if (!mounted) return;
+      await showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
         showDragHandle: true,
@@ -834,8 +833,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       // Finished / Dropped) or searches, drop straight to the matching grid —
       // recently-updated/recommended aren't relevant to a filtered browse.
       final showShelves =
-          searchQuery.trim().isEmpty &&
-          readingState == ReadingStateFilter.any;
+          searchQuery.trim().isEmpty && readingState == ReadingStateFilter.any;
       return [
         if (_offline) SliverToBoxAdapter(child: _buildOfflineBanner()),
         if (bulkDownloading) SliverToBoxAdapter(child: buildBulkBanner()),
@@ -855,16 +853,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         if (showShelves && visible.isNotEmpty)
           SliverToBoxAdapter(child: _sectionHeader('All books')),
         if (visible.isEmpty)
-          SliverFillRemaining(
-            hasScrollBody: false,
-            child: MessageView(
-              icon: Icons.search_off_outlined,
-              title: 'No matches',
-              message: 'No series match “$searchQuery”.',
-              actionLabel: 'Clear search',
-              onAction: clearSearch,
-            ),
-          )
+          SliverFillRemaining(hasScrollBody: false, child: buildEmptyState())
         else
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
@@ -1269,4 +1258,3 @@ class _LibraryScreenState extends State<LibraryScreen>
 
   /// Horizontal shelf of "you might like" suggestions from the engine.
 }
-
