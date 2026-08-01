@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/library_view.dart';
@@ -5,6 +7,8 @@ import '../models/series.dart';
 import '../services/library_storage.dart';
 import '../services/library_view_store.dart';
 import '../services/reading_progress_store.dart';
+import '../services/recent_searches_store.dart';
+import '../services/series_search.dart';
 import '../services/series_status_store.dart';
 import '../widgets/action_sheet.dart';
 import '../widgets/section_header.dart';
@@ -50,6 +54,14 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
   LibraryView view = LibraryView.initial;
 
   final LibraryViewStore _viewStore = LibraryViewStore();
+  final RecentSearchesStore _recentStore = RecentSearchesStore();
+
+  /// Past searches, shown under an empty search box.
+  List<String> recentSearches = const [];
+
+  /// Debounces recording: a search is only worth remembering once the user
+  /// has stopped typing it, or every prefix of it would be stored.
+  Timer? _recordDebounce;
 
   LibrarySort get sort => view.sort;
   bool get sortDescending => view.descending;
@@ -61,7 +73,13 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
   /// which is invisible next to the library fetch it happens under.
   Future<void> loadSavedView() async {
     final saved = await _viewStore.load();
-    if (mounted) setState(() => view = saved);
+    final recent = await _recentStore.load();
+    if (mounted) {
+      setState(() {
+        view = saved;
+        recentSearches = recent;
+      });
+    }
   }
 
   /// Applies a change and persists it. Every mutation goes through here so
@@ -99,7 +117,31 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
       searchQuery.trim().isEmpty &&
       readingState == ReadingStateFilter.any;
 
-  void disposeFiltering() => searchController.dispose();
+  void disposeFiltering() {
+    _recordDebounce?.cancel();
+    searchController.dispose();
+  }
+
+  /// Applies a query and, once typing settles, remembers it.
+  void setSearchQuery(String value) {
+    setState(() => searchQuery = value);
+    _recordDebounce?.cancel();
+    _recordDebounce = Timer(const Duration(milliseconds: 900), () async {
+      final next = await _recentStore.record(value);
+      if (mounted) setState(() => recentSearches = next);
+    });
+  }
+
+  void applyRecentSearch(String query) {
+    searchController.text = query;
+    searchController.selection = TextSelection.collapsed(offset: query.length);
+    setSearchQuery(query);
+  }
+
+  Future<void> forgetRecentSearch(String query) async {
+    final next = await _recentStore.remove(query);
+    if (mounted) setState(() => recentSearches = next);
+  }
 
   /// Per-series reading state, derived from saved progress entries. A series
   /// counts as "in progress" if any of its volumes has been started and not
@@ -132,20 +174,19 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
     return (inProgress: inProgress, finished: finished, lastReadAt: lastReadAt);
   }
 
+  /// True while a query is narrowing the grid — the point at which relevance
+  /// order takes over from the chosen sort.
+  bool get isSearching => searchTerms(searchQuery).isNotEmpty;
+
   /// The library after applying the active search, filter set, and sort.
   List<Series> get visibleLibrary {
     final all = librarySeries ?? const <Series>[];
-    final query = searchQuery.trim().toLowerCase();
+    final terms = searchTerms(searchQuery);
     final downloads = downloadStore;
     final readState = _seriesReadingState;
     final filtered = <Series>[];
     for (final series in all) {
-      if (query.isNotEmpty) {
-        if (!series.title.toLowerCase().contains(query) &&
-            !series.author.toLowerCase().contains(query)) {
-          continue;
-        }
-      }
+      if (terms.isNotEmpty && scoreSeries(series, terms) == null) continue;
       if (!filters.matches(
         series,
         isDownloaded:
@@ -192,19 +233,9 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
     return ReadingStateFilter.unread;
   }
 
-  /// Every distinct genre tag present across the library — used to build the
-  /// filter sheet's genre chip set.
-  List<String> get _allGenres {
-    final set = <String>{};
-    for (final s in librarySeries ?? const <Series>[]) {
-      for (final g in s.genres) {
-        final clean = g.trim();
-        if (clean.isNotEmpty) set.add(clean);
-      }
-    }
-    final list = set.toList()..sort();
-    return list;
-  }
+  /// Every genre in the library with its series count, most-used first.
+  List<GenreFacet> get _allGenres =>
+      genreFacets(librarySeries ?? const <Series>[]);
 
   /// Every distinct reading status the library uses.
   List<String> get _allStatuses {
@@ -388,7 +419,7 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
               Expanded(
                 child: SearchBar(
                   controller: searchController,
-                  hintText: 'Search by title or author',
+                  hintText: 'Search title, author, genre…',
                   leading: const Icon(Icons.search),
                   padding: const WidgetStatePropertyAll(
                     EdgeInsets.symmetric(horizontal: 12),
@@ -401,7 +432,7 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
                         onPressed: clearSearch,
                       ),
                   ],
-                  onChanged: (value) => setState(() => searchQuery = value),
+                  onChanged: setSearchQuery,
                 ),
               ),
               const SizedBox(width: 4),
@@ -426,6 +457,34 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
               ),
             ],
           ),
+          if (searchQuery.trim().isEmpty && recentSearches.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Icon(
+                      Icons.history,
+                      size: 16,
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
+                  for (final query in recentSearches)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: InputChip(
+                        label: Text(query),
+                        onPressed: () => applyRecentSearch(query),
+                        onDeleted: () => forgetRecentSearch(query),
+                        deleteIcon: const Icon(Icons.close, size: 15),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           // Quick reading-state chips: a tap-friendly way to narrow the grid
           // down to what's actually being read (or the unread backlog) without
@@ -448,7 +507,9 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
           ),
           const SizedBox(height: 8),
           Text(
-            visible == total
+            isSearching
+                ? '$visible of $total series  ·  Best match'
+                : visible == total
                 ? '$total series  ·  ${sort.label} · $_directionLabel'
                 : '$visible of $total series  ·  ${sort.label} · '
                       '$_directionLabel',
@@ -472,7 +533,7 @@ class _LibraryFilterSheet extends StatefulWidget {
   });
 
   final LibraryFilters initial;
-  final List<String> allGenres;
+  final List<GenreFacet> allGenres;
   final List<String> allStatuses;
 
   @override
@@ -482,10 +543,29 @@ class _LibraryFilterSheet extends StatefulWidget {
 class _LibraryFilterSheetState extends State<_LibraryFilterSheet> {
   late LibraryFilters _draft;
 
+  /// Narrows the genre list. A real library carries hundreds of genres, most
+  /// of them on a single series, so scanning for one is hopeless without it.
+  final TextEditingController _genreSearch = TextEditingController();
+  String _genreQuery = '';
+
+  /// Whether the long tail is expanded. Collapsed, the card shows the genres
+  /// that describe most of the library; the rest are a tap away.
+  bool _showAllGenres = false;
+
+  /// How many genres to show before collapsing. Enough to cover the bulk of
+  /// a typical library, short enough to read without scrolling far.
+  static const _genreCollapsedCount = 24;
+
   @override
   void initState() {
     super.initState();
     _draft = widget.initial;
+  }
+
+  @override
+  void dispose() {
+    _genreSearch.dispose();
+    super.dispose();
   }
 
   @override
@@ -522,32 +602,7 @@ class _LibraryFilterSheetState extends State<_LibraryFilterSheet> {
                   ),
                   const SizedBox(height: 10),
                   if (widget.allGenres.isNotEmpty)
-                    _card(
-                      theme,
-                      'Genre',
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          for (final genre in widget.allGenres)
-                            FilterChip(
-                              label: Text(genre),
-                              selected: _draft.genres.contains(genre),
-                              onSelected: (selected) {
-                                final next = {..._draft.genres};
-                                if (selected) {
-                                  next.add(genre);
-                                } else {
-                                  next.remove(genre);
-                                }
-                                setState(
-                                  () => _draft = _draft.copyWith(genres: next),
-                                );
-                              },
-                            ),
-                        ],
-                      ),
-                    ),
+                    _card(theme, 'Genre', _genrePicker(theme)),
                   if (widget.allStatuses.isNotEmpty)
                     _card(
                       theme,
@@ -626,6 +681,104 @@ class _LibraryFilterSheetState extends State<_LibraryFilterSheet> {
           ),
         ],
       ),
+    );
+  }
+
+  /// The genre picker.
+  ///
+  /// Every genre in the library used to be rendered as a chip, alphabetically
+  /// — which at this library's 658 genres, two thirds of them carried by a
+  /// single series, meant the handful of tags that actually describe the
+  /// collection were lost among hundreds of one-offs. Three things fix that:
+  /// frequency order, a count on each chip so you can see what a filter is
+  /// worth before applying it, and a search box over the tail.
+  Widget _genrePicker(ThemeData theme) {
+    final matching = filterFacets(widget.allGenres, _genreQuery, _draft.genres);
+    final searching = _genreQuery.trim().isNotEmpty;
+    // Searching or expanded, show everything that matched; otherwise the
+    // head of the list, plus any selected genres pinned ahead of it.
+    final visible = (searching || _showAllGenres)
+        ? matching
+        : matching.take(_genreCollapsedCount).toList();
+    final hidden = matching.length - visible.length;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (widget.allGenres.length > _genreCollapsedCount)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: TextField(
+              controller: _genreSearch,
+              onChanged: (v) => setState(() => _genreQuery = v),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Find a genre',
+                prefixIcon: const Icon(Icons.search, size: 18),
+                suffixIcon: searching
+                    ? IconButton(
+                        icon: const Icon(Icons.close, size: 16),
+                        tooltip: 'Clear',
+                        onPressed: () {
+                          _genreSearch.clear();
+                          setState(() => _genreQuery = '');
+                        },
+                      )
+                    : null,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        if (visible.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'No genre matches “$_genreQuery”.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
+            ),
+          )
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final facet in visible)
+                FilterChip(
+                  label: Text('${facet.name}  ${facet.count}'),
+                  selected: _draft.genres.contains(facet.name),
+                  onSelected: (selected) {
+                    final next = {..._draft.genres};
+                    if (selected) {
+                      next.add(facet.name);
+                    } else {
+                      next.remove(facet.name);
+                    }
+                    setState(() => _draft = _draft.copyWith(genres: next));
+                  },
+                ),
+            ],
+          ),
+        if (!searching && hidden > 0)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: () => setState(() => _showAllGenres = true),
+              child: Text('Show all ${matching.length} genres'),
+            ),
+          )
+        else if (!searching && _showAllGenres)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              onPressed: () => setState(() => _showAllGenres = false),
+              child: const Text('Show fewer'),
+            ),
+          ),
+      ],
     );
   }
 
