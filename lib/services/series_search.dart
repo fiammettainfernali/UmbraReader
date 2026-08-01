@@ -83,6 +83,13 @@ List<String> searchTerms(String query) {
   return folded.split(' ').where((t) => t.isNotEmpty).toList();
 }
 
+/// Shortest term allowed to match mid-word rather than at a word boundary.
+///
+/// Below this, a loose match is almost always a coincidence — "two" sits
+/// inside "network" and "between" — and those coincidences swamp the real
+/// answer.
+const int _minLooseTerm = 4;
+
 /// Where a term was found, worst to best. The score of a series is the sum
 /// of its best field per term, so a title hit always outranks a description
 /// hit for the same query.
@@ -112,27 +119,41 @@ int? scoreSeries(Series series, List<String> terms) {
   final titleCompact = title.replaceAll(' ', '');
 
   var total = 0;
+  // A description is the weakest possible evidence: "two" occurs in a large
+  // share of blurbs ("two years later…") with no bearing on what the reader
+  // is looking for. It can support a term once the series has been
+  // established as relevant, but it can never make a series relevant on its
+  // own — otherwise a common word returns most of the library.
+  var qualified = false;
+
   for (final term in terms) {
     final int best;
     if (title.startsWith(term)) {
       best = _FieldWeight.titlePrefix;
+      qualified = true;
     } else if (_containsWordStart(title, term)) {
       best = _FieldWeight.titleWord;
-    } else if (title.contains(term)) {
-      best = _FieldWeight.titleWord - 2;
-    } else if (titleCompact.contains(term.replaceAll(' ', ''))) {
+      qualified = true;
+    } else if (term.length >= _minLooseTerm &&
+        titleCompact.contains(term.replaceAll(' ', ''))) {
+      // Mid-word matching is what reaches "rezero" and unspaced CJK, but on
+      // a short term it is mostly accidents — "two" inside "network".
       best = _FieldWeight.titleWord - 3;
-    } else if (author.contains(term)) {
+      qualified = true;
+    } else if (_containsWordStart(author, term)) {
       best = _FieldWeight.author;
-    } else if (genres.contains(term)) {
+      qualified = true;
+    } else if (_containsWordStart(genres, term)) {
       best = _FieldWeight.genre;
-    } else if (description.contains(term)) {
+      qualified = true;
+    } else if (_containsWordStart(description, term)) {
       best = _FieldWeight.description;
     } else {
       return null; // every term must land somewhere
     }
     total += best;
   }
+  if (!qualified) return null;
   // A short title carrying the same terms is the more precise answer:
   // "Shadow Slave" should beat "The Shadow Slave Chronicles of Something".
   return total * 1000 - title.length.clamp(0, 999);

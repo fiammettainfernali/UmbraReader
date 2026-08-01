@@ -96,14 +96,79 @@ void main() {
       );
     });
 
-    test('matches the description, which the old search never did', () {
+    test('a description supports a term but cannot qualify a series', () {
+      // Searching "two" used to return 28 of 486 series, because a word
+      // that common appears in most blurbs.
       expect(
         scoreSeries(
           _s(description: 'A tale of beast cores and levelling'),
+          searchTerms('beast'),
+        ),
+        isNull,
+        reason: 'description alone is not evidence of relevance',
+      );
+      // But once the title has established relevance, the description can
+      // satisfy the rest of the query.
+      expect(
+        scoreSeries(
+          _s(title: 'Beast Tamer', description: 'about cores and levelling'),
           searchTerms('beast cores'),
         ),
         isNotNull,
       );
+    });
+
+    test('a short term does not match mid-word', () {
+      // The reported bug: "two" matched "neTWOrk" and "beTWOeen".
+      expect(
+        scoreSeries(_s(title: 'Network Chronicles'), searchTerms('two')),
+        isNull,
+      );
+      expect(
+        scoreSeries(
+          _s(title: 'A Story', description: 'somewhere between two worlds'),
+          searchTerms('two'),
+        ),
+        isNull,
+      );
+    });
+
+    test('a short term still matches at the start of a word', () {
+      expect(
+        scoreSeries(_s(title: 'Two Small Hearts'), searchTerms('two')),
+        isNotNull,
+      );
+    });
+
+    test('a long term may still match mid-word, for CJK and run-ons', () {
+      expect(
+        scoreSeries(_s(title: 'Re:Zero'), searchTerms('rezero')),
+        isNotNull,
+      );
+    });
+
+    test('author and genre match at word starts, not inside words', () {
+      expect(
+        scoreSeries(_s(author: 'Networking Press'), searchTerms('two')),
+        isNull,
+      );
+      expect(scoreSeries(_s(genres: ['Network']), searchTerms('two')), isNull);
+    });
+  });
+
+  group('the reported "two" search', () {
+    // Titles taken from the screenshot of the bad result set.
+    final library = [
+      _s(id: 1, title: 'Abyss Draconis', description: 'two dragons clash'),
+      _s(id: 2, title: 'Connected Hearts', description: 'between two girls'),
+      _s(id: 3, title: 'Getting A System In A Modern World'),
+      _s(id: 4, title: 'MAGUS INFINITE', description: 'a network of magi'),
+      _s(id: 5, title: 'Two Small Hearts'),
+    ];
+
+    test('returns the title the reader was looking for, and only it', () {
+      final hits = rankedSearch(library, 'two');
+      expect(_titles(hits), ['Two Small Hearts']);
     });
   });
 
@@ -176,10 +241,7 @@ void main() {
     });
 
     test('blank genres are dropped', () {
-      expect(
-        genreFacets(library).map((f) => f.name),
-        isNot(contains('  ')),
-      );
+      expect(genreFacets(library).map((f) => f.name), isNot(contains('  ')));
     });
   });
 
