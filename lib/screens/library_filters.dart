@@ -9,6 +9,7 @@ import '../services/library_storage.dart';
 import '../services/library_view_store.dart';
 import '../services/reading_progress_store.dart';
 import '../services/recent_searches_store.dart';
+import '../models/saved_view.dart';
 import '../services/series_search.dart';
 import '../services/series_status_store.dart';
 import '../widgets/action_sheet.dart';
@@ -100,6 +101,24 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
   /// Re-reads the arrangement after a sync merged a newer one from another
   /// device, so the grid doesn't keep showing the superseded view.
   Future<void> reloadSavedView() => loadSavedView();
+
+  /// Applies a saved arrangement, query and all.
+  ///
+  /// The query comes back here — unlike a launch, where restoring one would
+  /// be a surprise — because the reader just asked for this view by name.
+  void applySavedView(SavedView saved) {
+    searchController.text = saved.query;
+    searchController.selection = TextSelection.collapsed(
+      offset: saved.query.length,
+    );
+    setState(() => searchQuery = saved.query);
+    _updateView(saved.view);
+  }
+
+  /// The arrangement currently on screen, ready to be stored.
+  LibraryView get currentView => view;
+
+  String get currentQuery => searchQuery;
 
   void setSort(LibrarySort next) => _updateView(view.copyWith(sort: next));
 

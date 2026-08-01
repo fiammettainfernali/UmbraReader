@@ -148,14 +148,27 @@ control saying the same thing in different words makes the sheet harder to
 reason about, not more capable. The genuinely new question — *how far in am
 I* — is a question of ordering, so it became the "How far in" sort instead.
 
-### Tier 4 — Saved views
+### Tier 4 — Saved views — **done**
 
-14. **Save the current query + filters + sort as a named shelf**, listed
-    alongside Collections. This is the real answer to a 486-series library:
-    "Unread Cultivation, longest first" becomes a place you go, not a thing
-    you rebuild.
-15. Optionally mirror Novel Grabber's `smart_collections` so a shelf
-    defined on the desktop shows up here.
+14. **Save the current query + filters + sort as a named view**, reachable
+    from the library menu and its own screen. "Unread Cultivation, longest
+    first" is now a place you go rather than a thing you rebuild.
+
+    A saved view carries its query, unlike the live arrangement — there the
+    query was excluded because restoring one at launch would be a surprise,
+    whereas here the reader asked for this view by name.
+
+    Views sync whole-set last-writer-wins, the same shape collections use.
+    Per-view merging would need tombstones to stop a deleted view
+    resurrecting from the other device, and for a handful of curated
+    entries that machinery costs more than it buys: the losing side of a
+    conflict is a rename, not data you can't see is missing.
+
+15. **Not done: mirroring Novel Grabber's `smart_collections`.** They are
+    defined in a different vocabulary (SQL-ish filter JSON over server
+    fields) from the app's filters, so this is a translation layer rather
+    than a wiring job, and it would tie the app's filter model to the
+    server's. Worth its own decision.
 
 ### Tier 5 — Optional, server-assisted
 

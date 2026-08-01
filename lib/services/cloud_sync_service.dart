@@ -9,6 +9,7 @@ import 'custom_theme_store.dart';
 import 'glossary_store.dart';
 import 'library_view_store.dart';
 import 'reader_preferences.dart';
+import 'saved_view_store.dart';
 import 'reading_activity_store.dart';
 import 'reading_progress_store.dart';
 import 'recommendation_feedback_store.dart';
@@ -53,6 +54,7 @@ class CloudSyncService {
   static const _kGlossary = 'cloud_glossary';
   static const _kCustomThemes = 'cloud_custom_themes';
   static const _kLibraryView = 'cloud_library_view';
+  static const _kSavedViews = 'cloud_saved_views';
 
   /// True while a cloud→local merge is in flight, so the store-write hooks
   /// don't bounce the just-merged data straight back up to the cloud.
@@ -248,6 +250,13 @@ class CloudSyncService {
     await _set(_kLibraryView, await LibraryViewStore().exportSyncBlob());
   }
 
+  /// Pushed immediately rather than debounced: saving, renaming or deleting
+  /// a view is a deliberate act, not a stream of them.
+  Future<void> pushSavedViews() async {
+    if (_merging) return;
+    await _set(_kSavedViews, await SavedViewStore().exportSyncBlob());
+  }
+
   Future<void> pushCustomThemes() async {
     if (_merging) return;
     await _set(_kCustomThemes, await CustomThemeStore().exportSyncBlob());
@@ -297,6 +306,11 @@ class CloudSyncService {
       if (glossary != null && await GlossaryStore().mergeSyncBlob(glossary)) {
         changed = true;
       }
+      final savedViews = await _get(_kSavedViews);
+      if (savedViews != null &&
+          await SavedViewStore().mergeSyncBlob(savedViews)) {
+        changed = true;
+      }
       final libraryView = await _get(_kLibraryView);
       if (libraryView != null &&
           await LibraryViewStore().mergeSyncBlob(libraryView)) {
@@ -323,6 +337,7 @@ class CloudSyncService {
       await pushGlossary();
       await pushCustomThemes();
       await pushLibraryView();
+      await pushSavedViews();
       onRemoteMerge?.call();
     }
   }

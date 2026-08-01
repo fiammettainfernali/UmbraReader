@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 import '../models/collection.dart';
+import '../models/saved_view.dart';
 import '../models/series.dart';
 import '../models/volume.dart';
 import '../services/library_cache.dart';
@@ -17,6 +18,7 @@ import '../services/rec_weight_learner.dart';
 import '../services/recommendation_engine.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/recommendation_feedback_store.dart';
+import '../services/saved_view_store.dart';
 import '../services/series_status_store.dart';
 import '../services/reading_activity_store.dart';
 import '../services/settings_service.dart';
@@ -34,6 +36,7 @@ import 'library_recommendations.dart';
 import 'library_search_screen.dart';
 import '../widgets/pro_sheet.dart';
 import 'reader_screen.dart';
+import 'saved_views_screen.dart';
 import 'series_detail_screen.dart';
 import 'settings_screen.dart';
 import 'stats_screen.dart';
@@ -155,6 +158,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       if (mounted) _remoteMergePending = true;
     };
     loadSavedView();
+    _refreshSavedViewCount();
     _initialize();
   }
 
@@ -783,6 +787,28 @@ class _LibraryScreenState extends State<LibraryScreen>
           ],
         ),
         SheetGroup(
+          title: 'Views',
+          actions: [
+            SheetAction(
+              value: 'savedViews',
+              icon: Icons.bookmarks_outlined,
+              label: 'Saved views',
+              subtitle: _savedViewCount == 0
+                  ? 'Arrangements you can return to'
+                  : '$_savedViewCount saved',
+            ),
+            // Only offered when there is something worth saving; a view of
+            // the whole library sorted by title is not one.
+            if (!filtersAreClear)
+              const SheetAction(
+                value: 'saveView',
+                icon: Icons.bookmark_add_outlined,
+                label: 'Save this view',
+                subtitle: 'Name the way the library is narrowed right now',
+              ),
+          ],
+        ),
+        SheetGroup(
           title: 'Manage',
           actions: const [
             SheetAction(
@@ -809,6 +835,10 @@ class _LibraryScreenState extends State<LibraryScreen>
     );
     if (!mounted || action == null) return;
     switch (action) {
+      case 'savedViews':
+        _openSavedViews();
+      case 'saveView':
+        _saveCurrentView();
       case 'collections':
         _openCollections();
       case 'imported':
@@ -822,6 +852,59 @@ class _LibraryScreenState extends State<LibraryScreen>
       case 'settings':
         _openSettings();
     }
+  }
+
+  /// How many saved views exist, for the menu subtitle. Loaded lazily so an
+  /// install that never saves one never reads the store.
+  int _savedViewCount = 0;
+
+  Future<void> _openSavedViews() async {
+    final chosen = await Navigator.of(context).push<SavedView>(
+      MaterialPageRoute(builder: (_) => const SavedViewsScreen()),
+    );
+    await _refreshSavedViewCount();
+    if (!mounted || chosen == null) return;
+    applySavedView(chosen);
+    _snack('Showing “${chosen.name}”');
+  }
+
+  Future<void> _refreshSavedViewCount() async {
+    final views = await SavedViewStore().list();
+    if (mounted) setState(() => _savedViewCount = views.length);
+  }
+
+  Future<void> _saveCurrentView() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Save this view'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            hintText: 'e.g. Unread cultivation',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name == null || name.isEmpty || !mounted) return;
+    await SavedViewStore().create(name, currentView, query: currentQuery);
+    await _refreshSavedViewCount();
+    if (mounted) _snack('Saved “$name”');
   }
 
   List<Widget> _buildContentSlivers() {

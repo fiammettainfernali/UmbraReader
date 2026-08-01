@@ -285,6 +285,15 @@ class LibraryView {
   });
 
   final LibrarySort sort;
+
+  /// Selects the *second* of [LibrarySort.directionLabels] rather than
+  /// meaning "descending" literally.
+  ///
+  /// Several sorts already run descending in their natural direction —
+  /// Length, How far in and Time spent all lead with the big end, because
+  /// that is the interesting one — so for those, false means longest-first
+  /// and true means shortest-first. The labels are the source of truth for
+  /// what the reader sees; this flag only picks which of the pair applies.
   final bool descending;
   final ReadingStateFilter readingState;
   final LibraryFilters filters;
