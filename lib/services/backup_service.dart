@@ -117,17 +117,23 @@ class BackupService {
     try {
       final decoded = jsonDecode(trimmed);
       if (decoded is! Map<String, dynamic>) {
-        throw BackupException('That doesn\'t look like an Umbra Reader '
-            'backup file.');
+        throw BackupException(
+          'That doesn\'t look like an Umbra Reader '
+          'backup file.',
+        );
       }
       envelope = decoded;
     } on FormatException {
-      throw BackupException('Couldn\'t read the JSON — make sure you pasted '
-          'the whole backup file.');
+      throw BackupException(
+        'Couldn\'t read the JSON — make sure you pasted '
+        'the whole backup file.',
+      );
     }
     if (!envelope.containsKey(_signature)) {
-      throw BackupException('Not an Umbra Reader backup — missing the '
-          'expected "$_signature" marker.');
+      throw BackupException(
+        'Not an Umbra Reader backup — missing the '
+        'expected "$_signature" marker.',
+      );
     }
     final prefsData = envelope['preferences'];
     if (prefsData is! Map<String, dynamic>) {
@@ -156,10 +162,7 @@ class BackupService {
         await prefs.setString(key, value);
       } else if (value is List) {
         // SharedPreferences only stores List<String>.
-        await prefs.setStringList(
-          key,
-          [for (final v in value) v.toString()],
-        );
+        await prefs.setStringList(key, [for (final v in value) v.toString()]);
       } else {
         // Unknown type — skip without crashing.
         continue;
@@ -211,18 +214,24 @@ class BackupService {
     try {
       final decoded = jsonDecode(trimmed);
       if (decoded is! Map<String, dynamic>) {
-        throw BackupException('That doesn\'t look like an Umbra Reader '
-            'annotations file.');
+        throw BackupException(
+          'That doesn\'t look like an Umbra Reader '
+          'annotations file.',
+        );
       }
       envelope = decoded;
     } on FormatException {
-      throw BackupException('Couldn\'t read the JSON — make sure you pasted '
-          'the whole file.');
+      throw BackupException(
+        'Couldn\'t read the JSON — make sure you pasted '
+        'the whole file.',
+      );
     }
     if (!envelope.containsKey(_annotationSignature) &&
         !envelope.containsKey(_signature)) {
-      throw BackupException('Not an Umbra Reader file — missing the expected '
-          'marker.');
+      throw BackupException(
+        'Not an Umbra Reader file — missing the expected '
+        'marker.',
+      );
     }
     final prefsData = envelope['preferences'];
     if (prefsData is! Map<String, dynamic>) {

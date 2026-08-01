@@ -40,7 +40,9 @@ class DownloadRecord {
     downloadedAt:
         DateTime.tryParse(json['downloadedAt'] as String? ?? '') ??
         DateTime.fromMillisecondsSinceEpoch(0),
-    volumeUpdatedAt: DateTime.tryParse(json['volumeUpdatedAt'] as String? ?? ''),
+    volumeUpdatedAt: DateTime.tryParse(
+      json['volumeUpdatedAt'] as String? ?? '',
+    ),
     etag: json['etag'] as String?,
   );
 }

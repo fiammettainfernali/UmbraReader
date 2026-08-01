@@ -1,10 +1,6 @@
 /// A parsed EPUB: its metadata and the ordered list of chapters.
 class EpubBook {
-  EpubBook({
-    required this.title,
-    required this.author,
-    required this.chapters,
-  });
+  EpubBook({required this.title, required this.author, required this.chapters});
 
   final String title;
   final String author;

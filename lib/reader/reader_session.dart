@@ -159,8 +159,7 @@ mixin ReaderSession<T extends StatefulWidget> on State<T> {
     final start = _sessionStart;
     if (start == null) return;
     _sessionStart = null;
-    final delta =
-        debugSessionDeltaOverride ?? DateTime.now().difference(start);
+    final delta = debugSessionDeltaOverride ?? DateTime.now().difference(start);
     if (delta.inSeconds <= 0) return;
     // A real reading session in this series is re-engagement: clear any
     // stale "no thanks" recommendation feedback (dismiss/reset) so the
@@ -345,8 +344,10 @@ mixin ReaderSession<T extends StatefulWidget> on State<T> {
                           Opacity(
                             opacity: i == end
                                 ? 1.0
-                                : (0.4 + 0.6 * ((i - start) / span))
-                                      .clamp(0.4, 1.0),
+                                : (0.4 + 0.6 * ((i - start) / span)).clamp(
+                                    0.4,
+                                    1.0,
+                                  ),
                             child: BlockView(
                               block: blocks[i],
                               settings: readerSettings,

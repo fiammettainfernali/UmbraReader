@@ -16,24 +16,24 @@ enum TtsSkip {
 
 extension TtsSkipMeta on TtsSkip {
   String get label => switch (this) {
-        TtsSkip.headings => 'Headings',
-        TtsSkip.parentheses => 'Parentheses ( )',
-        TtsSkip.brackets => 'Square brackets [ ]',
-        TtsSkip.braces => 'Curly braces { }',
-        TtsSkip.urls => 'Links / URLs',
-        TtsSkip.citations => 'Citations',
-        TtsSkip.footnotes => 'Footnote markers',
-      };
+    TtsSkip.headings => 'Headings',
+    TtsSkip.parentheses => 'Parentheses ( )',
+    TtsSkip.brackets => 'Square brackets [ ]',
+    TtsSkip.braces => 'Curly braces { }',
+    TtsSkip.urls => 'Links / URLs',
+    TtsSkip.citations => 'Citations',
+    TtsSkip.footnotes => 'Footnote markers',
+  };
 
   String get description => switch (this) {
-        TtsSkip.headings => 'Chapter and section titles',
-        TtsSkip.parentheses => 'Anything inside ( … )',
-        TtsSkip.brackets => 'Anything inside [ … ]',
-        TtsSkip.braces => 'Anything inside { … }',
-        TtsSkip.urls => 'Web addresses like https://…',
-        TtsSkip.citations => 'Refs like [12] or (Smith, 2020)',
-        TtsSkip.footnotes => 'Reference numbers in the text',
-      };
+    TtsSkip.headings => 'Chapter and section titles',
+    TtsSkip.parentheses => 'Anything inside ( … )',
+    TtsSkip.brackets => 'Anything inside [ … ]',
+    TtsSkip.braces => 'Anything inside { … }',
+    TtsSkip.urls => 'Web addresses like https://…',
+    TtsSkip.citations => 'Refs like [12] or (Smith, 2020)',
+    TtsSkip.footnotes => 'Reference numbers in the text',
+  };
 }
 
 /// Parses a stored comma-separated list of skip names.
@@ -44,8 +44,7 @@ Set<TtsSkip> parseTtsSkips(String? stored) {
 }
 
 /// Serialises skip options to a comma-separated list of names.
-String encodeTtsSkips(Set<TtsSkip> skips) =>
-    skips.map((k) => k.name).join(',');
+String encodeTtsSkips(Set<TtsSkip> skips) => skips.map((k) => k.name).join(',');
 
 /// Replaces each skipped inline span in [text] with the same number of spaces,
 /// so the voice goes silent over it without shifting any later character

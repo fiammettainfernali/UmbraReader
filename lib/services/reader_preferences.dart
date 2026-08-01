@@ -74,20 +74,49 @@ class ReaderPreferences {
 
   /// The global setting keys, in the order they serialise for sync.
   static const _globalKeys = [
-    _kMode, _kThemeId, _kFontFamily, _kFontSize, _kLineHeight, _kMargin,
-    _kLetterSpacing, _kWordSpacing, _kParagraphSpacing,
-    _kSpeechRate, _kVoiceName, _kVoiceLocale, _kBoldText, _kItalicText,
-    _kBrightness, _kTextAlign, _kAutoScroll, _kLineFocus,
-    _kFocusParagraph, _kFixationAnchors, _kOrientation,
+    _kMode,
+    _kThemeId,
+    _kFontFamily,
+    _kFontSize,
+    _kLineHeight,
+    _kMargin,
+    _kLetterSpacing,
+    _kWordSpacing,
+    _kParagraphSpacing,
+    _kSpeechRate,
+    _kVoiceName,
+    _kVoiceLocale,
+    _kBoldText,
+    _kItalicText,
+    _kBrightness,
+    _kTextAlign,
+    _kAutoScroll,
+    _kLineFocus,
+    _kFocusParagraph,
+    _kFixationAnchors,
+    _kOrientation,
     _kTvMode,
-    _kCenteredColumn, _kKeepAwake, _kReduceAnimations, _kHapticFeedback,
-    _kSessionMinutes, _kExactNumbers,
-    _kOverlayTint, _kOverlaySeverity,
-    _kMigraineMode, _kMigraineGreen,
-    _kTapTurnZones, _kLeftHandedTaps, _kTapZoneWidth, _kEdgeBrightnessGesture,
-    _kPageAnimations, _kDoubleTapAction,
+    _kCenteredColumn,
+    _kKeepAwake,
+    _kReduceAnimations,
+    _kHapticFeedback,
+    _kSessionMinutes,
+    _kExactNumbers,
+    _kOverlayTint,
+    _kOverlaySeverity,
+    _kMigraineMode,
+    _kMigraineGreen,
+    _kTapTurnZones,
+    _kLeftHandedTaps,
+    _kTapZoneWidth,
+    _kEdgeBrightnessGesture,
+    _kPageAnimations,
+    _kDoubleTapAction,
     _kAutoPageSeconds,
-    _kTtsEngine, _kTtsServerUrl, _kTtsServerToken, _kTtsSkips,
+    _kTtsEngine,
+    _kTtsServerUrl,
+    _kTtsServerToken,
+    _kTtsSkips,
   ];
 
   /// Settings that describe the DEVICE in hand rather than reading taste —
@@ -116,9 +145,9 @@ class ReaderPreferences {
   Future<ReaderSettings> load({Volume? volume}) async {
     final prefs = await SharedPreferences.getInstance();
     const d = ReaderSettings.defaults;
-    final p = volume != null && prefs.getBool(
-              '${_volumePrefix(volume)}$_kOverrideMarker',
-            ) == true
+    final p =
+        volume != null &&
+            prefs.getBool('${_volumePrefix(volume)}$_kOverrideMarker') == true
         ? _volumePrefix(volume)
         : '';
     return ReaderSettings(
@@ -129,8 +158,7 @@ class ReaderPreferences {
       fontFamily: prefs.getString('$p$_kFontFamily') ?? d.fontFamily,
       fontSize: prefs.getDouble('$p$_kFontSize') ?? d.fontSize,
       lineHeight: prefs.getDouble('$p$_kLineHeight') ?? d.lineHeight,
-      letterSpacing:
-          prefs.getDouble('$p$_kLetterSpacing') ?? d.letterSpacing,
+      letterSpacing: prefs.getDouble('$p$_kLetterSpacing') ?? d.letterSpacing,
       wordSpacing: prefs.getDouble('$p$_kWordSpacing') ?? d.wordSpacing,
       paragraphSpacing:
           prefs.getDouble('$p$_kParagraphSpacing') ?? d.paragraphSpacing,
@@ -147,8 +175,7 @@ class ReaderPreferences {
       ),
       autoScroll: prefs.getBool('$p$_kAutoScroll') ?? d.autoScroll,
       lineFocus: prefs.getBool('$p$_kLineFocus') ?? d.lineFocus,
-      focusParagraph:
-          prefs.getBool('$p$_kFocusParagraph') ?? d.focusParagraph,
+      focusParagraph: prefs.getBool('$p$_kFocusParagraph') ?? d.focusParagraph,
       fixationAnchors:
           prefs.getBool('$p$_kFixationAnchors') ?? d.fixationAnchors,
       orientation: ReaderOrientation.values.firstWhere(
@@ -160,10 +187,8 @@ class ReaderPreferences {
       keepAwake: prefs.getBool('$p$_kKeepAwake') ?? d.keepAwake,
       reduceAnimations:
           prefs.getBool('$p$_kReduceAnimations') ?? d.reduceAnimations,
-      hapticFeedback:
-          prefs.getBool('$p$_kHapticFeedback') ?? d.hapticFeedback,
-      sessionMinutes:
-          prefs.getInt('$p$_kSessionMinutes') ?? d.sessionMinutes,
+      hapticFeedback: prefs.getBool('$p$_kHapticFeedback') ?? d.hapticFeedback,
+      sessionMinutes: prefs.getInt('$p$_kSessionMinutes') ?? d.sessionMinutes,
       exactNumbers: prefs.getBool('$p$_kExactNumbers') ?? d.exactNumbers,
       overlayTint: prefs.getString('$p$_kOverlayTint') ?? d.overlayTint,
       overlaySeverity:
@@ -171,13 +196,12 @@ class ReaderPreferences {
       migraineMode: prefs.getBool('$p$_kMigraineMode') ?? d.migraineMode,
       migraineGreen: prefs.getBool('$p$_kMigraineGreen') ?? d.migraineGreen,
       tapTurnZones: prefs.getBool('$p$_kTapTurnZones') ?? d.tapTurnZones,
-      leftHandedTaps:
-          prefs.getBool('$p$_kLeftHandedTaps') ?? d.leftHandedTaps,
+      leftHandedTaps: prefs.getBool('$p$_kLeftHandedTaps') ?? d.leftHandedTaps,
       tapZoneWidth: prefs.getDouble('$p$_kTapZoneWidth') ?? d.tapZoneWidth,
-      edgeBrightnessGesture: prefs.getBool('$p$_kEdgeBrightnessGesture') ??
+      edgeBrightnessGesture:
+          prefs.getBool('$p$_kEdgeBrightnessGesture') ??
           d.edgeBrightnessGesture,
-      pageAnimations:
-          prefs.getBool('$p$_kPageAnimations') ?? d.pageAnimations,
+      pageAnimations: prefs.getBool('$p$_kPageAnimations') ?? d.pageAnimations,
       doubleTapAction: ReaderDoubleTap.values.firstWhere(
         (v) => v.name == prefs.getString('$p$_kDoubleTapAction'),
         orElse: () => d.doubleTapAction,
@@ -207,10 +231,7 @@ class ReaderPreferences {
     await prefs.setDouble('$p$_kLineHeight', settings.lineHeight);
     await prefs.setDouble('$p$_kLetterSpacing', settings.letterSpacing);
     await prefs.setDouble('$p$_kWordSpacing', settings.wordSpacing);
-    await prefs.setDouble(
-      '$p$_kParagraphSpacing',
-      settings.paragraphSpacing,
-    );
+    await prefs.setDouble('$p$_kParagraphSpacing', settings.paragraphSpacing);
     await prefs.setDouble('$p$_kMargin', settings.margin);
     await prefs.setDouble('$p$_kSpeechRate', settings.speechRate);
     await prefs.setString('$p$_kVoiceName', settings.voiceName);
@@ -222,18 +243,12 @@ class ReaderPreferences {
     await prefs.setBool('$p$_kAutoScroll', settings.autoScroll);
     await prefs.setBool('$p$_kLineFocus', settings.lineFocus);
     await prefs.setBool('$p$_kFocusParagraph', settings.focusParagraph);
-    await prefs.setBool(
-      '$p$_kFixationAnchors',
-      settings.fixationAnchors,
-    );
+    await prefs.setBool('$p$_kFixationAnchors', settings.fixationAnchors);
     await prefs.setString('$p$_kOrientation', settings.orientation.name);
     await prefs.setBool('$p$_kTvMode', settings.tvMode);
     await prefs.setBool('$p$_kCenteredColumn', settings.centeredColumn);
     await prefs.setBool('$p$_kKeepAwake', settings.keepAwake);
-    await prefs.setBool(
-      '$p$_kReduceAnimations',
-      settings.reduceAnimations,
-    );
+    await prefs.setBool('$p$_kReduceAnimations', settings.reduceAnimations);
     await prefs.setBool('$p$_kHapticFeedback', settings.hapticFeedback);
     await prefs.setInt('$p$_kSessionMinutes', settings.sessionMinutes);
     await prefs.setBool('$p$_kExactNumbers', settings.exactNumbers);
@@ -261,10 +276,7 @@ class ReaderPreferences {
     // Only global changes participate in iCloud sync; per-volume overrides
     // stay on the device that set them.
     if (p.isEmpty) {
-      await prefs.setString(
-        _kGlobalModified,
-        DateTime.now().toIso8601String(),
-      );
+      await prefs.setString(_kGlobalModified, DateTime.now().toIso8601String());
       CloudSyncService().pushReaderSettings();
     }
   }
@@ -297,12 +309,14 @@ class ReaderPreferences {
       return false;
     }
     if (decoded is! Map) return false;
-    final cloudModified =
-        DateTime.tryParse(decoded['modifiedAt'] as String? ?? '');
+    final cloudModified = DateTime.tryParse(
+      decoded['modifiedAt'] as String? ?? '',
+    );
     if (cloudModified == null) return false;
     final prefs = await SharedPreferences.getInstance();
-    final localModified =
-        DateTime.tryParse(prefs.getString(_kGlobalModified) ?? '');
+    final localModified = DateTime.tryParse(
+      prefs.getString(_kGlobalModified) ?? '',
+    );
     if (localModified != null && !cloudModified.isAfter(localModified)) {
       return false;
     }
@@ -341,11 +355,7 @@ class ReaderPreferences {
 
   /// Remembers [name]/[locale] as the narrator for [seriesId]. Clearing to an
   /// empty voice removes the per-series override.
-  Future<void> saveSeriesVoice(
-    int seriesId,
-    String name,
-    String locale,
-  ) async {
+  Future<void> saveSeriesVoice(int seriesId, String name, String locale) async {
     final prefs = await SharedPreferences.getInstance();
     final key = '$_kSeriesVoicePrefix$seriesId';
     if (name.isEmpty) {
@@ -424,10 +434,7 @@ class ReaderPreferences {
   /// Subsequent saves go to this volume's keys until the override is cleared.
   Future<void> enableOverride(Volume volume, ReaderSettings settings) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(
-      '${_volumePrefix(volume)}$_kOverrideMarker',
-      true,
-    );
+    await prefs.setBool('${_volumePrefix(volume)}$_kOverrideMarker', true);
     await save(settings, volume: volume);
   }
 

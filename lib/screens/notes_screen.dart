@@ -105,15 +105,12 @@ class _NotesScreenState extends State<NotesScreen> {
           if (all != null && all.isNotEmpty)
             IconButton(
               icon: Icon(
-                _onlyAnnotated
-                    ? Icons.filter_alt
-                    : Icons.filter_alt_outlined,
+                _onlyAnnotated ? Icons.filter_alt : Icons.filter_alt_outlined,
               ),
               tooltip: _onlyAnnotated
                   ? 'Showing highlights and notes'
                   : 'Show only highlights and notes',
-              onPressed: () =>
-                  setState(() => _onlyAnnotated = !_onlyAnnotated),
+              onPressed: () => setState(() => _onlyAnnotated = !_onlyAnnotated),
             ),
         ],
       ),
@@ -185,7 +182,9 @@ class _NoteRow extends StatelessWidget {
     final theme = Theme.of(context);
     final mark = entry.mark;
     final openable = entry.volume != null;
-    final body = mark.selectedText.isNotEmpty ? mark.selectedText : mark.snippet;
+    final body = mark.selectedText.isNotEmpty
+        ? mark.selectedText
+        : mark.snippet;
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(vertical: 6),

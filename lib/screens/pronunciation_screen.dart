@@ -126,11 +126,8 @@ class _PronunciationScreenState extends State<PronunciationScreen> {
         ListTile(
           title: Text(entries[i].term),
           subtitle: Text('sounds like “${entries[i].soundsLike}”'),
-          onTap: () => _addOrEdit(
-            series: series,
-            existing: entries[i],
-            index: i,
-          ),
+          onTap: () =>
+              _addOrEdit(series: series, existing: entries[i], index: i),
           trailing: IconButton(
             icon: const Icon(Icons.delete_outline),
             tooltip: 'Delete',
@@ -210,9 +207,9 @@ class _PronEditorState extends State<_PronEditor> {
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: () => Navigator.of(context).pop(
-            PronunciationEntry(_term.text.trim(), _sounds.text.trim()),
-          ),
+          onPressed: () => Navigator.of(
+            context,
+          ).pop(PronunciationEntry(_term.text.trim(), _sounds.text.trim())),
           child: const Text('Save'),
         ),
       ],

@@ -47,15 +47,15 @@ class _ImportedBooksScreenState extends State<ImportedBooksScreen> {
       await _store.import(File(path), picked!.name);
       await _load();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Imported.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Imported.')));
       }
     } on Exception catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Import failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Import failed: $e')));
       }
     } finally {
       if (mounted) setState(() => _importing = false);
@@ -99,10 +99,16 @@ class _ImportedBooksScreenState extends State<ImportedBooksScreen> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.upload_file_outlined,
-                        size: 56, color: theme.colorScheme.outline),
+                    Icon(
+                      Icons.upload_file_outlined,
+                      size: 56,
+                      color: theme.colorScheme.outline,
+                    ),
                     const SizedBox(height: 16),
-                    Text('No imported books', style: theme.textTheme.titleMedium),
+                    Text(
+                      'No imported books',
+                      style: theme.textTheme.titleMedium,
+                    ),
                     const SizedBox(height: 8),
                     Text(
                       'Import an .epub from Files or iCloud Drive to read '

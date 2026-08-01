@@ -72,18 +72,14 @@ class RecWeightLearner {
       }
       final n = examples.length;
       for (var i = 0; i < 4; i++) {
-        w[i] += learningRate *
+        w[i] +=
+            learningRate *
             (grad[i] / n - regularization * (w[i] - priorVec[i]));
         if (w[i] < 0) w[i] = 0;
       }
       bias += learningRate * (gradBias / n);
     }
-    return RecWeights(
-      author: w[0],
-      genre: w[1],
-      keyword: w[2],
-      length: w[3],
-    );
+    return RecWeights(author: w[0], genre: w[1], keyword: w[2], length: w[3]);
   }
 
   double _sigmoid(double z) => 1 / (1 + exp(-z));

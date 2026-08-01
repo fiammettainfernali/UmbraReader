@@ -103,8 +103,8 @@ class _StatsScreenState extends State<StatsScreen> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(dialogCtx)
-                .pop(int.tryParse(controller.text) ?? 0),
+            onPressed: () =>
+                Navigator.of(dialogCtx).pop(int.tryParse(controller.text) ?? 0),
             child: const Text('Save'),
           ),
         ],
@@ -189,8 +189,8 @@ class _StatsScreenState extends State<StatsScreen> {
   }
 
   int _secondsFor(ReadingEntry e) =>
-      _activity.perVolumeSeconds[
-          '${e.volume.seriesOpdsId}/${e.volume.fileName}'] ??
+      _activity
+          .perVolumeSeconds['${e.volume.seriesOpdsId}/${e.volume.fileName}'] ??
       0;
 
   /// Reading time grouped by series and ranked, most time first.
@@ -200,16 +200,24 @@ class _StatsScreenState extends State<StatsScreen> {
   /// from the library cache; a series that isn't cached (deleted from the
   /// server, say) falls back to one of its volume titles so the row is still
   /// recognisable rather than blank.
-  List<({String title, int seconds, int volumes, bool finished, Series? series})>
-  _seriesByTime(
-    List<ReadingEntry> entries,
-  ) {
+  List<
+    ({String title, int seconds, int volumes, bool finished, Series? series})
+  >
+  _seriesByTime(List<ReadingEntry> entries) {
     final grouped = <int, List<ReadingEntry>>{};
     for (final e in entries) {
       grouped.putIfAbsent(e.volume.seriesOpdsId, () => []).add(e);
     }
     final out =
-        <({String title, int seconds, int volumes, bool finished, Series? series})>[];
+        <
+          ({
+            String title,
+            int seconds,
+            int volumes,
+            bool finished,
+            Series? series,
+          })
+        >[];
     grouped.forEach((id, group) {
       var seconds = 0;
       for (final e in group) {
@@ -232,12 +240,24 @@ class _StatsScreenState extends State<StatsScreen> {
   String _dayLabel(DateTime day) {
     final today = DateTime.now();
     final midnight = DateTime(today.year, today.month, today.day);
-    final diff = midnight.difference(DateTime(day.year, day.month, day.day)).inDays;
+    final diff = midnight
+        .difference(DateTime(day.year, day.month, day.day))
+        .inDays;
     if (diff == 0) return 'today';
     if (diff == 1) return 'yesterday';
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${day.day} ${months[day.month - 1]}';
   }
@@ -441,18 +461,16 @@ class _StatsScreenState extends State<StatsScreen> {
         const SizedBox(height: 4),
         // Grouped by series and ranked by time: a forty-volume webnovel is one
         // line about where the time went, not forty rows to scroll past.
-        for (final row in _seriesByTime(entries).take(
-          _showAllBooks ? 1 << 30 : _bookRowCap,
-        ))
+        for (final row in _seriesByTime(
+          entries,
+        ).take(_showAllBooks ? 1 << 30 : _bookRowCap))
           _SeriesRow(row: row, onTap: () => _openSeries(row.series)),
         if (!_showAllBooks && _seriesByTime(entries).length > _bookRowCap)
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton(
               onPressed: () => setState(() => _showAllBooks = true),
-              child: Text(
-                'Show all ${_seriesByTime(entries).length}',
-              ),
+              child: Text('Show all ${_seriesByTime(entries).length}'),
             ),
           ),
       ],
@@ -582,10 +600,12 @@ class _TrendBars extends StatelessWidget {
                           child: DecoratedBox(
                             decoration: BoxDecoration(
                               color: b.seconds == 0
-                                  ? theme.colorScheme.outlineVariant
-                                        .withValues(alpha: 0.4)
-                                  : theme.colorScheme.primary
-                                        .withValues(alpha: 0.75),
+                                  ? theme.colorScheme.outlineVariant.withValues(
+                                      alpha: 0.4,
+                                    )
+                                  : theme.colorScheme.primary.withValues(
+                                      alpha: 0.75,
+                                    ),
                               borderRadius: BorderRadius.circular(3),
                             ),
                           ),
@@ -641,7 +661,10 @@ class _AllTimeStrip extends StatelessWidget {
       ('In progress', '$inProgress'),
       ('Finished', '$finished'),
       if (longestStreak > 0)
-        ('Longest streak', '$longestStreak ${longestStreak == 1 ? "day" : "days"}'),
+        (
+          'Longest streak',
+          '$longestStreak ${longestStreak == 1 ? "day" : "days"}',
+        ),
     ];
     return Column(
       children: [

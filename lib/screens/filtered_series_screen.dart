@@ -45,7 +45,8 @@ class _FilteredSeriesScreenState extends State<FilteredSeriesScreen> {
     final cache = LibraryCache(LibraryStorage());
     await cache.load();
     final matches = [
-      for (final s in cache.series) if (widget.predicate(s)) s,
+      for (final s in cache.series)
+        if (widget.predicate(s)) s,
     ];
     matches.sort(
       (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
@@ -109,10 +110,8 @@ class _FilteredSeriesScreenState extends State<FilteredSeriesScreen> {
   Future<void> _open(Series series) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => SeriesDetailScreen(
-          series: series,
-          settings: widget.settings,
-        ),
+        builder: (_) =>
+            SeriesDetailScreen(series: series, settings: widget.settings),
       ),
     );
     await _load();
@@ -131,10 +130,7 @@ class _FilteredSeriesScreenState extends State<FilteredSeriesScreen> {
               color: theme.colorScheme.outline,
             ),
             const SizedBox(height: 16),
-            Text(
-              'Nothing matches',
-              style: theme.textTheme.titleLarge,
-            ),
+            Text('Nothing matches', style: theme.textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(
               widget.emptyMessage ??

@@ -118,9 +118,7 @@ mixin LibraryRecommendations<T extends StatefulWidget> on State<T> {
   /// exploration wildcard (if any) is pinned as the last visible card in
   /// every window so it always gets its one slot.
   List<Recommendation> _visibleRecommendations() {
-    final wildcard = _recommendations
-        .where((r) => r.isWildcard)
-        .toList();
+    final wildcard = _recommendations.where((r) => r.isWildcard).toList();
     final pool = [
       for (final r in _recommendations)
         if (!r.isWildcard) r,

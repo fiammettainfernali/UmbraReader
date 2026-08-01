@@ -89,25 +89,22 @@ class Bookmark {
   /// range.
   int get rangeEndBlock => endBlockIndex ?? blockIndex;
 
-  Bookmark copyWith({
-    bool? isHighlight,
-    String? note,
-    HighlightColor? color,
-  }) => Bookmark(
-    id: id,
-    chapterIndex: chapterIndex,
-    blockIndex: blockIndex,
-    chapterTitle: chapterTitle,
-    snippet: snippet,
-    createdAt: createdAt,
-    isHighlight: isHighlight ?? this.isHighlight,
-    note: note ?? this.note,
-    color: color ?? this.color,
-    endBlockIndex: endBlockIndex,
-    startChar: startChar,
-    endChar: endChar,
-    selectedText: selectedText,
-  );
+  Bookmark copyWith({bool? isHighlight, String? note, HighlightColor? color}) =>
+      Bookmark(
+        id: id,
+        chapterIndex: chapterIndex,
+        blockIndex: blockIndex,
+        chapterTitle: chapterTitle,
+        snippet: snippet,
+        createdAt: createdAt,
+        isHighlight: isHighlight ?? this.isHighlight,
+        note: note ?? this.note,
+        color: color ?? this.color,
+        endBlockIndex: endBlockIndex,
+        startChar: startChar,
+        endChar: endChar,
+        selectedText: selectedText,
+      );
 
   Map<String, dynamic> toJson() => {
     'id': id,
@@ -131,7 +128,8 @@ class Bookmark {
     blockIndex: (json['blockIndex'] as num?)?.toInt() ?? 0,
     chapterTitle: json['chapterTitle'] as String? ?? '',
     snippet: json['snippet'] as String? ?? '',
-    createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+    createdAt:
+        DateTime.tryParse(json['createdAt'] as String? ?? '') ??
         DateTime.fromMillisecondsSinceEpoch(0),
     isHighlight: json['isHighlight'] == true,
     note: json['note'] as String? ?? '',

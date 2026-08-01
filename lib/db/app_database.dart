@@ -201,10 +201,7 @@ class AppDatabase extends _$AppDatabase {
       if (from < 3) {
         // v3: character-precision reading positions + spine-path anchors.
         await m.addColumn(readingProgressRows, readingProgressRows.blockChar);
-        await m.addColumn(
-          readingProgressRows,
-          readingProgressRows.chapterPath,
-        );
+        await m.addColumn(readingProgressRows, readingProgressRows.chapterPath);
       }
       if (from < 4) {
         // v4: words-read ledger alongside reading seconds.
@@ -242,12 +239,12 @@ class AppDatabase extends _$AppDatabase {
 
   // ── tiny kv helpers for store-owned scalars ─────────────────────────────
 
-  Future<String?> kvGet(String key) async =>
-      (await (select(kvRows)..where((t) => t.key.equals(key)))
-              .getSingleOrNull())
-          ?.value;
+  Future<String?> kvGet(String key) async => (await (select(
+    kvRows,
+  )..where((t) => t.key.equals(key))).getSingleOrNull())?.value;
 
-  Future<void> kvSet(String key, String value) => into(kvRows).insertOnConflictUpdate(
-    KvRowsCompanion(key: Value(key), value: Value(value)),
-  );
+  Future<void> kvSet(String key, String value) =>
+      into(kvRows).insertOnConflictUpdate(
+        KvRowsCompanion(key: Value(key), value: Value(value)),
+      );
 }

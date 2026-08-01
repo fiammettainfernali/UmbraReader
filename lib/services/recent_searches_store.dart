@@ -44,7 +44,10 @@ class RecentSearchesStore {
   Future<List<String>> remove(String query) async {
     final prefs = await SharedPreferences.getInstance();
     final existing = prefs.getStringList(_key) ?? const <String>[];
-    final next = [for (final e in existing) if (e != query) e];
+    final next = [
+      for (final e in existing)
+        if (e != query) e,
+    ];
     await prefs.setStringList(_key, next);
     return next;
   }

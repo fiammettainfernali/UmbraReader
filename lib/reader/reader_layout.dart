@@ -51,9 +51,7 @@ TextStyle paragraphStyle(ReaderSettings s, Color color) {
   );
   // Reading fonts are bundled app assets — a plain fontFamily reference,
   // no network fetch, identical metrics for measurement and render.
-  return s.fontFamily.isEmpty
-      ? base
-      : base.copyWith(fontFamily: s.fontFamily);
+  return s.fontFamily.isEmpty ? base : base.copyWith(fontFamily: s.fontFamily);
 }
 
 /// Heading style — sized relative to the body text.
@@ -73,9 +71,7 @@ TextStyle headingStyle(ReaderSettings s, int level, Color color) {
     fontStyle: s.italicText ? FontStyle.italic : null,
     color: color,
   );
-  return s.fontFamily.isEmpty
-      ? base
-      : base.copyWith(fontFamily: s.fontFamily);
+  return s.fontFamily.isEmpty ? base : base.copyWith(fontFamily: s.fontFamily);
 }
 
 /// Fixation anchors (Bionic-style): bolds the first 1-3 letters of each
@@ -96,12 +92,7 @@ List<TextRun> fixationRuns(List<TextRun> runs) {
     var i = 0;
     void flushPlain(int end) {
       if (end > plainStart) {
-        out.add(
-          TextRun(
-            text.substring(plainStart, end),
-            italic: run.italic,
-          ),
-        );
+        out.add(TextRun(text.substring(plainStart, end), italic: run.italic));
       }
     }
 
@@ -121,7 +112,9 @@ List<TextRun> fixationRuns(List<TextRun> runs) {
           ? 2
           : 1;
       flushPlain(i);
-      out.add(TextRun(text.substring(i, i + k), bold: true, italic: run.italic));
+      out.add(
+        TextRun(text.substring(i, i + k), bold: true, italic: run.italic),
+      );
       plainStart = i + k;
       i = j;
     }

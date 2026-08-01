@@ -52,10 +52,7 @@ class _BackupScreenState extends State<BackupScreen> {
   }
 
   Future<void> _exportMarkdown() async {
-    if (!await requirePro(
-      context,
-      feature: 'Export annotations as Markdown',
-    )) {
+    if (!await requirePro(context, feature: 'Export annotations as Markdown')) {
       return;
     }
     if (!mounted) return;

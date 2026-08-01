@@ -112,12 +112,13 @@ class RecommendationFeedbackStore {
     await _write(next);
   }
 
-  Future<void> _record(int id, RecommendationFeedback kind, DateTime? now) async {
+  Future<void> _record(
+    int id,
+    RecommendationFeedback kind,
+    DateTime? now,
+  ) async {
     final current = await _loadRaw();
-    await _write({
-      ...current,
-      id: _Entry(kind, now ?? DateTime.now()),
-    });
+    await _write({...current, id: _Entry(kind, now ?? DateTime.now())});
   }
 
   Future<Map<int, _Entry>> _loadRaw() async {
@@ -150,8 +151,8 @@ class RecommendationFeedbackStore {
   }
 
   String _encode(Map<int, _Entry> feedback) => jsonEncode(<String, String>{
-        for (final e in feedback.entries) '${e.key}': e.value.encoded,
-      });
+    for (final e in feedback.entries) '${e.key}': e.value.encoded,
+  });
 
   // ── iCloud sync (see CloudSyncService) ─────────────────────────────────
 
@@ -174,8 +175,7 @@ class RecommendationFeedbackStore {
     cloud.forEach((id, remote) {
       final existing = merged[id];
       final winner = existing == null ? remote : _stronger(existing, remote);
-      if (winner.kind != existing?.kind ||
-          winner.at != existing?.at) {
+      if (winner.kind != existing?.kind || winner.at != existing?.at) {
         merged[id] = winner;
         changed = true;
       }
@@ -215,7 +215,7 @@ class _Entry {
     final at = sep < 0
         ? DateTime.fromMillisecondsSinceEpoch(0)
         : DateTime.tryParse(raw.substring(sep + 1)) ??
-            DateTime.fromMillisecondsSinceEpoch(0);
+              DateTime.fromMillisecondsSinceEpoch(0);
     return _Entry(kind, at);
   }
 }

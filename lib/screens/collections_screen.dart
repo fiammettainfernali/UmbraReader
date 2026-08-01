@@ -79,10 +79,8 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
   Future<void> _open(Collection c) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => CollectionDetailScreen(
-          collection: c,
-          settings: widget.settings,
-        ),
+        builder: (_) =>
+            CollectionDetailScreen(collection: c, settings: widget.settings),
       ),
     );
     // Membership may have changed inside.
@@ -215,8 +213,7 @@ Future<String?> _promptName(
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: () =>
-              Navigator.of(dialogCtx).pop(controller.text.trim()),
+          onPressed: () => Navigator.of(dialogCtx).pop(controller.text.trim()),
           child: const Text('Save'),
         ),
       ],

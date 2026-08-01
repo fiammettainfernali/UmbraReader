@@ -47,13 +47,10 @@ class TtsService implements TtsEngine {
     });
     try {
       await _tts.setSharedInstance(true);
-      await _tts.setIosAudioCategory(
-        IosTextToSpeechAudioCategory.playback,
-        [
-          IosTextToSpeechAudioCategoryOptions.duckOthers,
-          IosTextToSpeechAudioCategoryOptions.allowBluetoothA2DP,
-        ],
-      );
+      await _tts.setIosAudioCategory(IosTextToSpeechAudioCategory.playback, [
+        IosTextToSpeechAudioCategoryOptions.duckOthers,
+        IosTextToSpeechAudioCategoryOptions.allowBluetoothA2DP,
+      ]);
     } on Exception {
       // Audio-session setup is best-effort; speech still works without it.
     }

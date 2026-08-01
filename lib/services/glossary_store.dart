@@ -128,9 +128,7 @@ class GlossaryStore {
         for (final e in decoded)
           if (e is Map<String, dynamic>) GlossaryEntry.fromJson(e),
       ];
-      out.sort(
-        (a, b) => a.term.toLowerCase().compareTo(b.term.toLowerCase()),
-      );
+      out.sort((a, b) => a.term.toLowerCase().compareTo(b.term.toLowerCase()));
       return out;
     } on FormatException {
       return const [];
@@ -152,7 +150,8 @@ class GlossaryStore {
   /// Creates a new entry with a unique id and saves it.
   Future<GlossaryEntry> create(int seriesId, String term, String note) async {
     final entry = GlossaryEntry(
-      id: '${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}'
+      id:
+          '${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}'
           '-${_rng.nextInt(1 << 32).toRadixString(16)}',
       term: term.trim(),
       note: note.trim(),
@@ -164,7 +163,10 @@ class GlossaryStore {
 
   Future<void> remove(int seriesId, String id) async {
     final all = await list(seriesId);
-    await _write(seriesId, [for (final e in all) if (e.id != id) e]);
+    await _write(seriesId, [
+      for (final e in all)
+        if (e.id != id) e,
+    ]);
   }
 
   /// Records that every glossary term mentioned in [text] was seen at [at],
@@ -275,7 +277,8 @@ class GlossaryStore {
         final winner = _newer(local, r);
         // The sighting is merged independently of the term/note edit, so a
         // stale-but-further sighting isn't lost to a newer note edit.
-        final sighting = r.lastSeen != null && r.lastSeen!.isAfter(local.lastSeen)
+        final sighting =
+            r.lastSeen != null && r.lastSeen!.isAfter(local.lastSeen)
             ? r.lastSeen
             : local.lastSeen;
         final next = winner.copyWith(lastSeen: sighting);

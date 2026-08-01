@@ -39,7 +39,13 @@ List<DateTime> plannedReminders({
   final out = <DateTime>[];
   for (var day = 0; day < horizonDays; day++) {
     // Overflowing the day field is well-defined and rolls the month/year.
-    final when = DateTime(now.year, now.month, now.day + day, at.hour, at.minute);
+    final when = DateTime(
+      now.year,
+      now.month,
+      now.day + day,
+      at.hour,
+      at.minute,
+    );
     if (day == 0 && (readToday || !when.isAfter(now))) continue;
     out.add(when);
   }

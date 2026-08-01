@@ -34,7 +34,8 @@ class CustomThemeStore {
   Future<void> save(ReaderThemePreset theme) async {
     final current = await _readAll();
     final next = [
-      for (final t in current) if (t.id != theme.id) t,
+      for (final t in current)
+        if (t.id != theme.id) t,
       theme,
     ];
     await _writeAll(next);
@@ -45,7 +46,10 @@ class CustomThemeStore {
   /// Removes the custom theme with [id] from the store and cache.
   Future<void> delete(String id) async {
     final current = await _readAll();
-    final next = [for (final t in current) if (t.id != id) t];
+    final next = [
+      for (final t in current)
+        if (t.id != id) t,
+    ];
     await _writeAll(next);
     _loaded = next;
     setAdditionalThemes(_loaded);
@@ -116,10 +120,7 @@ class CustomThemeStore {
     final next = byId.values.toList();
     // Write directly: _writeAll would push straight back to the cloud.
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      _key,
-      jsonEncode([for (final t in next) _toJson(t)]),
-    );
+    await prefs.setString(_key, jsonEncode([for (final t in next) _toJson(t)]));
     _loaded = next;
     setAdditionalThemes(_loaded);
     return true;
@@ -142,6 +143,7 @@ class CustomThemeStore {
       final v = json[key];
       return v is num ? v.toInt() : null;
     }
+
     final bg = c('background');
     final text = c('text');
     final sec = c('secondary');

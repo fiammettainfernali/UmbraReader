@@ -84,9 +84,11 @@ class _GlossaryScreenState extends State<GlossaryScreen> {
         : q.isEmpty
         ? all
         : all
-              .where((e) =>
-                  e.term.toLowerCase().contains(q) ||
-                  e.note.toLowerCase().contains(q))
+              .where(
+                (e) =>
+                    e.term.toLowerCase().contains(q) ||
+                    e.note.toLowerCase().contains(q),
+              )
               .toList();
 
     return Scaffold(
@@ -143,15 +145,12 @@ class _GlossaryScreenState extends State<GlossaryScreen> {
                         subtitle: entry.note.isEmpty && entry.lastSeen == null
                             ? null
                             : Column(
-                                crossAxisAlignment:
-                                    CrossAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  if (entry.note.isNotEmpty)
-                                    Text(entry.note),
+                                  if (entry.note.isNotEmpty) Text(entry.note),
                                   if (entry.lastSeen case final seen?)
                                     Padding(
-                                      padding:
-                                          const EdgeInsets.only(top: 3),
+                                      padding: const EdgeInsets.only(top: 3),
                                       child: Text(
                                         seen.label.isEmpty
                                             ? 'Seen while reading'
@@ -187,7 +186,11 @@ class _GlossaryScreenState extends State<GlossaryScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.people_outline, size: 56, color: theme.colorScheme.outline),
+          Icon(
+            Icons.people_outline,
+            size: 56,
+            color: theme.colorScheme.outline,
+          ),
           const SizedBox(height: 16),
           Text('No glossary entries yet', style: theme.textTheme.titleMedium),
           const SizedBox(height: 8),
@@ -268,9 +271,9 @@ class _GlossaryEditorState extends State<_GlossaryEditor> {
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: () => Navigator.of(context).pop(
-            (term: _term.text.trim(), note: _note.text.trim()),
-          ),
+          onPressed: () => Navigator.of(
+            context,
+          ).pop((term: _term.text.trim(), note: _note.text.trim())),
           child: const Text('Save'),
         ),
       ],

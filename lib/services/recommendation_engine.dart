@@ -173,8 +173,7 @@ class RecTasteProfile {
   /// False when there is no reading history at all (cold start).
   final bool hasHistory;
 
-  double _affinity(String tag) =>
-      (_tagScore[tag] ?? 0) * (_tagIdf[tag] ?? 1.0);
+  double _affinity(String tag) => (_tagScore[tag] ?? 0) * (_tagIdf[tag] ?? 1.0);
 
   /// Squash to (-1, 1): monotonic, sign-preserving, bounded.
   static double _squash(double x) => x / (1 + x.abs());
@@ -210,9 +209,7 @@ class RecTasteProfile {
     return RecGroupScores(
       author: _squash(authorScore),
       genre: _squash(genreCount == 0 ? 0 : genreSum / sqrt(genreCount)),
-      keyword: _squash(
-        keywordCount == 0 ? 0 : keywordSum / sqrt(keywordCount),
-      ),
+      keyword: _squash(keywordCount == 0 ? 0 : keywordSum / sqrt(keywordCount)),
       length: _squash(lengthScore),
     );
   }
@@ -361,9 +358,7 @@ class RecommendationEngine {
           if (bt == null) return -1;
           return bt.compareTo(at);
         });
-      return [
-        for (final s in fallback.take(maxResults)) Recommendation(s, 0),
-      ];
+      return [for (final s in fallback.take(maxResults)) Recommendation(s, 0)];
     }
 
     final w = weights ?? RecWeights.prior;
@@ -430,8 +425,7 @@ class RecommendationEngine {
             series,
       ];
       if (outside.isNotEmpty) {
-        final daySeed =
-            clock.year * 10000 + clock.month * 100 + clock.day;
+        final daySeed = clock.year * 10000 + clock.month * 100 + clock.day;
         final pick = outside[Random(daySeed).nextInt(outside.length)];
         result.add(
           Recommendation(
@@ -497,10 +491,10 @@ class RecommendationEngine {
     for (final series in allSeries) {
       if (excludeSeriesIds.contains(series.opdsId)) continue;
       // The user's own in-app status outranks the server-side one.
-      final status = (signals.statusOverrides[series.opdsId] ??
-              series.readingStatus)
-          .trim()
-          .toLowerCase();
+      final status =
+          (signals.statusOverrides[series.opdsId] ?? series.readingStatus)
+              .trim()
+              .toLowerCase();
       final entries = entriesBySeries[series.opdsId];
       final userFeedback = feedback?[series.opdsId];
       double? signed;
@@ -667,9 +661,7 @@ class RecommendationEngine {
         scored.add(MapEntry(t, count * idf));
       });
       scored.sort((a, b) => b.value.compareTo(a.value));
-      result[id] = [
-        for (final e in scored.take(keywordsPerSeries)) e.key,
-      ];
+      result[id] = [for (final e in scored.take(keywordsPerSeries)) e.key];
     });
     return result;
   }
@@ -748,13 +740,12 @@ class RecommendationEngine {
       'readingStatus': 'ongoing',
     });
     final seriesPool = [
-      for (final s in allSeries)
-        s.opdsId == source.opdsId ? neutralSource : s,
+      for (final s in allSeries) s.opdsId == source.opdsId ? neutralSource : s,
     ];
     final scopedFeedback = feedback == null
         ? null
         : (Map<int, RecommendationFeedback>.of(feedback)
-          ..remove(source.opdsId));
+            ..remove(source.opdsId));
     // Status overrides are used for candidate EXCLUSION only — a dropped or
     // already-caught-up series doesn't belong on "More like this". They are
     // deliberately NOT fed into the profile: the similarity seed must stay
@@ -765,17 +756,18 @@ class RecommendationEngine {
             (e.value == 'dropped' || e.value == 'completed'))
           e.key,
     };
-    final picks = recommend(
-      allSeries: seriesPool,
-      readingEntries: [fakeEntry],
-      feedback: scopedFeedback,
-      weights: weights,
-      now: clock,
-    )
-        // "More like this" means LIKE this — the exploration wildcard
-        // belongs on the library shelf only.
-        .where((r) => !r.isWildcard && !excluded.contains(r.series.opdsId))
-        .toList();
+    final picks =
+        recommend(
+              allSeries: seriesPool,
+              readingEntries: [fakeEntry],
+              feedback: scopedFeedback,
+              weights: weights,
+              now: clock,
+            )
+            // "More like this" means LIKE this — the exploration wildcard
+            // belongs on the library shelf only.
+            .where((r) => !r.isWildcard && !excluded.contains(r.series.opdsId))
+            .toList();
     if (picks.length <= maxResults) return picks;
     return picks.sublist(0, maxResults);
   }
@@ -851,7 +843,8 @@ class RecommendationEngine {
   double _medianOver(List<ReadingEntry> entries, Map<String, int> ledger) {
     final values = <int>[
       for (final e in entries)
-        if ((ledger[_volumeKey(e.volume)] ?? 0) > 0) ledger[_volumeKey(e.volume)]!,
+        if ((ledger[_volumeKey(e.volume)] ?? 0) > 0)
+          ledger[_volumeKey(e.volume)]!,
     ]..sort();
     if (values.isEmpty) return 0;
     final mid = values.length ~/ 2;

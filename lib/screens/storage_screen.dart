@@ -62,8 +62,7 @@ class _StorageScreenState extends State<StorageScreen> {
 
   Volume _volumeFor(String key, DownloadRecord record) {
     final slash = key.indexOf('/');
-    final seriesId =
-        slash < 0 ? 0 : int.tryParse(key.substring(0, slash)) ?? 0;
+    final seriesId = slash < 0 ? 0 : int.tryParse(key.substring(0, slash)) ?? 0;
     return Volume(
       seriesOpdsId: seriesId,
       title: record.fileName,
@@ -121,7 +120,9 @@ class _StorageScreenState extends State<StorageScreen> {
     final theme = Theme.of(context);
     final records = _store.allRecords;
     final totalBytes = records.values.fold<int>(0, (s, r) => s + r.sizeBytes);
-    final finishedCount = records.keys.where((k) => _finished[k] == true).length;
+    final finishedCount = records.keys
+        .where((k) => _finished[k] == true)
+        .length;
 
     // Group by series, sorted by size descending.
     final bySeries = <int, List<MapEntry<String, DownloadRecord>>>{};
@@ -164,8 +165,10 @@ class _StorageScreenState extends State<StorageScreen> {
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.sd_storage_outlined,
-                          color: theme.colorScheme.primary),
+                      Icon(
+                        Icons.sd_storage_outlined,
+                        color: theme.colorScheme.primary,
+                      ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(

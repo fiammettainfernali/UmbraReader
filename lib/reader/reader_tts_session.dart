@@ -52,7 +52,11 @@ mixin ReaderTtsSession<T extends StatefulWidget> on State<T> {
   /// offsets line up with the on-screen text for highlighting.
   String plainBlockText(ContentBlock block);
 
-  void goToChapter(int index, {bool landOnLastPage = false, bool fromTts = false});
+  void goToChapter(
+    int index, {
+    bool landOnLastPage = false,
+    bool fromTts = false,
+  });
   void saveReadingProgress();
 
   /// Scrolls/pages so the block being read stays visible.
@@ -403,8 +407,10 @@ mixin ReaderTtsSession<T extends StatefulWidget> on State<T> {
       // In listen mode the page/scroll isn't built, so drive the chapter
       // progress bar from how far read-aloud has moved instead.
       if (listenMode && _ttsBlockForChunk.length > 1) {
-        chapterFraction =
-            (chunkIndex / (_ttsBlockForChunk.length - 1)).clamp(0.0, 1.0);
+        chapterFraction = (chunkIndex / (_ttsBlockForChunk.length - 1)).clamp(
+          0.0,
+          1.0,
+        );
       }
     });
     followSpeaking(blockIndex);
@@ -633,8 +639,7 @@ mixin ReaderTtsSession<T extends StatefulWidget> on State<T> {
   // ── Listen mode ──────────────────────────────────────────────────────────
 
   Widget buildListenView(EpubBook book, ReaderThemePreset preset) {
-    final minutesLeft =
-        currentChapterWordCount * (1 - chapterFraction) / 220.0;
+    final minutesLeft = currentChapterWordCount * (1 - chapterFraction) / 220.0;
     return Scaffold(
       backgroundColor: preset.background,
       body: ListenView(

@@ -218,8 +218,9 @@ class ListenView extends StatelessWidget {
                   color: _text,
                   iconSize: 32,
                   tooltip: 'Next chapter',
-                  onPressed:
-                      chapterIndex < chapterTotal - 1 ? onNextChapter : null,
+                  onPressed: chapterIndex < chapterTotal - 1
+                      ? onNextChapter
+                      : null,
                 ),
               ],
             ),
@@ -233,10 +234,7 @@ class ListenView extends StatelessWidget {
                   icon: Icon(Icons.speed, color: _text, size: 20),
                   label: Text(
                     speedLabel,
-                    style: TextStyle(
-                      color: _text,
-                      fontWeight: FontWeight.w600,
-                    ),
+                    style: TextStyle(color: _text, fontWeight: FontWeight.w600),
                   ),
                 ),
                 TextButton.icon(
@@ -265,9 +263,7 @@ class ListenView extends StatelessWidget {
   String _timeLeftLabel() {
     if (!minutesLeft.isFinite || minutesLeft <= 0) return 'finishing up';
     final m = minutesLeft.ceil();
-    return m >= 60
-        ? '${m ~/ 60}h ${m % 60}m left'
-        : '$m min left';
+    return m >= 60 ? '${m ~/ 60}h ${m % 60}m left' : '$m min left';
   }
 }
 

@@ -291,7 +291,9 @@ class ReadingProgressStore {
   Future<void> _ensureMigrated() async {
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool(_kMigrated) ?? false) return;
-    _migration ??= _importFromPrefs(prefs).whenComplete(() => _migration = null);
+    _migration ??= _importFromPrefs(
+      prefs,
+    ).whenComplete(() => _migration = null);
     await _migration;
   }
 

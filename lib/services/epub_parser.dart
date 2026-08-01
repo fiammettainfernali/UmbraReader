@@ -240,7 +240,10 @@ class EpubParser {
   String _opfPath(String containerXml) {
     try {
       final doc = XmlDocument.parse(containerXml);
-      for (final rootfile in doc.findAllElements('rootfile', namespaceUri: '*')) {
+      for (final rootfile in doc.findAllElements(
+        'rootfile',
+        namespaceUri: '*',
+      )) {
         final fullPath = rootfile.getAttribute('full-path');
         if (fullPath != null && fullPath.isNotEmpty) return fullPath;
       }
@@ -328,11 +331,7 @@ class EpubParser {
 
   // ── chapter content parsing ──────────────────────────────────────────────
 
-  void _walkBlocks(
-    dom.Element parent,
-    List<ContentBlock> out,
-    String baseDir,
-  ) {
+  void _walkBlocks(dom.Element parent, List<ContentBlock> out, String baseDir) {
     for (final node in parent.nodes) {
       if (node is! dom.Element) continue;
       final tag = node.localName?.toLowerCase() ?? '';
@@ -345,7 +344,9 @@ class EpubParser {
           final block = _readImage(img, baseDir);
           if (block != null) out.add(block);
         }
-      } else if (tag.length == 2 && tag[0] == 'h' && '123456'.contains(tag[1])) {
+      } else if (tag.length == 2 &&
+          tag[0] == 'h' &&
+          '123456'.contains(tag[1])) {
         final runs = _inlineRuns(node);
         if (_hasText(runs)) out.add(HeadingBlock(int.parse(tag[1]), runs));
       } else if (tag == 'hr') {
@@ -376,7 +377,8 @@ class EpubParser {
   /// and parses its natural pixel dimensions from the PNG/JPEG header so
   /// the reader can lay it out without an async decode.
   ImageBlock? _readImage(dom.Element node, String baseDir) {
-    final src = node.attributes['src'] ??
+    final src =
+        node.attributes['src'] ??
         node.attributes['xlink:href'] ??
         node.attributes['href'] ??
         '';
@@ -405,14 +407,10 @@ class EpubParser {
         bytes[1] == 0x50 &&
         bytes[2] == 0x4E &&
         bytes[3] == 0x47) {
-      final w = (bytes[16] << 24) |
-          (bytes[17] << 16) |
-          (bytes[18] << 8) |
-          bytes[19];
-      final h = (bytes[20] << 24) |
-          (bytes[21] << 16) |
-          (bytes[22] << 8) |
-          bytes[23];
+      final w =
+          (bytes[16] << 24) | (bytes[17] << 16) | (bytes[18] << 8) | bytes[19];
+      final h =
+          (bytes[20] << 24) | (bytes[21] << 16) | (bytes[22] << 8) | bytes[23];
       if (w > 0 && h > 0) return (w, h);
     }
     // JPEG: SOI \xFF\xD8 then a chain of segments; the SOFn marker carries

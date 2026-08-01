@@ -19,10 +19,7 @@ class Collection {
 
   int get count => seriesIds.length;
 
-  Collection copyWith({
-    String? name,
-    List<int>? seriesIds,
-  }) => Collection(
+  Collection copyWith({String? name, List<int>? seriesIds}) => Collection(
     id: id,
     name: name ?? this.name,
     seriesIds: seriesIds ?? this.seriesIds,
@@ -45,7 +42,8 @@ class Collection {
             .map((n) => n.toInt())
             .toList() ??
         const [],
-    createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+    createdAt:
+        DateTime.tryParse(json['createdAt'] as String? ?? '') ??
         DateTime.fromMillisecondsSinceEpoch(0),
   );
 }

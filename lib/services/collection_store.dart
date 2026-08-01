@@ -72,7 +72,8 @@ class CollectionStore {
     final clean = name.trim();
     // Microseconds + a random suffix so two creates fired within the same
     // clock tick still get distinct ids.
-    final id = '${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}'
+    final id =
+        '${DateTime.now().microsecondsSinceEpoch.toRadixString(16)}'
         '-${_rng.nextInt(1 << 32).toRadixString(16)}';
     final mark = Collection(
       id: id,
@@ -144,7 +145,9 @@ class CollectionStore {
   Future<void> _ensureMigrated() async {
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool(_kMigrated) ?? false) return;
-    _migration ??= _importFromPrefs(prefs).whenComplete(() => _migration = null);
+    _migration ??= _importFromPrefs(
+      prefs,
+    ).whenComplete(() => _migration = null);
     await _migration;
   }
 

@@ -24,8 +24,7 @@ class CollectionDetailScreen extends StatefulWidget {
   final OpdsSettings settings;
 
   @override
-  State<CollectionDetailScreen> createState() =>
-      _CollectionDetailScreenState();
+  State<CollectionDetailScreen> createState() => _CollectionDetailScreenState();
 }
 
 class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
@@ -64,10 +63,8 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
   Future<void> _open(Series series) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => SeriesDetailScreen(
-          series: series,
-          settings: widget.settings,
-        ),
+        builder: (_) =>
+            SeriesDetailScreen(series: series, settings: widget.settings),
       ),
     );
     // Membership might have changed.

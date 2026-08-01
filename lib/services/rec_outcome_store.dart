@@ -47,16 +47,19 @@ class RecOutcomeStore {
   /// Counts an impression for each series in [seriesIds] — at most one per
   /// series per local calendar day, so redraws of the same shelf don't spam
   /// the tally. [now] is overridable for tests.
-  Future<void> recordImpressions(Iterable<int> seriesIds, {
+  Future<void> recordImpressions(
+    Iterable<int> seriesIds, {
     DateTime? now,
   }) async {
     final day = _dayKey(now ?? DateTime.now());
     for (final id in seriesIds) {
-      final existing = await (_db.select(_db.recOutcomeRows)
-            ..where((t) => t.seriesId.equals(id)))
-          .getSingleOrNull();
+      final existing = await (_db.select(
+        _db.recOutcomeRows,
+      )..where((t) => t.seriesId.equals(id))).getSingleOrNull();
       if (existing == null) {
-        await _db.into(_db.recOutcomeRows).insert(
+        await _db
+            .into(_db.recOutcomeRows)
+            .insert(
               RecOutcomeRowsCompanion(
                 seriesId: Value(id),
                 impressions: const Value(1),
@@ -64,9 +67,9 @@ class RecOutcomeStore {
               ),
             );
       } else if (existing.lastShownDay != day) {
-        await (_db.update(_db.recOutcomeRows)
-              ..where((t) => t.seriesId.equals(id)))
-            .write(
+        await (_db.update(
+          _db.recOutcomeRows,
+        )..where((t) => t.seriesId.equals(id))).write(
           RecOutcomeRowsCompanion(
             impressions: Value(existing.impressions + 1),
             lastShownDay: Value(day),
@@ -79,11 +82,13 @@ class RecOutcomeStore {
   /// Records that the user opened [seriesId] from a recommendation card.
   Future<void> recordTap(int seriesId, {DateTime? now}) async {
     final at = (now ?? DateTime.now()).toIso8601String();
-    final existing = await (_db.select(_db.recOutcomeRows)
-          ..where((t) => t.seriesId.equals(seriesId)))
-        .getSingleOrNull();
+    final existing = await (_db.select(
+      _db.recOutcomeRows,
+    )..where((t) => t.seriesId.equals(seriesId))).getSingleOrNull();
     if (existing == null) {
-      await _db.into(_db.recOutcomeRows).insert(
+      await _db
+          .into(_db.recOutcomeRows)
+          .insert(
             RecOutcomeRowsCompanion(
               seriesId: Value(seriesId),
               taps: const Value(1),
@@ -91,9 +96,9 @@ class RecOutcomeStore {
             ),
           );
     } else {
-      await (_db.update(_db.recOutcomeRows)
-            ..where((t) => t.seriesId.equals(seriesId)))
-          .write(
+      await (_db.update(
+        _db.recOutcomeRows,
+      )..where((t) => t.seriesId.equals(seriesId))).write(
         RecOutcomeRowsCompanion(
           taps: Value(existing.taps + 1),
           lastTapAt: Value(at),

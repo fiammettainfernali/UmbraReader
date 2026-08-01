@@ -144,7 +144,9 @@ class BookmarkStore {
   Future<void> _ensureMigrated() async {
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool(_kMigrated) ?? false) return;
-    _migration ??= _importFromPrefs(prefs).whenComplete(() => _migration = null);
+    _migration ??= _importFromPrefs(
+      prefs,
+    ).whenComplete(() => _migration = null);
     await _migration;
   }
 
@@ -232,21 +234,19 @@ class BookmarkStore {
         continue;
       }
       final volumeKey = key.substring(_prefix.length);
-      final existing = (await (_db.select(
-        _table,
-      )..where((t) => t.volumeKey.equals(volumeKey))).get())
-          .map((r) => r.bookmarkId)
-          .toSet();
+      final existing =
+          (await (_db.select(
+                _table,
+              )..where((t) => t.volumeKey.equals(volumeKey))).get())
+              .map((r) => r.bookmarkId)
+              .toSet();
       for (final m in cloudList) {
         if (m is! Map<String, dynamic> || m['id'] is! String) continue;
         final mark = Bookmark.fromJson(m);
         if (mark.id.isEmpty || existing.contains(mark.id)) continue;
         await _db
             .into(_table)
-            .insert(
-              _toRow(volumeKey, mark),
-              mode: InsertMode.insertOrIgnore,
-            );
+            .insert(_toRow(volumeKey, mark), mode: InsertMode.insertOrIgnore);
         changed = true;
       }
     }

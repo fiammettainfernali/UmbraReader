@@ -6,7 +6,8 @@ import '../widgets/cached_cover.dart';
 
 /// A single cover in the library grid: cover art, title, author.
 class SeriesCard extends StatelessWidget {
-  const SeriesCard({super.key, 
+  const SeriesCard({
+    super.key,
     required this.series,
     required this.imageHeaders,
     required this.updateAvailable,
@@ -63,11 +64,7 @@ class SeriesCard extends StatelessWidget {
                           child: VolumeBadge(),
                         ),
                       if (updateAvailable)
-                        const Positioned(
-                          top: 6,
-                          left: 6,
-                          child: UpdateBadge(),
-                        ),
+                        const Positioned(top: 6, left: 6, child: UpdateBadge()),
                     ],
                   ),
                 ),
@@ -101,7 +98,8 @@ class SeriesCard extends StatelessWidget {
 
 /// A card on the "Continue reading" shelf: cover, title, and progress.
 class ContinueCard extends StatelessWidget {
-  const ContinueCard({super.key, 
+  const ContinueCard({
+    super.key,
     required this.entry,
     required this.series,
     required this.imageHeaders,
@@ -203,7 +201,8 @@ class ContinueCard extends StatelessWidget {
 /// "Recommended for you" and "Recently updated" shelves; the ✕ dismiss
 /// button only appears when [onDismiss] is supplied.
 class RecommendCard extends StatelessWidget {
-  const RecommendCard({super.key, 
+  const RecommendCard({
+    super.key,
     required this.series,
     required this.imageHeaders,
     required this.onTap,
@@ -237,7 +236,8 @@ class RecommendCard extends StatelessWidget {
     final theme = Theme.of(context);
     return Semantics(
       button: true,
-      label: '${series.title} by ${series.author}'
+      label:
+          '${series.title} by ${series.author}'
           '${reason.isEmpty ? '' : '. $reason'}',
       child: GestureDetector(
         onTap: onTap,
@@ -515,7 +515,8 @@ class UpdateBadge extends StatelessWidget {
 /// A centered icon + message + action button, used for the empty / error /
 /// not-connected / no-matches states.
 class MessageView extends StatelessWidget {
-  const MessageView({super.key, 
+  const MessageView({
+    super.key,
     required this.icon,
     required this.title,
     required this.message,
@@ -560,10 +561,7 @@ class MessageView extends StatelessWidget {
             FilledButton(onPressed: onAction, child: Text(actionLabel)),
             if (secondaryLabel != null && onSecondary != null) ...[
               const SizedBox(height: 8),
-              TextButton(
-                onPressed: onSecondary,
-                child: Text(secondaryLabel!),
-              ),
+              TextButton(onPressed: onSecondary, child: Text(secondaryLabel!)),
             ],
           ],
         ),

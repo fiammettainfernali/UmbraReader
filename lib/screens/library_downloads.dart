@@ -115,9 +115,7 @@ List<Series> libraryScanOrder(
   }
   // Sort on (hasBeenRead, when) while carrying the original index, so unread
   // series keep their existing relative order rather than being shuffled.
-  final indexed = [
-    for (var i = 0; i < library.length; i++) (i, library[i]),
-  ];
+  final indexed = [for (var i = 0; i < library.length; i++) (i, library[i])];
   indexed.sort((a, b) {
     final at = lastRead[a.$2.opdsId];
     final bt = lastRead[b.$2.opdsId];

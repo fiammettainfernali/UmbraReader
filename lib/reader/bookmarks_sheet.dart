@@ -375,10 +375,7 @@ class _BookmarksSheetState extends State<BookmarksSheet> {
                               if (mark.isHighlight)
                                 const PopupMenuItem(
                                   value: 'edit',
-                                  child: MenuRow(
-                                    Icons.edit_note,
-                                    'Edit note',
-                                  ),
+                                  child: MenuRow(Icons.edit_note, 'Edit note'),
                                 ),
                               const PopupMenuItem(
                                 value: 'delete',

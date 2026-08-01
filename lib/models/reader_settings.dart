@@ -22,21 +22,12 @@ enum ReaderTextAlign {
 
 /// Locks the reader to a chosen device orientation, or follows the
 /// system's auto-rotate setting.
-enum ReaderOrientation {
-  auto,
-  portrait,
-  landscape,
-}
+enum ReaderOrientation { auto, portrait, landscape }
 
 /// What a double-tap on the page does. [none] is the default and, crucially,
 /// leaves the double-tap recogniser unregistered so single taps (the
 /// page-turn) never wait to disambiguate.
-enum ReaderDoubleTap {
-  none,
-  bookmark,
-  contents,
-  bookmarksList,
-}
+enum ReaderDoubleTap { none, bookmark, contents, bookmarksList }
 
 /// All reader preferences: layout mode, colour theme, and typography.
 class ReaderSettings {

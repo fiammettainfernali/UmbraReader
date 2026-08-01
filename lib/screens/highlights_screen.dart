@@ -73,9 +73,9 @@ class _HighlightsScreenState extends State<HighlightsScreen> {
     if (marks == null || marks.isEmpty) return;
     await Clipboard.setData(ClipboardData(text: _toExportText(marks)));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Copied to clipboard')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
   }
 
   Future<void> _shareAll() async {
@@ -86,8 +86,9 @@ class _HighlightsScreenState extends State<HighlightsScreen> {
       ShareParams(
         text: _toExportText(marks),
         subject: 'Annotations from ${widget.bookTitle}',
-        sharePositionOrigin:
-            box == null ? null : box.localToGlobal(Offset.zero) & box.size,
+        sharePositionOrigin: box == null
+            ? null
+            : box.localToGlobal(Offset.zero) & box.size,
       ),
     );
   }
@@ -221,10 +222,7 @@ class _AnnotationList extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 6),
-                Text(
-                  mark.snippet,
-                  style: theme.textTheme.bodyMedium,
-                ),
+                Text(mark.snippet, style: theme.textTheme.bodyMedium),
                 if (mark.note.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Container(

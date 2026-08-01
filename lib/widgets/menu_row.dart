@@ -21,9 +21,7 @@ class MenuRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colour = isDestructive
-        ? Theme.of(context).colorScheme.error
-        : null;
+    final colour = isDestructive ? Theme.of(context).colorScheme.error : null;
     return Semantics(
       label: label,
       button: true,

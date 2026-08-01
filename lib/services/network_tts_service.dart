@@ -29,8 +29,8 @@ class _Clip {
 /// word, so the reader highlight follows along word-by-word.
 class NetworkTtsService implements TtsEngine {
   NetworkTtsService({String baseUrl = '', String token = ''})
-      : _baseUrl = _normalize(baseUrl),
-        _token = token;
+    : _baseUrl = _normalize(baseUrl),
+      _token = token;
 
   final AudioPlayer _player = AudioPlayer();
 
@@ -105,8 +105,8 @@ class NetworkTtsService implements TtsEngine {
   }
 
   Map<String, String> get _authHeaders => {
-        if (_token.isNotEmpty) 'Authorization': 'Bearer $_token',
-      };
+    if (_token.isNotEmpty) 'Authorization': 'Bearer $_token',
+  };
 
   /// Configures the iOS audio session for spoken-audio playback (playback
   /// category, A2DP for Bluetooth) so the voices don't route through the
@@ -142,10 +142,14 @@ class NetworkTtsService implements TtsEngine {
       if (resp.statusCode != 200) return const [];
       final data = jsonDecode(resp.body) as Map<String, dynamic>;
       final raw = (data['voices'] as List?) ?? const [];
-      final voices = raw
-          .map((v) => TtsVoice(name: v.toString(), locale: TtsVoice.kokoroLocale))
-          .toList()
-        ..sort((a, b) => a.name.compareTo(b.name));
+      final voices =
+          raw
+              .map(
+                (v) =>
+                    TtsVoice(name: v.toString(), locale: TtsVoice.kokoroLocale),
+              )
+              .toList()
+            ..sort((a, b) => a.name.compareTo(b.name));
       return voices;
     } on Exception {
       return const [];

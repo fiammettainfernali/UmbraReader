@@ -79,11 +79,7 @@ class _AddToCollectionSheetState extends State<AddToCollectionSheet> {
     final created = await _store.create(name);
     // Add the current series to the brand-new collection automatically —
     // that's almost always what the user wants.
-    await _store.setMembership(
-      created.id,
-      widget.seriesId,
-      member: true,
-    );
+    await _store.setMembership(created.id, widget.seriesId, member: true);
     await _load();
   }
 
@@ -165,9 +161,7 @@ class _AddToCollectionSheetState extends State<AddToCollectionSheet> {
                           onChanged: (v) => _toggle(c, v ?? false),
                           title: Text(c.name),
                           subtitle: Text(
-                            c.count == 1
-                                ? '1 book'
-                                : '${c.count} books',
+                            c.count == 1 ? '1 book' : '${c.count} books',
                             style: theme.textTheme.bodySmall?.copyWith(
                               color: theme.colorScheme.outline,
                             ),

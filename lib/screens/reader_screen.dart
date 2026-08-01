@@ -76,7 +76,11 @@ class ReaderScreen extends StatefulWidget {
 }
 
 class _ReaderScreenState extends State<ReaderScreen>
-    with WidgetsBindingObserver, ReaderTtsSession, ReaderSelection, ReaderSession {
+    with
+        WidgetsBindingObserver,
+        ReaderTtsSession,
+        ReaderSelection,
+        ReaderSession {
   final _progressStore = ReadingProgressStore();
   final _glossaryStore = GlossaryStore();
   final _scrollController = ScrollController();
@@ -91,7 +95,6 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   ReaderSettings _settings = ReaderSettings.defaults;
   bool _chromeVisible = true;
-
 
   // Paged-mode pagination cache.
   List<List<PageBlock>>? _pages;
@@ -188,13 +191,11 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// rotation (width change) from keyboard/inset churn in didChangeMetrics.
   double _lastViewWidth = 0;
 
-
   /// Last block that auto-follow moved to — so it only moves on a change.
   int _followedBlock = -1;
 
   /// Last page that read-aloud auto-follow turned to (paged mode).
   int _followedPage = -1;
-
 
   /// Periodic timer driving the hands-free auto-scroll, when enabled.
   Timer? _autoScrollTimer;
@@ -251,7 +252,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     beginSession();
     _open();
   }
-
 
   /// Rotation (or an iPad split-view resize) repaginates, and spread counts
   /// change — without capturing the reading position FIRST, the page jump
@@ -327,7 +327,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     super.dispose();
   }
 
-
   // ── ReaderTtsSession plumbing ────────────────────────────────────────────
   // Thin proxies exposing the State's private fields to the read-aloud mixin.
 
@@ -393,8 +392,9 @@ class _ReaderScreenState extends State<ReaderScreen>
   Future<void> _open() async {
     var settings = await ReaderPreferences().load(volume: widget.volume);
     // Apply this series' remembered narrator, if one was chosen for it.
-    final seriesVoice =
-        await ReaderPreferences().seriesVoice(widget.volume.seriesOpdsId);
+    final seriesVoice = await ReaderPreferences().seriesVoice(
+      widget.volume.seriesOpdsId,
+    );
     if (seriesVoice != null) {
       settings = settings.copyWith(
         voiceName: seriesVoice.$1,
@@ -462,12 +462,14 @@ class _ReaderScreenState extends State<ReaderScreen>
         _focusBlock = _pendingRestoreBlock ?? 0;
         // "Where was I?" — after a real gap (not a fresh book, not a search /
         // TOC jump), mark the restored paragraph for a brief re-entry cue.
-        final resuming = widget.initialBlockIndex == null &&
+        final resuming =
+            widget.initialBlockIndex == null &&
             widget.initialChapterIndex == null;
         final away = progress.updatedAt == null
             ? Duration.zero
             : DateTime.now().difference(progress.updatedAt!);
-        reentryBlock = (resuming &&
+        reentryBlock =
+            (resuming &&
                 away > const Duration(minutes: 20) &&
                 blocks.isNotEmpty &&
                 (progress.blockIndex > 0 || chapterIndex > 0))
@@ -593,7 +595,8 @@ class _ReaderScreenState extends State<ReaderScreen>
       ),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_settings.mode == ReadingMode.scroll && _scrollController.hasClients) {
+      if (_settings.mode == ReadingMode.scroll &&
+          _scrollController.hasClients) {
         _scrollController.jumpTo(0);
       }
     });
@@ -620,9 +623,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     // advance to, so stay put silently.
     if (currentIdx < 0 || currentIdx >= volumes.length - 1) return;
     final next = volumes[currentIdx + 1];
-    final downloaded = await LibraryStorage().epubFile(next).then(
-          (f) => f.existsSync(),
-        );
+    final downloaded = await LibraryStorage()
+        .epubFile(next)
+        .then((f) => f.existsSync());
     if (!mounted) return;
     final choice = await showDialog<String>(
       context: context,
@@ -639,10 +642,7 @@ class _ReaderScreenState extends State<ReaderScreen>
               ),
             ),
             const SizedBox(height: 4),
-            Text(
-              next.title,
-              style: Theme.of(dialogCtx).textTheme.titleMedium,
-            ),
+            Text(next.title, style: Theme.of(dialogCtx).textTheme.titleMedium),
             if (!downloaded) ...[
               const SizedBox(height: 8),
               Text(
@@ -679,8 +679,8 @@ class _ReaderScreenState extends State<ReaderScreen>
           MaterialPageRoute(builder: (_) => ReaderScreen(volume: next)),
         );
       case 'series':
-      // Drop the reader and let the user re-enter the series from the
-      // library — series detail requires the Series object we don't have.
+        // Drop the reader and let the user re-enter the series from the
+        // library — series detail requires the Series object we don't have.
         Navigator.of(context).pop();
       case 'stay':
       case null:
@@ -799,8 +799,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     final chapterCount = _book?.chapters.length ?? 0;
     // "Finished" means the end of the *last* chapter was actually reached —
     // not merely being on it (you can stop mid-final-chapter).
-    final onLastChapter =
-        chapterCount > 0 && _chapterIndex >= chapterCount - 1;
+    final onLastChapter = chapterCount > 0 && _chapterIndex >= chapterCount - 1;
     await _progressStore.save(
       widget.volume,
       ReadingProgress(
@@ -1212,8 +1211,10 @@ class _ReaderScreenState extends State<ReaderScreen>
     final height = MediaQuery.of(context).size.height;
     if (height <= 0) return;
     // Drag up brightens, down dims; a full-height swipe covers the range.
-    final next = (_settings.brightness - details.delta.dy / height)
-        .clamp(0.15, 1.0);
+    final next = (_settings.brightness - details.delta.dy / height).clamp(
+      0.15,
+      1.0,
+    );
     if (next == _settings.brightness) return;
     setState(() {
       _settings = _settings.copyWith(brightness: next);
@@ -1284,10 +1285,10 @@ class _ReaderScreenState extends State<ReaderScreen>
         next.voiceName != _settings.voiceName ||
         next.voiceLocale != _settings.voiceLocale;
     final autoScrollChanged =
-        next.autoScroll != _settings.autoScroll ||
-        next.mode != _settings.mode;
+        next.autoScroll != _settings.autoScroll || next.mode != _settings.mode;
     final orientationChanged = next.orientation != _settings.orientation;
-    final engineChanged = next.ttsEngine != _settings.ttsEngine ||
+    final engineChanged =
+        next.ttsEngine != _settings.ttsEngine ||
         next.ttsServerUrl != _settings.ttsServerUrl ||
         next.ttsServerToken != _settings.ttsServerToken;
     final tvModeChanged = next.tvMode != _settings.tvMode;
@@ -1419,7 +1420,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     ImageBlock _ => '',
   };
 
-
   /// True when motion should be suppressed — page turns and follow-scrolls
   /// jump instead of animating. Honours the OS Reduce Motion setting AND the
   /// reader's own in-app toggle (either one wins).
@@ -1490,7 +1490,6 @@ class _ReaderScreenState extends State<ReaderScreen>
       );
     }
   }
-
 
   // ── auto-scroll ──────────────────────────────────────────────────────────
 
@@ -1582,7 +1581,6 @@ class _ReaderScreenState extends State<ReaderScreen>
       (pos.pixels + _autoScrollPxPerTick).clamp(0.0, pos.maxScrollExtent),
     );
   }
-
 
   /// Speechify-style "skip while reading" menu: pick content the voice skips
   /// over (parentheses, URLs, citations, headings, …). Applies on the next
@@ -1736,8 +1734,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   Future<void> _refreshHighlights() async {
     final all = await BookmarkStore().list(widget.volume);
     if (!mounted) return;
-    final ranges =
-        <int, List<({int start, int end, HighlightColor color})>>{};
+    final ranges = <int, List<({int start, int end, HighlightColor color})>>{};
     for (final mark in all) {
       if (!mark.isHighlight ||
           mark.chapterIndex != _chapterIndex ||
@@ -1918,8 +1915,10 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (pages == null || pages.isEmpty || !_pageController.hasClients) {
         return;
       }
-      final target =
-          (clamped * (pages.length - 1)).round().clamp(0, pages.length - 1);
+      final target = (clamped * (pages.length - 1)).round().clamp(
+        0,
+        pages.length - 1,
+      );
       _pageController.jumpToPage(target);
     } else {
       if (!_scrollController.hasClients) return;
@@ -2042,8 +2041,10 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
     _hapticSelection();
     final step = _rulerBandHeight;
-    final target = (pos.pixels + (forward ? step : -step))
-        .clamp(0.0, pos.maxScrollExtent);
+    final target = (pos.pixels + (forward ? step : -step)).clamp(
+      0.0,
+      pos.maxScrollExtent,
+    );
     if (_instantPageTurns) {
       _scrollController.jumpTo(target);
     } else {
@@ -2219,7 +2220,8 @@ class _ReaderScreenState extends State<ReaderScreen>
                     // third of the way down the viewport.
                     const rowHeight = 64.0;
                     final maxOffset =
-                        (book.chapters.length * rowHeight - constraints.maxHeight)
+                        (book.chapters.length * rowHeight -
+                                constraints.maxHeight)
                             .clamp(0.0, double.infinity);
                     final target =
                         (_chapterIndex * rowHeight - constraints.maxHeight / 3)
@@ -2236,7 +2238,10 @@ class _ReaderScreenState extends State<ReaderScreen>
                         final scheme = Theme.of(context).colorScheme;
                         final Widget leading;
                         if (current) {
-                          leading = Icon(Icons.play_arrow, color: scheme.primary);
+                          leading = Icon(
+                            Icons.play_arrow,
+                            color: scheme.primary,
+                          );
                         } else if (read) {
                           leading = Icon(
                             Icons.check_circle,
@@ -2353,8 +2358,7 @@ class _ReaderScreenState extends State<ReaderScreen>
             onLongPressMoveUpdate: (d) => extendSelectionTo(d.globalPosition),
             // Only present when an action is set, so single taps aren't
             // delayed waiting to disambiguate a possible double-tap.
-            onDoubleTap:
-                _settings.doubleTapAction == ReaderDoubleTap.none
+            onDoubleTap: _settings.doubleTapAction == ReaderDoubleTap.none
                 ? null
                 : _onDoubleTap,
             behavior: HitTestBehavior.opaque,
@@ -2393,7 +2397,8 @@ class _ReaderScreenState extends State<ReaderScreen>
                       behavior: HitTestBehavior.opaque,
                       onTapUp: _onContentTap,
                       onLongPressStart: _onContentLongPress,
-                      onLongPressMoveUpdate: (d) => extendSelectionTo(d.globalPosition),
+                      onLongPressMoveUpdate: (d) =>
+                          extendSelectionTo(d.globalPosition),
                       onVerticalDragStart: _onBrightnessDragStart,
                       onVerticalDragUpdate: _onBrightnessDragUpdate,
                       onVerticalDragEnd: _onBrightnessDragEnd,
@@ -2455,17 +2460,21 @@ class _ReaderScreenState extends State<ReaderScreen>
                           _chapterWordCount * (1 - _chapterFraction) / _wpm,
                       bookMinutesLeft: _estimateBookMinutesLeft(book),
                       exactNumbers: _settings.exactNumbers,
-                      pageOfSpread: (_settings.mode == ReadingMode.paged &&
+                      pageOfSpread:
+                          (_settings.mode == ReadingMode.paged &&
                               !_settings.focusParagraph &&
                               _pages != null &&
                               _pageController.hasClients)
                           ? (_pageController.page?.round() ?? 0) + 1
                           : null,
-                      spreadCount: (_settings.mode == ReadingMode.paged &&
+                      spreadCount:
+                          (_settings.mode == ReadingMode.paged &&
                               !_settings.focusParagraph &&
                               _pages != null)
-                          ? ((_pages!.length / _pageStride).ceil())
-                                .clamp(1, 1 << 30)
+                          ? ((_pages!.length / _pageStride).ceil()).clamp(
+                              1,
+                              1 << 30,
+                            )
                           : null,
                       onPrevious: () => _goToChapter(_chapterIndex - 1),
                       onNext: () => _goToChapter(_chapterIndex + 1),
@@ -2476,10 +2485,8 @@ class _ReaderScreenState extends State<ReaderScreen>
                         _chapterIndex + delta,
                         recordReturn: delta.abs() > 1,
                       ),
-                      isReading:
-                          ttsEngine.state != TtsPlaybackState.stopped,
-                      isPlaying:
-                          ttsEngine.state == TtsPlaybackState.playing,
+                      isReading: ttsEngine.state != TtsPlaybackState.stopped,
+                      isPlaying: ttsEngine.state == TtsPlaybackState.playing,
                       canSeek: ttsEngine is NetworkTtsService,
                       onPlayPause: toggleTts,
                       onBack15: () => nudgeTts(-15),
@@ -2758,7 +2765,12 @@ class _ReaderScreenState extends State<ReaderScreen>
             ':$stride';
         if (key != _pageKey) {
           _pageKey = key;
-          _pages = paginateBlocks(_blocks ?? const [], colWidth, height, _settings);
+          _pages = paginateBlocks(
+            _blocks ?? const [],
+            colWidth,
+            height,
+            _settings,
+          );
           final pageCount = _pages?.length ?? 1;
           final spreadCount = (pageCount / stride).ceil().clamp(1, 1 << 30);
           final int wanted;
@@ -2808,10 +2820,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         );
         if (!_settings.tvMode) return pager;
         return Padding(
-          padding: EdgeInsets.symmetric(
-            horizontal: tvSafeH,
-            vertical: tvSafeV,
-          ),
+          padding: EdgeInsets.symmetric(horizontal: tvSafeH, vertical: tvSafeV),
           child: pager,
         );
       },

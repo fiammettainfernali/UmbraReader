@@ -406,11 +406,9 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
         builder: (_) => FilteredSeriesScreen(
           title: 'Genre: $trimmed',
           settings: widget.settings,
-          predicate: (s) => s.genres
-              .map((g) => g.trim().toLowerCase())
-              .contains(needle),
-          emptyMessage:
-              'No other series tagged with this genre yet.',
+          predicate: (s) =>
+              s.genres.map((g) => g.trim().toLowerCase()).contains(needle),
+          emptyMessage: 'No other series tagged with this genre yet.',
         ),
       ),
     );
@@ -615,10 +613,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
               ),
             ),
             const SizedBox(height: 8),
-            OutlinedButton(
-              onPressed: _loadVolumes,
-              child: const Text('Retry'),
-            ),
+            OutlinedButton(onPressed: _loadVolumes, child: const Text('Retry')),
           ],
         ),
       );
@@ -763,8 +758,9 @@ class _Header extends StatelessWidget {
                     style: theme.textTheme.bodyMedium?.copyWith(
                       color: theme.colorScheme.primary,
                       decoration: TextDecoration.underline,
-                      decorationColor:
-                          theme.colorScheme.primary.withValues(alpha: 0.4),
+                      decorationColor: theme.colorScheme.primary.withValues(
+                        alpha: 0.4,
+                      ),
                     ),
                   ),
                 ),
@@ -822,9 +818,9 @@ class _Cover extends StatelessWidget {
             textAlign: TextAlign.center,
             maxLines: 6,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: scheme.onPrimaryContainer,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.labelMedium?.copyWith(color: scheme.onPrimaryContainer),
           ),
         ),
       ),
@@ -960,11 +956,7 @@ class _VolumeTile extends StatelessWidget {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: _leading(theme),
-      title: Text(
-        volume.title,
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-      ),
+      title: Text(volume.title, maxLines: 2, overflow: TextOverflow.ellipsis),
       subtitle: Text(
         _subtitle(),
         style: theme.textTheme.bodySmall?.copyWith(
@@ -1112,7 +1104,8 @@ class _VolumeTile extends StatelessWidget {
               value: _VolumeAction.delete,
               icon: Icons.delete_outline,
               label: 'Delete download',
-              subtitle: 'Frees space; your place is kept and it can '
+              subtitle:
+                  'Frees space; your place is kept and it can '
                   're-download',
               isDestructive: true,
             ),
@@ -1216,7 +1209,9 @@ class _SimilarCard extends StatelessWidget {
                             child: const Padding(
                               padding: EdgeInsets.all(4),
                               child: Icon(
-                                Icons.close, size: 14, color: Colors.white,
+                                Icons.close,
+                                size: 14,
+                                color: Colors.white,
                               ),
                             ),
                           ),
@@ -1281,9 +1276,9 @@ class _SimilarFallback extends StatelessWidget {
             textAlign: TextAlign.center,
             maxLines: 5,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              color: scheme.onPrimaryContainer,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.labelMedium?.copyWith(color: scheme.onPrimaryContainer),
           ),
         ),
       ),
@@ -1295,8 +1290,18 @@ class _SimilarFallback extends StatelessWidget {
 String _formatDate(DateTime? date) {
   if (date == null) return 'unknown date';
   const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
   final local = date.toLocal();
   return '${months[local.month - 1]} ${local.day}, ${local.year}';
