@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../models/collection.dart';
 import '../models/library_view.dart';
 import '../models/series.dart';
 import '../services/library_storage.dart';
@@ -39,6 +40,13 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
   DownloadStore? get downloadStore;
   List<ReadingEntry> get readingEntries;
   Map<int, SeriesStatus> get seriesStatuses;
+
+  /// The user's collections, so the library can be narrowed to one.
+  List<Collection> get libraryCollections;
+
+  /// Seconds read per volume key, folded to a per-series total for the
+  /// "Time spent" sort.
+  Map<String, int> get volumeSecondsRead;
 
   /// Opens full-text search across every downloaded book.
   void openLibrarySearch();
@@ -178,12 +186,56 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
   /// order takes over from the chosen sort.
   bool get isSearching => searchTerms(searchQuery).isNotEmpty;
 
+  /// Seconds read per series, summed across its volumes.
+  Map<int, int> get _secondsBySeries {
+    final out = <int, int>{};
+    for (final entry in volumeSecondsRead.entries) {
+      // Keys are "seriesOpdsId/fileName".
+      final slash = entry.key.indexOf('/');
+      if (slash <= 0) continue;
+      final id = int.tryParse(entry.key.substring(0, slash));
+      if (id == null) continue;
+      out[id] = (out[id] ?? 0) + entry.value;
+    }
+    return out;
+  }
+
+  /// How far through each series the reader is, 0..1 — the furthest any of
+  /// its volumes has reached, not an average, since a series is "half read"
+  /// when you are halfway through it, not when half its volumes are.
+  Map<int, double> get _progressBySeries {
+    final out = <int, double>{};
+    for (final e in readingEntries) {
+      final id = e.volume.seriesOpdsId;
+      final f = e.progress.isFinished ? 1.0 : e.progress.fraction;
+      final prev = out[id];
+      if (prev == null || f > prev) out[id] = f;
+    }
+    return out;
+  }
+
+  /// The series in the filtered collection, or null when none is chosen.
+  Set<int>? get _collectionMembers {
+    final id = filters.collectionId;
+    if (id == null) return null;
+    for (final c in libraryCollections) {
+      if (c.id == id) return c.seriesIds.toSet();
+    }
+    // A collection that has since been deleted matches nothing, rather than
+    // silently behaving as though the filter were off.
+    return const <int>{};
+  }
+
   /// The library after applying the active search, filter set, and sort.
   List<Series> get visibleLibrary {
     final all = librarySeries ?? const <Series>[];
     final terms = searchTerms(searchQuery);
     final downloads = downloadStore;
     final readState = _seriesReadingState;
+    final members = _collectionMembers;
+    // One clock for the whole pass, so a series can't fall on both sides of
+    // an "updated within" boundary while the list is being built.
+    final now = DateTime.now();
     final filtered = <Series>[];
     for (final series in all) {
       if (terms.isNotEmpty && scoreSeries(series, terms) == null) continue;
@@ -191,6 +243,8 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
         series,
         isDownloaded:
             downloads?.recordsForSeries(series.opdsId).isNotEmpty ?? false,
+        now: now,
+        collectionSeriesIds: members,
       )) {
         continue;
       }
@@ -260,6 +314,7 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
         initial: filters,
         allGenres: _allGenres,
         allStatuses: _allStatuses,
+        collections: libraryCollections,
       ),
     );
     if (next == null) return;
@@ -273,6 +328,28 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
     int byTitle(Series a, Series b) =>
         a.title.toLowerCase().compareTo(b.title.toLowerCase());
     return switch (sort) {
+      // Descending by default for these three: the interesting end of
+      // "longest", "furthest in" and "most read" is the top of each.
+      LibrarySort.length => (a, b) {
+        final c = b.totalChapters.compareTo(a.totalChapters);
+        return c != 0 ? c : byTitle(a, b);
+      },
+      LibrarySort.progress => () {
+        final progress = _progressBySeries;
+        return (Series a, Series b) {
+          final c = (progress[b.opdsId] ?? 0).compareTo(
+            progress[a.opdsId] ?? 0,
+          );
+          return c != 0 ? c : byTitle(a, b);
+        };
+      }(),
+      LibrarySort.timeSpent => () {
+        final seconds = _secondsBySeries;
+        return (Series a, Series b) {
+          final c = (seconds[b.opdsId] ?? 0).compareTo(seconds[a.opdsId] ?? 0);
+          return c != 0 ? c : byTitle(a, b);
+        };
+      }(),
       LibrarySort.titleAsc => byTitle,
       LibrarySort.recentlyUpdated => (a, b) {
         final at = a.updatedAt;
@@ -302,6 +379,88 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
       },
     };
   }
+
+  /// The active filter clauses, each removable in one tap.
+  ///
+  /// A dot on the filter icon told you something was on but not what, so the
+  /// only way to see or undo a clause was to reopen the sheet and read it.
+  Widget _activeFilterChips(ThemeData theme) {
+    final f = filters;
+    final chips = <({String label, LibraryFilters cleared})>[
+      if (f.genres.isNotEmpty)
+        (
+          label: f.genres.length == 1
+              ? f.genres.first
+              : '${f.genres.length} genres'
+                    '${f.matchAllGenres ? " (all)" : ""}',
+          cleared: f.copyWith(genres: const {}, matchAllGenres: false),
+        ),
+      if (f.statuses.isNotEmpty)
+        (
+          label: f.statuses.map(_titleCaseWord).join(', '),
+          cleared: f.copyWith(statuses: const {}),
+        ),
+      if (f.length != LengthBand.any)
+        (label: f.length.label, cleared: f.copyWith(length: LengthBand.any)),
+      if (f.updated != UpdatedWithin.any)
+        (
+          label: f.updated.label,
+          cleared: f.copyWith(updated: UpdatedWithin.any),
+        ),
+      if (f.collectionId != null)
+        (
+          label: _collectionName(f.collectionId!),
+          cleared: f.copyWith(collectionId: null),
+        ),
+      if (f.downloaded != null)
+        (
+          label: f.downloaded! ? 'Downloaded' : 'Not downloaded',
+          cleared: f.copyWith(downloaded: null),
+        ),
+      if (f.multiVolume != null)
+        (
+          label: f.multiVolume! ? 'Multi-volume' : 'Single volume',
+          cleared: f.copyWith(multiVolume: null),
+        ),
+    ];
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final chip in chips)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: InputChip(
+                label: Text(chip.label),
+                onDeleted: () =>
+                    _updateView(view.copyWith(filters: chip.cleared)),
+                deleteIcon: const Icon(Icons.close, size: 15),
+                backgroundColor: theme.colorScheme.tertiary.withValues(
+                  alpha: 0.12,
+                ),
+                side: BorderSide.none,
+              ),
+            ),
+          if (chips.length > 1)
+            TextButton(
+              onPressed: clearAllFilters,
+              child: const Text('Clear all'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _collectionName(String id) {
+    for (final c in libraryCollections) {
+      if (c.id == id) return c.name;
+    }
+    return 'Collection';
+  }
+
+  static String _titleCaseWord(String s) =>
+      s.isEmpty ? s : '${s[0].toUpperCase()}${s.substring(1)}';
 
   String get _directionLabel =>
       sortDescending ? sort.directionLabels.$2 : sort.directionLabels.$1;
@@ -505,6 +664,10 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
               ],
             ),
           ),
+          if (!filters.isEmpty) ...[
+            const SizedBox(height: 8),
+            _activeFilterChips(theme),
+          ],
           const SizedBox(height: 8),
           Text(
             isSearching
@@ -530,11 +693,13 @@ class _LibraryFilterSheet extends StatefulWidget {
     required this.initial,
     required this.allGenres,
     required this.allStatuses,
+    required this.collections,
   });
 
   final LibraryFilters initial;
   final List<GenreFacet> allGenres;
   final List<String> allStatuses;
+  final List<Collection> collections;
 
   @override
   State<_LibraryFilterSheet> createState() => _LibraryFilterSheetState();
@@ -631,6 +796,63 @@ class _LibraryFilterSheetState extends State<_LibraryFilterSheet> {
                         ],
                       ),
                     ),
+                  if (widget.collections.isNotEmpty)
+                    _card(
+                      theme,
+                      'Collection',
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final c in widget.collections)
+                            FilterChip(
+                              label: Text('${c.name}  ${c.seriesIds.length}'),
+                              selected: _draft.collectionId == c.id,
+                              onSelected: (selected) => setState(
+                                () => _draft = _draft.copyWith(
+                                  collectionId: selected ? c.id : null,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  _card(
+                    theme,
+                    'Length',
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final band in LengthBand.values)
+                          ChoiceChip(
+                            label: Text(band.label),
+                            selected: _draft.length == band,
+                            onSelected: (_) => setState(
+                              () => _draft = _draft.copyWith(length: band),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  _card(
+                    theme,
+                    'Updated',
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final u in UpdatedWithin.values)
+                          ChoiceChip(
+                            label: Text(u.label),
+                            selected: _draft.updated == u,
+                            onSelected: (_) => setState(
+                              () => _draft = _draft.copyWith(updated: u),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
                   _card(
                     theme,
                     'Downloaded',
@@ -705,6 +927,23 @@ class _LibraryFilterSheetState extends State<_LibraryFilterSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Only meaningful with more than one genre picked, and hiding it
+        // until then keeps the card quiet in the common case.
+        if (_draft.genres.length > 1)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: SegmentedButton<bool>(
+              style: const ButtonStyle(visualDensity: VisualDensity.compact),
+              segments: const [
+                ButtonSegment(value: false, label: Text('Any of these')),
+                ButtonSegment(value: true, label: Text('All of these')),
+              ],
+              selected: {_draft.matchAllGenres},
+              onSelectionChanged: (sel) => setState(
+                () => _draft = _draft.copyWith(matchAllGenres: sel.first),
+              ),
+            ),
+          ),
         if (widget.allGenres.length > _genreCollapsedCount)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),

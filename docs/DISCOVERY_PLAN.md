@@ -130,15 +130,23 @@ Deliberately *not* doing fuzzy/edit-distance matching yet: tokenizing plus
 a wider haystack fixes most real misses, and fuzzy matching at 486 series
 risks burying exact matches under noise. Revisit if misses persist.
 
-### Tier 3 — Slice by what the library actually holds
+### Tier 3 — Slice by what the library actually holds — **done**
 
-10. **New filters:** length band (chapters), updated-within, progress state
-    (untouched / started / nearly done), collection membership.
+10. **New filters:** length band (chapters), updated-within, collection
+    membership.
 11. **Genre AND/OR toggle**, defaulting to OR to preserve today's behaviour.
+    Shown only once more than one genre is picked, since it means nothing
+    before that.
 12. **New sorts:** length, progress, time spent reading.
 13. **Active filters as inline chips** above the grid, each removable with
     one tap — so the filter state is visible and reversible without
     reopening the sheet.
+
+**Dropped from this tier: the progress *filter*.** "Untouched" and
+"started" are what the Unread and Reading chips already do, and a second
+control saying the same thing in different words makes the sheet harder to
+reason about, not more capable. The genuinely new question — *how far in am
+I* — is a question of ordering, so it became the "How far in" sort instead.
 
 ### Tier 4 — Saved views
 

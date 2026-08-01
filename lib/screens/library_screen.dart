@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
+import '../models/collection.dart';
 import '../models/series.dart';
 import '../models/volume.dart';
 import '../services/library_cache.dart';
@@ -90,8 +91,13 @@ class _LibraryScreenState extends State<LibraryScreen>
   /// Books that have been started but not finished, newest first.
   List<ReadingEntry> _reading = const [];
 
-  /// Reading-time activity + daily goal for the home streak chip.
+  /// Reading-time activity + daily goal for the home streak chip. Its
+  /// per-volume seconds also drive the library's "Time spent" sort.
   ReadingActivity _activity = ReadingActivity.empty;
+
+  /// The user's collections — loaded for the recommendation signals, and
+  /// reused so the library can be narrowed to one.
+  List<Collection> _collections = const [];
   int _dailyGoalMinutes = 0;
 
   /// "Recommended for you" — rebuilt whenever reading history or the library
@@ -108,6 +114,10 @@ class _LibraryScreenState extends State<LibraryScreen>
   /// that saturated the connection and slowed manual checking/downloading.
   @override
   Map<int, SeriesStatus> get seriesStatuses => _seriesStatus;
+  @override
+  List<Collection> get libraryCollections => _collections;
+  @override
+  Map<String, int> get volumeSecondsRead => _activity.perVolumeSeconds;
 
   // ── LibraryDownloads proxies ────────────────────────────────────────────
   @override
@@ -304,6 +314,7 @@ class _LibraryScreenState extends State<LibraryScreen>
     setState(() {
       _allReadingEntries = entries;
       _activity = activity;
+      _collections = collections;
       _dailyGoalMinutes = dailyGoal;
       _seriesStatus = status;
       _reading = inProgress;

@@ -6,7 +6,10 @@ enum LibrarySort {
   recentlyUpdated('Recently updated'),
   recentlyRead('Recently read'),
   author('Author'),
-  readingStatus('Reading status');
+  readingStatus('Reading status'),
+  length('Length'),
+  progress('How far in'),
+  timeSpent('Time spent');
 
   const LibrarySort(this.label);
 
@@ -22,6 +25,9 @@ enum LibrarySort {
     LibrarySort.recentlyUpdated => ('Newest first', 'Oldest first'),
     LibrarySort.recentlyRead => ('Most recent', 'Longest ago'),
     LibrarySort.readingStatus => ('Active first', 'Finished first'),
+    LibrarySort.length => ('Longest first', 'Shortest first'),
+    LibrarySort.progress => ('Furthest in', 'Barely started'),
+    LibrarySort.timeSpent => ('Most read', 'Least read'),
   };
 
   static LibrarySort fromName(String? name) {
@@ -52,17 +58,86 @@ enum ReadingStateFilter {
   }
 }
 
+/// Length bands, in chapters.
+///
+/// The boundaries suit serialised webnovels rather than books: a "short"
+/// series here is still a couple of hundred chapters, and the top band is
+/// open-ended because the longest runs reach into the thousands.
+enum LengthBand {
+  any('Any length', 0, null),
+  short('Under 300', 0, 300),
+  medium('300 - 1000', 300, 1000),
+  long('Over 1000', 1000, null);
+
+  const LengthBand(this.label, this.min, this.max);
+
+  final String label;
+  final int min;
+  final int? max;
+
+  bool contains(int chapters) {
+    if (this == LengthBand.any) return true;
+    if (chapters < min) return false;
+    return max == null || chapters < max!;
+  }
+
+  static LengthBand fromName(String? name) {
+    for (final b in LengthBand.values) {
+      if (b.name == name) return b;
+    }
+    return LengthBand.any;
+  }
+}
+
+/// How recently a series gained anything.
+enum UpdatedWithin {
+  any('Any time', null),
+  week('Past week', 7),
+  month('Past month', 30),
+  quarter('Past 3 months', 90),
+  year('Past year', 365);
+
+  const UpdatedWithin(this.label, this.days);
+
+  final String label;
+  final int? days;
+
+  bool contains(DateTime? updatedAt, DateTime now) {
+    if (days == null) return true;
+    // An undated series cannot be shown to be recent, so it fails the
+    // filter rather than slipping through it.
+    if (updatedAt == null) return false;
+    return now.difference(updatedAt).inDays <= days!;
+  }
+
+  static UpdatedWithin fromName(String? name) {
+    for (final u in UpdatedWithin.values) {
+      if (u.name == name) return u;
+    }
+    return UpdatedWithin.any;
+  }
+}
+
 /// The active set of library filters, applied alongside search + sort.
 class LibraryFilters {
   const LibraryFilters({
     this.genres = const {},
+    this.matchAllGenres = false,
     this.statuses = const {},
     this.downloaded,
     this.multiVolume,
+    this.length = LengthBand.any,
+    this.updated = UpdatedWithin.any,
+    this.collectionId,
   });
 
   /// Genres the user wants to see; empty = no genre filter.
   final Set<String> genres;
+
+  /// When true a series must carry *every* selected genre rather than any
+  /// one of them. Off by default: any-match is what this filter has always
+  /// meant, and flipping it silently would rewrite saved views.
+  final bool matchAllGenres;
 
   /// Reading statuses the user wants to see; empty = no status filter.
   final Set<String> statuses;
@@ -73,11 +148,23 @@ class LibraryFilters {
   /// null = either, true = only multi-volume, false = only single-volume.
   final bool? multiVolume;
 
+  /// Chapter-count band.
+  final LengthBand length;
+
+  /// How recently the series was updated.
+  final UpdatedWithin updated;
+
+  /// Restrict to one collection, by its id; null = the whole library.
+  final String? collectionId;
+
   bool get isEmpty =>
       genres.isEmpty &&
       statuses.isEmpty &&
       downloaded == null &&
-      multiVolume == null;
+      multiVolume == null &&
+      length == LengthBand.any &&
+      updated == UpdatedWithin.any &&
+      collectionId == null;
 
   /// How many clauses are active — drives the badge on the filter button and
   /// the count in the empty state.
@@ -85,13 +172,35 @@ class LibraryFilters {
       (genres.isEmpty ? 0 : 1) +
       (statuses.isEmpty ? 0 : 1) +
       (downloaded == null ? 0 : 1) +
-      (multiVolume == null ? 0 : 1);
+      (multiVolume == null ? 0 : 1) +
+      (length == LengthBand.any ? 0 : 1) +
+      (updated == UpdatedWithin.any ? 0 : 1) +
+      (collectionId == null ? 0 : 1);
 
   /// True when [series] satisfies every active filter clause.
-  bool matches(Series series, {required bool isDownloaded}) {
+  ///
+  /// [collectionSeriesIds] is the membership of [collectionId]; pass null
+  /// when no collection filter is active or the collection is unknown.
+  bool matches(
+    Series series, {
+    required bool isDownloaded,
+    DateTime? now,
+    Set<int>? collectionSeriesIds,
+  }) {
     if (genres.isNotEmpty) {
       final seriesGenres = {for (final g in series.genres) g.trim()};
-      if (!seriesGenres.any(genres.contains)) return false;
+      final ok = matchAllGenres
+          ? genres.every(seriesGenres.contains)
+          : seriesGenres.any(genres.contains);
+      if (!ok) return false;
+    }
+    if (!length.contains(series.totalChapters)) return false;
+    if (!updated.contains(series.updatedAt, now ?? DateTime.now())) {
+      return false;
+    }
+    if (collectionId != null &&
+        !(collectionSeriesIds ?? const <int>{}).contains(series.opdsId)) {
+      return false;
     }
     if (statuses.isNotEmpty &&
         !statuses.contains(series.readingStatus.trim().toLowerCase())) {
@@ -106,12 +215,22 @@ class LibraryFilters {
 
   LibraryFilters copyWith({
     Set<String>? genres,
+    bool? matchAllGenres,
     Set<String>? statuses,
     Object? downloaded = _unset,
     Object? multiVolume = _unset,
+    LengthBand? length,
+    UpdatedWithin? updated,
+    Object? collectionId = _unset,
   }) {
     return LibraryFilters(
       genres: genres ?? this.genres,
+      matchAllGenres: matchAllGenres ?? this.matchAllGenres,
+      length: length ?? this.length,
+      updated: updated ?? this.updated,
+      collectionId: identical(collectionId, _unset)
+          ? this.collectionId
+          : collectionId as String?,
       statuses: statuses ?? this.statuses,
       downloaded: identical(downloaded, _unset)
           ? this.downloaded
@@ -124,20 +243,26 @@ class LibraryFilters {
 
   Map<String, dynamic> toJson() => {
     'genres': genres.toList()..sort(),
+    'matchAllGenres': matchAllGenres,
     'statuses': statuses.toList()..sort(),
     'downloaded': downloaded,
     'multiVolume': multiVolume,
+    'length': length.name,
+    'updated': updated.name,
+    'collectionId': collectionId,
   };
 
   static LibraryFilters fromJson(Map<String, dynamic> j) => LibraryFilters(
-    genres: {
-      for (final g in (j['genres'] as List? ?? const [])) g.toString(),
-    },
+    genres: {for (final g in (j['genres'] as List? ?? const [])) g.toString()},
     statuses: {
       for (final s in (j['statuses'] as List? ?? const [])) s.toString(),
     },
     downloaded: j['downloaded'] as bool?,
     multiVolume: j['multiVolume'] as bool?,
+    matchAllGenres: j['matchAllGenres'] == true,
+    length: LengthBand.fromName(j['length'] as String?),
+    updated: UpdatedWithin.fromName(j['updated'] as String?),
+    collectionId: j['collectionId'] as String?,
   );
 
   static const Object _unset = Object();
