@@ -6,6 +6,7 @@ import '../services/control_client.dart';
 import '../services/settings_service.dart';
 import '../widgets/action_sheet.dart';
 import '../widgets/section_header.dart';
+import 'browse_screen.dart';
 import 'novel_search_screen.dart';
 
 /// The queue entries whose title matches [query], each paired with its real
@@ -146,6 +147,16 @@ class _ManageScreenState extends State<ManageScreen> {
     }
   }
 
+  Future<void> _openBrowser() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => BrowseScreen(settings: widget.settings),
+      ),
+    );
+    // Anything added in the browser lands in the queue below.
+    await _refreshQuiet();
+  }
+
   Future<void> _openSearch() async {
     final sites = _status?.searchSites ?? const <String>[];
     await Navigator.of(context).push(
@@ -219,6 +230,11 @@ class _ManageScreenState extends State<ManageScreen> {
       appBar: AppBar(
         title: const Text('Manage server'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.language),
+            tooltip: 'Browse the source sites',
+            onPressed: _openBrowser,
+          ),
           IconButton(
             icon: const Icon(Icons.travel_explore),
             tooltip: 'Find novels',
