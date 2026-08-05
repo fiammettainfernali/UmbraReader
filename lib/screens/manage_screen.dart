@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/control_client.dart';
+import '../services/pending_add_store.dart';
 import '../services/settings_service.dart';
 import '../widgets/action_sheet.dart';
 import '../widgets/duplicate_sheet.dart';
@@ -57,6 +58,9 @@ class _ManageScreenState extends State<ManageScreen> {
   /// would be clutter.
   static const int _searchThreshold = 8;
 
+  /// Adds made while the server was unreachable, waiting to be sent.
+  List<PendingAdd> _pending = const [];
+
   @override
   void initState() {
     super.initState();
@@ -90,6 +94,9 @@ class _ManageScreenState extends State<ManageScreen> {
         _schedule = schedule;
         _loading = false;
       });
+      // A status that came back is proof the server is answering, which is
+      // the moment anything queued offline can finally go.
+      await _flushPending();
     } on ControlException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -177,8 +184,39 @@ class _ManageScreenState extends State<ManageScreen> {
         builder: (_) => BrowseScreen(settings: widget.settings),
       ),
     );
-    // Anything added in the browser lands in the queue below.
+    // Anything added in the browser lands in the queue below — or in the
+    // waiting list, if it was added while out of range.
     await _refreshQuiet();
+    await _flushPending();
+  }
+
+  /// Sends anything queued while the server was unreachable.
+  Future<void> _flushPending() async {
+    final store = PendingAddStore();
+    final waiting = await store.list();
+    if (waiting.isEmpty) {
+      if (mounted && _pending.isNotEmpty) setState(() => _pending = const []);
+      return;
+    }
+    final report = await store.flush(_client);
+    if (!mounted) return;
+    setState(() => _pending = report.stillWaiting > 0 ? waiting : const []);
+    final summary = report.summary;
+    if (summary != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(summary)));
+    }
+    if (report.sent > 0) await _refreshQuiet();
+    if (report.stillWaiting > 0) {
+      final left = await store.list();
+      if (mounted) setState(() => _pending = left);
+    }
+  }
+
+  Future<void> _forgetPending(PendingAdd entry) async {
+    final next = await PendingAddStore().remove(entry.id);
+    if (mounted) setState(() => _pending = next);
   }
 
   Future<void> _openSearch() async {
@@ -268,6 +306,19 @@ class _ManageScreenState extends State<ManageScreen> {
       if (proceed && mounted) await _addUrl(url, force: true);
     } on ControlException catch (e) {
       if (!mounted) return;
+      if (e.isUnreachable) {
+        final waiting = await PendingAddStore().enqueue(url, force: force);
+        if (!mounted) return;
+        setState(() => _pending = waiting);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Novel Grabber isn't reachable — saved for when it is.",
+            ),
+          ),
+        );
+        return;
+      }
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(e.message)));
@@ -531,6 +582,52 @@ class _ManageScreenState extends State<ManageScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                ],
+
+                // ── waiting to send ────────────────────────────────
+                if (_pending.isNotEmpty) ...[
+                  SectionHeader(
+                    'Waiting to send (${_pending.length})',
+                    padding: const EdgeInsets.only(bottom: 4),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Text(
+                      'Added while Novel Grabber was out of reach. These go '
+                      'as soon as it answers.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.outline,
+                      ),
+                    ),
+                  ),
+                  for (final entry in _pending)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        Icons.cloud_upload_outlined,
+                        color: theme.colorScheme.outline,
+                      ),
+                      title: Text(
+                        entry.label,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        entry.attempts == 0
+                            ? 'Waiting'
+                            : 'Waiting · ${entry.attempts} attempt'
+                                  '${entry.attempts == 1 ? '' : 's'}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.close, size: 20),
+                        tooltip: 'Forget this one',
+                        onPressed: () => _forgetPending(entry),
+                      ),
+                    ),
+                  const SizedBox(height: 16),
                 ],
 
                 // ── queue ──────────────────────────────────────────────────

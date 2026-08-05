@@ -8,8 +8,18 @@ import 'settings_service.dart';
 
 /// Raised when the control API can't be reached or returns an error.
 class ControlException implements Exception {
-  ControlException(this.message);
+  ControlException(this.message, {this.isUnreachable = false});
+
   final String message;
+
+  /// True when the server could not be reached at all — offline, asleep,
+  /// off the network — as opposed to reached and refusing.
+  ///
+  /// The difference decides whether an action is worth keeping for later:
+  /// a request that never arrived can be retried unchanged, while a 400 is
+  /// an answer, and retrying it would only produce the same answer.
+  final bool isUnreachable;
+
   @override
   String toString() => message;
 }
@@ -378,9 +388,13 @@ class ControlClient {
       throw ControlException(
         'The server took too long to respond. The source site may be slow '
         'or blocking requests — try again, or pick a different source.',
+        isUnreachable: true,
       );
     } on Exception catch (e) {
-      throw ControlException('Could not reach Novel Grabber.\n($e)');
+      throw ControlException(
+        'Could not reach Novel Grabber.\n($e)',
+        isUnreachable: true,
+      );
     }
     if (res.statusCode == 503) {
       throw ControlException(
@@ -418,7 +432,10 @@ class ControlClient {
           )
           .timeout(const Duration(seconds: 12));
     } on Exception catch (e) {
-      throw ControlException('Could not reach Novel Grabber.\n($e)');
+      throw ControlException(
+        'Could not reach Novel Grabber.\n($e)',
+        isUnreachable: true,
+      );
     }
     if (res.statusCode == 503) {
       throw ControlException('The server\'s control API is unavailable.');

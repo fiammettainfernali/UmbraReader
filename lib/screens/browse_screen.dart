@@ -3,6 +3,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../services/control_client.dart';
 import '../services/settings_service.dart';
+import '../services/pending_add_store.dart';
 import '../services/site_patterns.dart';
 import '../widgets/duplicate_sheet.dart';
 
@@ -144,11 +145,43 @@ class _BrowseScreenState extends State<BrowseScreen> {
       return;
     } on ControlException catch (e) {
       if (!mounted) return;
+      if (e.isUnreachable) {
+        // Out of reach, not refused — keep the intent and send it when the
+        // server next answers. Finding something worth reading shouldn't
+        // have to wait for the desktop to be awake.
+        await PendingAddStore().enqueue(
+          target.toString(),
+          label: await _pageTitle() ?? target.toString(),
+          force: force,
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "Novel Grabber isn't reachable — saved, and it'll be added "
+              'next time the app connects.',
+            ),
+          ),
+        );
+        return;
+      }
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text(e.message)));
     } finally {
       if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  /// The page's own <title>, so a pending row reads as a book rather than
+  /// a URL. Null when the WebView can't say.
+  Future<String?> _pageTitle() async {
+    try {
+      final title = await _web.getTitle();
+      final trimmed = (title ?? '').trim();
+      return trimmed.isEmpty ? null : trimmed;
+    } on Exception {
+      return null;
     }
   }
 
