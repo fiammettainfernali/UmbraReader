@@ -4,6 +4,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import '../services/control_client.dart';
 import '../services/settings_service.dart';
 import '../services/site_patterns.dart';
+import '../widgets/duplicate_sheet.dart';
 
 /// An in-app browser for finding novels on the source sites and sending
 /// them to Novel Grabber.
@@ -35,6 +36,16 @@ class _BrowseScreenState extends State<BrowseScreen> {
   bool _loading = true;
   bool _sending = false;
 
+  /// The library entry for the page on screen, when there is one. Checked
+  /// as you browse so a page you already have says so *before* you tap
+  /// add — which is the whole point, since remembering 486 novels is not
+  /// something anyone does.
+  DuplicateMatch? _alreadyHave;
+
+  /// Guards against a slow lookup for a page you have since left
+  /// overwriting the answer for the page you are actually on.
+  int _lookupToken = 0;
+
   @override
   void initState() {
     super.initState();
@@ -57,13 +68,33 @@ class _BrowseScreenState extends State<BrowseScreen> {
             setState(() {
               _current = Uri.tryParse(url);
               _urlField.text = url;
+              _alreadyHave = null;
             });
+            _checkAlreadyHave();
           },
         ),
       )
       ..loadRequest(start);
     _current = start;
     _urlField.text = start.toString();
+    _checkAlreadyHave();
+  }
+
+  /// Asks the server whether the current page is already in the library.
+  /// Silent on failure: an older server without the endpoint, or no
+  /// connection, should cost the hint and nothing else.
+  Future<void> _checkAlreadyHave() async {
+    final page = _current;
+    if (page == null) return;
+    final target = novelPageFor(page) ?? page;
+    final token = ++_lookupToken;
+    try {
+      final result = await _client.lookup(target.toString());
+      if (!mounted || token != _lookupToken) return;
+      setState(() => _alreadyHave = result.known ? result.novel : null);
+    } on ControlException {
+      // no hint available
+    }
   }
 
   @override
@@ -81,7 +112,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
     _web.loadRequest(url);
   }
 
-  Future<void> _addCurrent() async {
+  Future<void> _addCurrent({bool force = false}) async {
     final page = _current;
     if (page == null) return;
     // From a chapter, offer the novel's main page when it can be derived —
@@ -89,7 +120,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
     final target = novelPageFor(page) ?? page;
     setState(() => _sending = true);
     try {
-      await _client.addNovel(target.toString());
+      await _client.addNovel(target.toString(), force: force);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -99,6 +130,18 @@ class _BrowseScreenState extends State<BrowseScreen> {
           ),
         ),
       );
+      await _checkAlreadyHave();
+    } on DuplicateNovelException catch (e) {
+      if (!mounted) return;
+      setState(() => _sending = false);
+      final proceed = await confirmDuplicateAdd(
+        context,
+        title: _alreadyHave?.title ?? target.toString(),
+        matches: e.matches,
+        sameUrl: e.isSameUrl,
+      );
+      if (proceed && mounted) await _addCurrent(force: true);
+      return;
     } on ControlException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -115,11 +158,14 @@ class _BrowseScreenState extends State<BrowseScreen> {
     final kind = _current == null ? PageKind.unsupported : classify(_current!);
     final site = _current == null ? null : siteFor(_current!);
 
-    final (String label, IconData icon) = switch (kind) {
-      PageKind.novel => ('Add this novel', Icons.library_add),
-      PageKind.supportedSite => ('Add this page', Icons.add_link),
-      PageKind.unsupported => ('Send anyway', Icons.help_outline),
-    };
+    final have = _alreadyHave;
+    final (String label, IconData icon) = have != null
+        ? ('Already in your library', Icons.library_add_check)
+        : switch (kind) {
+            PageKind.novel => ('Add this novel', Icons.library_add),
+            PageKind.supportedSite => ('Add this page', Icons.add_link),
+            PageKind.unsupported => ('Send anyway', Icons.help_outline),
+          };
 
     return Scaffold(
       appBar: AppBar(
@@ -216,10 +262,18 @@ class _BrowseScreenState extends State<BrowseScreen> {
                   )
                 : Icon(icon),
             label: Text(
-              kind == PageKind.unsupported
+              have != null
+                  ? label
+                  : kind == PageKind.unsupported
                   ? '$label — this site may not be supported'
                   : label,
             ),
+            style: have == null
+                ? null
+                : FilledButton.styleFrom(
+                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                    foregroundColor: theme.colorScheme.onSurfaceVariant,
+                  ),
           ),
         ),
       ),

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../services/control_client.dart';
 import '../services/settings_service.dart';
 import '../widgets/action_sheet.dart';
+import '../widgets/duplicate_sheet.dart';
 import '../widgets/section_header.dart';
 import 'browse_screen.dart';
 import 'novel_search_screen.dart';
@@ -109,6 +110,11 @@ class _ManageScreenState extends State<ManageScreen> {
           case 'queue':
           case 'snapshot':
             _refreshQuiet();
+          case 'duplicate':
+            // The same story under a different URL can only be judged once
+            // the server has fetched the page, so the answer arrives here
+            // rather than in the add's response.
+            _onDuplicateWarning(event);
         }
       },
       onError: (_) {
@@ -145,6 +151,24 @@ class _ManageScreenState extends State<ManageScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// A queued add turned out to look like something already in the
+  /// library. The server stopped rather than adding it; offer the choice.
+  Future<void> _onDuplicateWarning(ControlEvent event) async {
+    final warning = event.duplicate;
+    if (warning == null || warning.matches.isEmpty || !mounted) return;
+    final proceed = await confirmDuplicateAdd(
+      context,
+      title: warning.title,
+      matches: warning.matches,
+      sameUrl: warning.reason == 'url',
+    );
+    if (!proceed || !mounted) return;
+    await _run(
+      () => _client.addNovel(warning.url, force: true),
+      'Adding “${warning.title}” anyway',
+    );
   }
 
   Future<void> _openBrowser() async {
@@ -221,7 +245,33 @@ class _ManageScreenState extends State<ManageScreen> {
     );
     controller.dispose();
     if (url == null || url.isEmpty) return;
-    await _run(() => _client.addNovel(url), 'Queued — scraping started.');
+    await _addUrl(url);
+  }
+
+  /// Adds [url], asking first if the server says it already has it.
+  Future<void> _addUrl(String url, {bool force = false}) async {
+    try {
+      await _client.addNovel(url, force: force);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Queued — scraping started.')),
+      );
+      await _refreshQuiet();
+    } on DuplicateNovelException catch (e) {
+      if (!mounted) return;
+      final proceed = await confirmDuplicateAdd(
+        context,
+        title: e.matches.isEmpty ? url : e.matches.first.title,
+        matches: e.matches,
+        sameUrl: e.isSameUrl,
+      );
+      if (proceed && mounted) await _addUrl(url, force: true);
+    } on ControlException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.message)));
+    }
   }
 
   @override

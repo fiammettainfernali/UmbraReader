@@ -49,6 +49,68 @@ class QueueEntry {
   );
 }
 
+/// A novel already in the library that looks like one being added.
+class DuplicateMatch {
+  const DuplicateMatch({
+    required this.novelId,
+    required this.title,
+    required this.sourceSite,
+    required this.sourceUrl,
+    required this.totalChapters,
+    required this.similarity,
+  });
+
+  final int novelId;
+  final String title;
+  final String sourceSite;
+  final String sourceUrl;
+  final int totalChapters;
+
+  /// 1.0 when the titles match exactly after normalisation.
+  final double similarity;
+
+  factory DuplicateMatch.fromJson(Map<String, dynamic> j) => DuplicateMatch(
+    novelId: (j['novelId'] as num?)?.toInt() ?? 0,
+    title: j['title'] as String? ?? '',
+    sourceSite: j['sourceSite'] as String? ?? '',
+    sourceUrl: j['sourceUrl'] as String? ?? '',
+    totalChapters: (j['totalChapters'] as num?)?.toInt() ?? 0,
+    similarity: (j['similarity'] as num?)?.toDouble() ?? 0,
+  );
+}
+
+/// Thrown when the server refuses an add because it already has the novel.
+///
+/// Distinct from a plain [ControlException] so the caller can offer "add
+/// anyway" rather than just reporting a failure — this is a question, not
+/// an error.
+class DuplicateNovelException extends ControlException {
+  DuplicateNovelException(super.message, this.matches, this.reason);
+
+  final List<DuplicateMatch> matches;
+
+  /// "url" when the exact page is already known, "title" when a different
+  /// source carries what looks like the same story.
+  final String reason;
+
+  bool get isSameUrl => reason == 'url';
+}
+
+/// Whether a URL is already in the library.
+class NovelLookup {
+  const NovelLookup({required this.known, this.novel});
+
+  final bool known;
+  final DuplicateMatch? novel;
+
+  factory NovelLookup.fromJson(Map<String, dynamic> j) => NovelLookup(
+    known: j['known'] == true,
+    novel: j['novel'] is Map<String, dynamic>
+        ? DuplicateMatch.fromJson(j['novel'] as Map<String, dynamic>)
+        : null,
+  );
+}
+
 /// Snapshot of Novel Grabber's job state.
 class ControlStatus {
   const ControlStatus({
@@ -167,11 +229,33 @@ class ControlEvent {
   final String type; // progress, status, queue, snapshot
   final Map<String, dynamic> raw;
 
-  ControlProgress? get progress => type == 'progress' && raw['data'] is Map
+  ControlProgress? get progress =>
+      type == 'progress' && raw['data'] is Map<String, dynamic>
       ? ControlProgress.fromJson(raw['data'] as Map<String, dynamic>)
       : null;
 
   String? get message => raw['message'] as String?;
+
+  /// The same-story warning the server emits after scraping a page it was
+  /// asked to add. Null on every other event type.
+  ({String url, String title, String reason, List<DuplicateMatch> matches})?
+  get duplicate {
+    // Checked against the exact type rather than bare Map: `is Map` admits
+    // a Map<dynamic, dynamic>, which the cast below would then throw on.
+    if (type != 'duplicate' || raw['data'] is! Map<String, dynamic>) {
+      return null;
+    }
+    final d = raw['data'] as Map<String, dynamic>;
+    return (
+      url: d['url'] as String? ?? '',
+      title: d['title'] as String? ?? '',
+      reason: d['reason'] as String? ?? 'title',
+      matches: [
+        for (final m in (d['matches'] as List? ?? const []))
+          if (m is Map<String, dynamic>) DuplicateMatch.fromJson(m),
+      ],
+    );
+  }
 }
 
 /// Talks to Novel Grabber's `/api/*` control endpoints (the command channel
@@ -190,7 +274,23 @@ class ControlClient {
     return ControlStatus.fromJson(json);
   }
 
-  Future<void> addNovel(String url) => _post('/api/novels', {'url': url});
+  /// Queues a novel. Throws [DuplicateNovelException] when the server
+  /// already has this exact URL; pass [force] to add it regardless.
+  ///
+  /// The same story under a *different* URL cannot be judged here — that
+  /// needs the title, which needs a fetch — so the server reports it over
+  /// the event stream once it has scraped the page.
+  Future<void> addNovel(String url, {bool force = false}) =>
+      _post('/api/novels', {'url': url, if (force) 'force': true});
+
+  /// Whether [url] is already in the library. A plain database read on the
+  /// server, so it is cheap enough to ask on every page browsed.
+  Future<NovelLookup> lookup(String url) async {
+    final json = await _get(
+      '/api/novels/lookup?url=${Uri.encodeQueryComponent(url)}',
+    );
+    return NovelLookup.fromJson(json);
+  }
 
   /// Searches a single source (by SITE_NAME) for novels matching [query].
   Future<List<SearchHit>> search(
@@ -325,11 +425,23 @@ class ControlClient {
     }
     if (res.statusCode >= 400) {
       String detail = 'HTTP ${res.statusCode}';
+      Map<String, dynamic>? decoded;
       try {
         final d = jsonDecode(res.body);
-        if (d is Map && d['error'] is String) detail = d['error'] as String;
+        if (d is Map<String, dynamic>) {
+          decoded = d;
+          if (d['error'] is String) detail = d['error'] as String;
+        }
       } on FormatException {
         // keep the status-code detail
+      }
+      // 409 is the server saying "you already have this", which the caller
+      // can act on rather than merely report.
+      if (res.statusCode == 409 && decoded != null) {
+        throw DuplicateNovelException(detail, [
+          for (final m in (decoded['matches'] as List? ?? const []))
+            if (m is Map<String, dynamic>) DuplicateMatch.fromJson(m),
+        ], decoded['reason'] as String? ?? 'url');
       }
       throw ControlException(detail);
     }
