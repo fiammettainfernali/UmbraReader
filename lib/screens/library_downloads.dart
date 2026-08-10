@@ -9,6 +9,7 @@ import '../services/library_cache.dart';
 import '../services/library_storage.dart';
 import '../services/opds_client.dart';
 import '../services/reading_progress_store.dart';
+import '../services/work_pool.dart';
 import '../services/settings_service.dart';
 import '../utils/volume_ordering.dart';
 
@@ -252,25 +253,49 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
       storage: LibraryStorage(),
       store: downloads,
     );
+    // Ask about every series at once rather than one at a time: these are
+    // small requests where the round-trip dominates, and there can be
+    // hundreds of them.
+    final nextUp = await mapPooled<ReadingEntry, Volume>(
+      toCheck,
+      (entry) async {
+        try {
+          final fetched = await client.fetchVolumes(entry.volume.seriesOpdsId);
+          // Cache the list so the series opens (and reads) offline later.
+          await libraryCache?.saveVolumes(entry.volume.seriesOpdsId, fetched);
+          final volumes = volumesInReadingOrder(fetched);
+          final idx = volumes.indexWhere(
+            (v) => v.fileName == entry.volume.fileName,
+          );
+          if (idx < 0 || idx >= volumes.length - 1) return null;
+          final next = volumes[idx + 1];
+          return downloads.isDownloaded(next) ? null : next;
+        } on Exception {
+          // Best-effort per series — a failure never blocks the library.
+          return null;
+        }
+      },
+      concurrency: PoolSize.metadata,
+      shouldStop: () => !mounted,
+    );
+
+    // Downloading stays modest, and in the order the list was already
+    // sorted into: most recently read first, so an interrupted run has
+    // fetched what matters.
     var pulled = false;
-    for (final entry in toCheck) {
-      try {
-        final fetched = await client.fetchVolumes(entry.volume.seriesOpdsId);
-        // Cache the list so the series opens (and reads) offline later.
-        await libraryCache?.saveVolumes(entry.volume.seriesOpdsId, fetched);
-        final volumes = volumesInReadingOrder(fetched);
-        final idx = volumes.indexWhere(
-          (v) => v.fileName == entry.volume.fileName,
-        );
-        if (idx < 0 || idx >= volumes.length - 1) continue;
-        final next = volumes[idx + 1];
-        if (downloads.isDownloaded(next)) continue;
-        await service.download(next, onProgress: (_) {});
-        pulled = true;
-      } on Exception {
-        // Best-effort per series — a failure here never blocks the library.
-      }
-    }
+    await forEachPooled<Volume>(
+      [for (final v in nextUp) ?v],
+      (volume) async {
+        try {
+          await service.download(volume, onProgress: (_) {});
+          pulled = true;
+        } on Exception {
+          // Best-effort.
+        }
+      },
+      concurrency: PoolSize.downloads,
+      shouldStop: () => !mounted,
+    );
     if (pulled && mounted) await reloadDownloads();
   }
 
@@ -358,23 +383,42 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
 
     // Phase 1 — scan every series for volumes that need downloading, the
     // recently-read ones first so stopping part-way keeps what matters.
-    final pending = <Volume>[];
-    for (final series in libraryScanOrder(library, readingEntries)) {
-      if (_bulkCancel || !mounted) break;
-      setState(() => _bulkCurrent = series.title);
-      try {
-        final volumes = await opds.fetchVolumes(series.opdsId);
-        // Cache the list so each series opens (and reads) offline later.
-        await libraryCache?.saveVolumes(series.opdsId, volumes);
-        for (final volume in volumes) {
-          if (needsDownload(volume, store.recordFor(volume))) {
-            pending.add(volume);
+    final ordered = libraryScanOrder(library, readingEntries);
+    var scanned = 0;
+    final perSeries = await mapPooled<Series, List<Volume>>(
+      ordered,
+      (series) async {
+        try {
+          final volumes = await opds.fetchVolumes(series.opdsId);
+          // Cache the list so each series opens (and reads) offline later.
+          await libraryCache?.saveVolumes(series.opdsId, volumes);
+          return [
+            for (final volume in volumes)
+              if (needsDownload(volume, store.recordFor(volume))) volume,
+          ];
+        } on OpdsException {
+          failures++;
+          return null;
+        } finally {
+          scanned++;
+          // A count, not a name: with several scans in flight there is no
+          // single series to point at, and a title flickering between
+          // whichever finished last would say less than a number.
+          if (mounted) {
+            setState(
+              () => _bulkCurrent =
+                  'Checked $scanned of '
+                  '${ordered.length} series',
+            );
           }
         }
-      } on OpdsException {
-        failures++;
-      }
-    }
+      },
+      concurrency: PoolSize.metadata,
+      shouldStop: () => _bulkCancel || !mounted,
+    );
+    // Flattened in the order the library was sorted into, so the most
+    // recently read series download first.
+    final pending = <Volume>[for (final list in perSeries) ...?list];
 
     if (!mounted) return;
     setState(() {
@@ -382,18 +426,26 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
       _bulkCurrent = null;
     });
 
-    // Phase 2 — download them one at a time.
-    for (final volume in pending) {
-      if (_bulkCancel || !mounted) break;
-      setState(() => _bulkCurrent = volume.title);
-      try {
-        await service.download(volume, onProgress: (_) {});
-      } on DownloadException {
-        failures++;
-      }
-      if (!mounted) return;
-      setState(() => _bulkDone++);
-    }
+    // Phase 2 — download a few at a time. Deliberately fewer than the
+    // scans: these are large files sharing one pipe, and a download only
+    // counts once it finishes.
+    await forEachPooled<Volume>(
+      pending,
+      (volume) async {
+        try {
+          await service.download(volume, onProgress: (_) {});
+        } on DownloadException {
+          failures++;
+        }
+        if (!mounted) return;
+        setState(() {
+          _bulkDone++;
+          _bulkCurrent = volume.title;
+        });
+      },
+      concurrency: PoolSize.downloads,
+      shouldStop: () => _bulkCancel || !mounted,
+    );
 
     if (!mounted) return;
     final cancelled = _bulkCancel;
