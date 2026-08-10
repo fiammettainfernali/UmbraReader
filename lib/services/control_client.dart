@@ -203,6 +203,51 @@ class SearchHit {
   );
 }
 
+/// What the server is doing, as opposed to merely how far through it is.
+///
+/// These were previously carried as a bare string and never branched on,
+/// so every state rendered as a download. That is actively misleading for
+/// [checking], whose counts are *novels swept*, not chapters — "40 / 486"
+/// during a sweep and during a download describe unrelated quantities.
+enum JobState {
+  downloading('Downloading', 'chapters'),
+  checking('Checking for updates', 'series'),
+  batchPause('Pausing between batches', 'chapters'),
+  compiling('Building EPUB', 'chapters'),
+  idle('Idle', ''),
+  unknown('Working', '');
+
+  const JobState(this.label, this.unit);
+
+  /// How to describe this state in the activity card.
+  final String label;
+
+  /// What [ControlProgress.current] and `total` are counting, so the
+  /// caption can say "40 of 486 series" rather than implying chapters.
+  final String unit;
+
+  bool get isIdle => this == JobState.idle;
+
+  /// True while the server is deliberately waiting rather than stalled —
+  /// the bar should stay put and say so, not look frozen.
+  bool get isWaiting => this == JobState.batchPause;
+
+  /// Compiling arrives pinned at 100%, so a determinate bar reads as
+  /// finished when work is still happening.
+  bool get isIndeterminate => this == JobState.compiling;
+
+  static JobState fromName(String? raw) => switch (raw) {
+    'downloading' => JobState.downloading,
+    'checking' => JobState.checking,
+    'batch_pause' => JobState.batchPause,
+    'compiling' => JobState.compiling,
+    'idle' || '' || null => JobState.idle,
+    // An unrecognised state means the server is newer than the app. Say
+    // something true and vague rather than guessing at a label.
+    _ => JobState.unknown,
+  };
+}
+
 /// A live progress tick from the SSE stream.
 class ControlProgress {
   const ControlProgress({
@@ -212,6 +257,9 @@ class ControlProgress {
     required this.total,
     required this.percent,
     required this.state,
+    this.novelId,
+    this.queueSize,
+    this.keepBar = false,
   });
 
   final String novelTitle;
@@ -219,9 +267,21 @@ class ControlProgress {
   final int current;
   final int total;
   final double percent;
-  final String state; // downloading, idle, paused, compiling, batch_pause…
+  final JobState state;
 
-  bool get isIdle => state == 'idle' || state.isEmpty;
+  /// The novel this tick is about, when it is about one. Null during a
+  /// parallel run, where the payload describes several at once.
+  final int? novelId;
+
+  /// How many items were queued when this tick was sent — a live count
+  /// that arrives with every event, rather than waiting for a poll.
+  final int? queueSize;
+
+  /// The server asking that the bar be left as it is: it is pausing on
+  /// purpose, and a bar that vanished or reset would read as a fault.
+  final bool keepBar;
+
+  bool get isIdle => state.isIdle;
 
   factory ControlProgress.fromJson(Map<String, dynamic> d) => ControlProgress(
     novelTitle: d['novel_title'] as String? ?? '',
@@ -229,8 +289,21 @@ class ControlProgress {
     current: (d['current'] as num?)?.toInt() ?? 0,
     total: (d['total'] as num?)?.toInt() ?? 0,
     percent: (d['percent'] as num?)?.toDouble() ?? 0,
-    state: d['state'] as String? ?? '',
+    state: JobState.fromName(d['state'] as String?),
+    novelId: (d['novel_id'] as num?)?.toInt(),
+    queueSize: (d['queue_size'] as num?)?.toInt(),
+    keepBar: d['keep_bar'] == true,
   );
+
+  /// The caption under the bar, naming what is being counted.
+  ///
+  /// Without the unit this read "40 / 486 · 8%" whatever the numbers
+  /// meant, which is how a sweep came to look like a download.
+  String get countLabel {
+    if (total <= 0) return state.label;
+    final unit = state.unit.isEmpty ? '' : ' ${state.unit}';
+    return '$current of $total$unit  ·  ${percent.round()}%';
+  }
 }
 
 /// A decoded Server-Sent Event from `/api/events`.

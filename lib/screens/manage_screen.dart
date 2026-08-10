@@ -61,16 +61,37 @@ class _ManageScreenState extends State<ManageScreen> {
   /// Adds made while the server was unreachable, waiting to be sent.
   List<PendingAdd> _pending = const [];
 
+  /// When the event stream last said anything. The stream is the only
+  /// source of live progress, and its failure mode is silence — so the
+  /// absence of events has to be measured rather than assumed benign.
+  DateTime? _lastEventAt;
+
+  /// Ticks the clock so a stream that went quiet is noticed without
+  /// waiting for the next event that may never come.
+  Timer? _staleTimer;
+
+  /// How long the server may say nothing before the card stops claiming
+  /// to know what is happening. Comfortably longer than the server's own
+  /// 15-second SSE heartbeat, so a healthy quiet stream is never accused.
+  static const _stallAfter = Duration(seconds: 40);
+
   @override
   void initState() {
     super.initState();
     _refresh();
     _subscribe();
+    // Nothing arriving is itself information; poll the clock so it can be
+    // acted on rather than only noticing at the next event.
+    _staleTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => mounted ? setState(() {}) : null,
+    );
   }
 
   @override
   void dispose() {
     _events?.cancel();
+    _staleTimer?.cancel();
     _queueSearch.dispose();
     super.dispose();
   }
@@ -111,6 +132,7 @@ class _ManageScreenState extends State<ManageScreen> {
     _events = _client.events().listen(
       (event) {
         if (!mounted) return;
+        _lastEventAt = DateTime.now();
         switch (event.type) {
           case 'progress':
             setState(() => _progress = event.progress);
@@ -176,6 +198,37 @@ class _ManageScreenState extends State<ManageScreen> {
       () => _client.addNovel(warning.url, force: true),
       'Adding “${warning.title}” anyway',
     );
+  }
+
+  /// True when the stream has gone quiet for longer than the server's
+  /// heartbeat can explain.
+  bool get _streamStalled {
+    final last = _lastEventAt;
+    if (last == null) return false; // nothing has connected yet
+    return DateTime.now().difference(last) > _stallAfter;
+  }
+
+  /// The one description of what the server is doing.
+  ///
+  /// Previously the heading came from the polled status and the bar from
+  /// the event stream, two sources that update independently — so the card
+  /// routinely read "Idle" above a moving progress bar. The stream is the
+  /// fresher of the two, so it wins whenever it has something to say.
+  ({String label, bool showBar}) get _activity {
+    final status = _status;
+    final progress = _progress;
+
+    if (_streamStalled) {
+      return (label: 'Not sure — reconnecting…', showBar: false);
+    }
+    if (progress != null && !progress.isIdle) {
+      return (label: progress.state.label, showBar: true);
+    }
+    if (status?.paused ?? false) return (label: 'Paused', showBar: false);
+    // The stream says idle but the queue says otherwise: the server is
+    // between items, which is working, not idle.
+    if (status?.active ?? false) return (label: 'Working', showBar: false);
+    return (label: 'Idle', showBar: false);
   }
 
   Future<void> _openBrowser() async {
@@ -395,7 +448,8 @@ class _ManageScreenState extends State<ManageScreen> {
     final theme = Theme.of(context);
     final status = _status!;
     final p = _progress;
-    final showProgress = p != null && !p.isIdle;
+    final activity = _activity;
+    final showProgress = activity.showBar && p != null;
     final queue = status.queue;
     final query = _queueQuery.trim().toLowerCase();
     // Each entry keeps its real queue position: the row displays it (so a
@@ -428,20 +482,22 @@ class _ManageScreenState extends State<ManageScreen> {
                       Row(
                         children: [
                           Icon(
-                            status.paused
-                                ? Icons.pause_circle
-                                : status.active
-                                ? Icons.downloading
-                                : Icons.check_circle_outline,
-                            color: theme.colorScheme.primary,
+                            _streamStalled
+                                ? Icons.cloud_off_outlined
+                                : (status.paused
+                                      ? Icons.pause_circle
+                                      : activity.showBar
+                                      ? Icons.downloading
+                                      : status.active
+                                      ? Icons.hourglass_top
+                                      : Icons.check_circle_outline),
+                            color: _streamStalled
+                                ? theme.colorScheme.error
+                                : theme.colorScheme.primary,
                           ),
                           const SizedBox(width: 10),
                           Text(
-                            status.paused
-                                ? 'Paused'
-                                : status.active
-                                ? 'Working'
-                                : 'Idle',
+                            activity.label,
                             style: theme.textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.w600,
                             ),
@@ -470,9 +526,12 @@ class _ManageScreenState extends State<ManageScreen> {
                         ClipRRect(
                           borderRadius: BorderRadius.circular(3),
                           child: LinearProgressIndicator(
-                            value: p.total > 0
-                                ? (p.percent / 100).clamp(0, 1)
-                                : null,
+                            // Compiling arrives pinned at 100%, so a
+                            // determinate bar would read as finished while
+                            // the EPUB is still being written.
+                            value: p.state.isIndeterminate || p.total <= 0
+                                ? null
+                                : (p.percent / 100).clamp(0, 1),
                             minHeight: 6,
                             backgroundColor:
                                 theme.colorScheme.surfaceContainerHighest,
@@ -480,9 +539,9 @@ class _ManageScreenState extends State<ManageScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          p.total > 0
-                              ? '${p.current} / ${p.total}  ·  ${p.percent.round()}%'
-                              : p.state,
+                          p.state.isWaiting
+                              ? '${p.countLabel}  ·  waiting on purpose'
+                              : p.countLabel,
                           style: theme.textTheme.labelSmall?.copyWith(
                             color: theme.colorScheme.outline,
                           ),
