@@ -121,6 +121,41 @@ class NovelLookup {
   );
 }
 
+/// How a single novel is doing on the server.
+class NovelHealth {
+  const NovelHealth({
+    required this.novelId,
+    required this.title,
+    required this.total,
+    required this.done,
+    required this.pending,
+    required this.errored,
+    required this.lastError,
+  });
+
+  final int novelId;
+  final String title;
+  final int total;
+  final int done;
+  final int pending;
+  final int errored;
+
+  /// Why the most recent failure failed. Empty when nothing has.
+  final String lastError;
+
+  bool get hasFailures => errored > 0;
+
+  factory NovelHealth.fromJson(Map<String, dynamic> j) => NovelHealth(
+    novelId: (j['novelId'] as num?)?.toInt() ?? 0,
+    title: j['title'] as String? ?? '',
+    total: (j['total'] as num?)?.toInt() ?? 0,
+    done: (j['done'] as num?)?.toInt() ?? 0,
+    pending: (j['pending'] as num?)?.toInt() ?? 0,
+    errored: (j['errored'] as num?)?.toInt() ?? 0,
+    lastError: j['lastError'] as String? ?? '',
+  );
+}
+
 /// Snapshot of Novel Grabber's job state.
 class ControlStatus {
   const ControlStatus({
@@ -425,6 +460,25 @@ class ControlClient {
     {'mode': mode, 'intervalMinutes': ?intervalMinutes},
   );
 
+  /// How this novel is doing: chapter counts and the last failure.
+  Future<NovelHealth> health(int novelId) async =>
+      NovelHealth.fromJson(await _get('/api/novels/$novelId/health'));
+
+  /// Puts failed chapters back in the queue. Additive — nothing already
+  /// downloaded is touched. Returns how many were re-queued.
+  Future<int> retryErrored(int novelId) async {
+    final json = await _postJson('/api/novels/$novelId/retry-errored', null);
+    return (json['requeued'] as num?)?.toInt() ?? 0;
+  }
+
+  /// Deletes every downloaded chapter and starts the novel again.
+  ///
+  /// [confirm] is passed through rather than defaulted: the server
+  /// refuses without it, and that refusal is the point — this is minutes
+  /// of work and a lot of requests for a large novel.
+  Future<void> resetNovel(int novelId, {required bool confirm}) =>
+      _post('/api/novels/$novelId/reset', {'confirm': confirm});
+
   Future<void> checkUpdates(int novelId) =>
       _post('/api/novels/$novelId/check-updates', null);
 
@@ -506,6 +560,40 @@ class ControlClient {
       throw ControlException('Unexpected response from the server.');
     }
     return decoded;
+  }
+
+  /// [_post] for the endpoints whose answer matters.
+  Future<Map<String, dynamic>> _postJson(
+    String path,
+    Map<String, dynamic>? body,
+  ) async {
+    final http.Response res;
+    try {
+      res = await http
+          .post(
+            _u(path),
+            headers: {..._auth, 'Content-Type': 'application/json'},
+            body: body == null ? null : jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 20));
+    } on Exception catch (e) {
+      throw ControlException(
+        'Could not reach Novel Grabber.\n($e)',
+        isUnreachable: true,
+      );
+    }
+    if (res.statusCode >= 400) {
+      String detail = 'HTTP ${res.statusCode}';
+      try {
+        final d = jsonDecode(res.body);
+        if (d is Map && d['error'] is String) detail = d['error'] as String;
+      } on FormatException {
+        // keep the status-code detail
+      }
+      throw ControlException(detail);
+    }
+    final decoded = jsonDecode(res.body);
+    return decoded is Map<String, dynamic> ? decoded : const {};
   }
 
   Future<void> _post(String path, Map<String, dynamic>? body) async {

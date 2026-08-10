@@ -414,6 +414,133 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     );
   }
 
+  /// What the server can do about a novel that has gone wrong.
+  ///
+  /// This is the gap that made running the server headless awkward: when
+  /// chapters fail there was no way to do anything about it from the
+  /// phone, and the desktop app was the only place these two actions
+  /// existed. Retry is offered plainly; reset is not, because it deletes
+  /// every downloaded chapter and starts over.
+  Future<void> _openRepairSheet() async {
+    final client = ControlClient(widget.settings);
+    NovelHealth? health;
+    try {
+      health = await client.health(widget.series.opdsId);
+    } on ControlException catch (e) {
+      if (!mounted) return;
+      _snack(e.message, isError: true);
+      return;
+    }
+    if (!mounted) return;
+
+    final failed = health.errored;
+    final choice = await showActionSheet<String>(
+      context,
+      title: health.title.isEmpty ? widget.series.title : health.title,
+      groups: [
+        SheetGroup(
+          title: failed > 0
+              ? '$failed of ${health.total} chapters failed'
+              : '${health.done} of ${health.total} chapters downloaded',
+          actions: [
+            if (failed > 0)
+              SheetAction(
+                value: 'retry',
+                icon: Icons.refresh,
+                label:
+                    'Retry $failed failed chapter'
+                    '${failed == 1 ? '' : 's'}',
+                subtitle: health.lastError.isEmpty
+                    ? 'Nothing already downloaded is touched'
+                    : 'Last failure: ${health.lastError}',
+              )
+            else
+              const SheetAction(
+                value: 'none',
+                icon: Icons.check_circle_outline,
+                label: 'Nothing has failed',
+                subtitle: 'There is nothing to retry',
+              ),
+          ],
+        ),
+        SheetGroup(
+          title: 'Start over',
+          actions: const [
+            SheetAction(
+              value: 'reset',
+              icon: Icons.restart_alt,
+              label: 'Delete and re-download everything',
+              subtitle:
+                  'Throws away every downloaded chapter and fetches '
+                  'the whole novel again',
+              isDestructive: true,
+            ),
+          ],
+        ),
+      ],
+    );
+    if (!mounted || choice == null || choice == 'none') return;
+    if (choice == 'retry') {
+      await _retryFailed(client);
+    } else if (choice == 'reset') {
+      await _confirmReset(client, health.total);
+    }
+  }
+
+  Future<void> _retryFailed(ControlClient client) async {
+    try {
+      final requeued = await client.retryErrored(widget.series.opdsId);
+      if (!mounted) return;
+      _snack(
+        requeued == 0
+            ? 'Nothing needed retrying'
+            : 'Re-queued $requeued chapter${requeued == 1 ? '' : 's'}',
+      );
+    } on ControlException catch (e) {
+      if (!mounted) return;
+      _snack(e.message, isError: true);
+    }
+  }
+
+  /// Reset asks twice on purpose: the sheet marks it destructive, and this
+  /// says plainly what will be lost before anything happens.
+  Future<void> _confirmReset(ControlClient client, int total) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Start this novel over?'),
+        content: Text(
+          'This deletes all $total downloaded chapters and fetches them '
+          'again from the source. On a long novel that is a lot of '
+          'requests and can take a while.\n\nYour reading position is '
+          'kept.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete and re-download'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      await client.resetNovel(widget.series.opdsId, confirm: true);
+      if (!mounted) return;
+      _snack('Starting “${widget.series.title}” again from scratch');
+    } on ControlException catch (e) {
+      if (!mounted) return;
+      _snack(e.message, isError: true);
+    }
+  }
+
   /// Asks Novel Grabber to scrape any new chapters for this series via the
   /// control API. Needs the server reachable; surfaces the result as a snack.
   Future<void> _checkForUpdates() async {
@@ -482,6 +609,11 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
             icon: const Icon(Icons.collections_bookmark_outlined),
             tooltip: 'Add to collection',
             onPressed: _addToCollection,
+          ),
+          IconButton(
+            icon: const Icon(Icons.healing_outlined),
+            tooltip: 'Fix problems with this series',
+            onPressed: _openRepairSheet,
           ),
         ],
       ),
