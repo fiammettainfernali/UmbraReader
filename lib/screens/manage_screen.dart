@@ -37,7 +37,8 @@ class ManageScreen extends StatefulWidget {
   State<ManageScreen> createState() => _ManageScreenState();
 }
 
-class _ManageScreenState extends State<ManageScreen> {
+class _ManageScreenState extends State<ManageScreen>
+    with WidgetsBindingObserver {
   late final ControlClient _client = ControlClient(widget.settings);
 
   ControlStatus? _status;
@@ -78,6 +79,7 @@ class _ManageScreenState extends State<ManageScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _refresh();
     _subscribe();
     // Nothing arriving is itself information; poll the clock so it can be
@@ -89,7 +91,21 @@ class _ManageScreenState extends State<ManageScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    // iOS freezes the process on suspend: the socket dies and the
+    // stream's own retry timer is frozen with it, so it would sit there
+    // waiting out a delay that stopped counting. Force a fresh
+    // connection, and re-poll rather than trusting a pre-suspension
+    // snapshot.
+    _subscribe();
+    _refreshQuiet();
+    _flushPending();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _events?.cancel();
     _staleTimer?.cancel();
     _queueSearch.dispose();
@@ -129,6 +145,10 @@ class _ManageScreenState extends State<ManageScreen> {
 
   void _subscribe() {
     _events?.cancel();
+    // A new connection has heard nothing *yet*, which is not the same as
+    // having gone quiet; carrying the old timestamp over would show
+    // "reconnecting" against a stream that just started.
+    _lastEventAt = null;
     _events = _client.events().listen(
       (event) {
         if (!mounted) return;
@@ -198,6 +218,18 @@ class _ManageScreenState extends State<ManageScreen> {
       () => _client.addNovel(warning.url, force: true),
       'Adding “${warning.title}” anyway',
     );
+  }
+
+  /// How long since the server last said anything, in words — so a frozen
+  /// screen is legible as frozen rather than merely quiet.
+  String? get _lastHeard {
+    final last = _lastEventAt;
+    if (last == null) return null;
+    final gap = DateTime.now().difference(last);
+    if (gap.inSeconds < 20) return null; // fresh; saying so is noise
+    if (gap.inMinutes < 1) return 'last update ${gap.inSeconds}s ago';
+    if (gap.inHours < 1) return 'last update ${gap.inMinutes}m ago';
+    return 'last update ${gap.inHours}h ago';
   }
 
   /// True when the stream has gone quiet for longer than the server's
@@ -546,7 +578,16 @@ class _ManageScreenState extends State<ManageScreen> {
                             color: theme.colorScheme.outline,
                           ),
                         ),
-                      ] else if (status.current != null) ...[
+                      ] else if (_lastHeard != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          _lastHeard!,
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                      ],
+                      if (!showProgress && status.current != null) ...[
                         const SizedBox(height: 10),
                         Text(
                           status.current!.title,

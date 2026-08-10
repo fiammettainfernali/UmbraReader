@@ -341,6 +341,20 @@ class ControlEvent {
   }
 }
 
+/// How long to wait before the nth reconnection attempt.
+///
+/// Doubling from a second, capped at half a minute. The cap matters more
+/// than the curve: the server is usually a desktop that was asleep, being
+/// rebuilt, or briefly off the network, and a client that backs off to
+/// minutes would leave the screen wrong long after the server came back.
+/// Deterministic rather than jittered — there is exactly one client here,
+/// so there is no thundering herd to spread out.
+Duration reconnectBackoff(int attempt) {
+  if (attempt <= 1) return const Duration(seconds: 1);
+  final seconds = 1 << (attempt - 1).clamp(0, 5);
+  return Duration(seconds: seconds > 30 ? 30 : seconds);
+}
+
 /// Talks to Novel Grabber's `/api/*` control endpoints (the command channel
 /// that complements the read-only OPDS feed). Same base URL + basic auth as
 /// [OpdsClient]; only works when the server is reachable.
@@ -543,19 +557,42 @@ class ControlClient {
     final client = http.Client();
     StreamSubscription<String>? sub;
     late StreamController<ControlEvent> controller;
+    var cancelled = false;
+    var attempt = 0;
+    Timer? retry;
 
-    Future<void> connect() async {
+    late final Future<void> Function() connect;
+
+    // A dropped connection is the normal case, not an error: the desktop
+    // sleeps, gets rebuilt, changes network. Previously any drop closed
+    // the stream for good and the screen froze on its last frame with
+    // nothing to say so. Reconnecting is the stream's job, so no consumer
+    // has to reimplement it.
+    void scheduleReconnect() {
+      if (cancelled || controller.isClosed) return;
+      retry?.cancel();
+      attempt++;
+      retry = Timer(reconnectBackoff(attempt), () {
+        if (!cancelled) connect();
+      });
+    }
+
+    connect = () async {
+      if (cancelled) return;
       try {
         final req = http.Request('GET', _u('/api/events'));
         req.headers.addAll(_auth);
         final res = await client.send(req);
         if (res.statusCode != 200) {
-          controller.addError(
-            ControlException('Event stream HTTP ${res.statusCode}'),
-          );
-          await controller.close();
+          // Reachable but refusing — auth wrong, or a build without the
+          // control API. Retrying is still right: both get fixed on the
+          // server, and the screen shows the silence meanwhile.
+          scheduleReconnect();
           return;
         }
+        // Connected. The server primes a snapshot immediately, so state
+        // catches up without the consumer asking.
+        attempt = 0;
         sub = res.stream
             .transform(utf8.decoder)
             .transform(const LineSplitter())
@@ -573,19 +610,20 @@ class ControlClient {
                   // skip a malformed event
                 }
               },
-              onError: controller.addError,
-              onDone: controller.close,
-              cancelOnError: false,
+              onError: (_) => scheduleReconnect(),
+              onDone: scheduleReconnect,
+              cancelOnError: true,
             );
-      } on Exception catch (e) {
-        controller.addError(ControlException('Event stream failed.\n($e)'));
-        await controller.close();
+      } on Exception {
+        scheduleReconnect();
       }
-    }
+    };
 
     controller = StreamController<ControlEvent>(
       onListen: connect,
       onCancel: () async {
+        cancelled = true;
+        retry?.cancel();
         await sub?.cancel();
         client.close();
       },
