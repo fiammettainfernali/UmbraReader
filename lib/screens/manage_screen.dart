@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../services/control_client.dart';
+import '../models/series.dart';
+import '../services/library_cache.dart';
+import '../services/library_storage.dart';
 import '../services/pending_add_store.dart';
 import '../services/settings_service.dart';
 import '../widgets/action_sheet.dart';
@@ -10,6 +13,7 @@ import '../widgets/duplicate_sheet.dart';
 import '../widgets/section_header.dart';
 import 'browse_screen.dart';
 import 'novel_search_screen.dart';
+import 'series_detail_screen.dart';
 
 /// The queue entries whose title matches [query], each paired with its real
 /// position in the unfiltered queue.
@@ -49,8 +53,8 @@ class _ManageScreenState extends State<ManageScreen>
   bool _busy = false;
   StreamSubscription<ControlEvent>? _events;
 
-  /// Filters the queue by title. A library-wide "Check all" queues every
-  /// series at once, so the queue is routinely hundreds of rows long and
+  /// Filters the queue by title. An update sweep queues most of the
+  /// library at once, so the queue is routinely hundreds of rows long and
   /// scrolling to the one you care about is hopeless.
   final TextEditingController _queueSearch = TextEditingController();
   String _queueQuery = '';
@@ -61,6 +65,12 @@ class _ManageScreenState extends State<ManageScreen>
 
   /// Adds made while the server was unreachable, waiting to be sent.
   List<PendingAdd> _pending = const [];
+
+  /// The library by server id, so the novel a progress tick names can be
+  /// opened. Read from the offline cache the library screen already
+  /// maintains — the ids are the same, since series.opdsId is what gets
+  /// passed to `/api/novels/<id>`.
+  Map<int, Series> _seriesById = const {};
 
   /// When the event stream last said anything. The stream is the only
   /// source of live progress, and its failure mode is silence — so the
@@ -82,6 +92,7 @@ class _ManageScreenState extends State<ManageScreen>
     WidgetsBinding.instance.addObserver(this);
     _refresh();
     _subscribe();
+    _loadSeriesIndex();
     // Nothing arriving is itself information; poll the clock so it can be
     // acted on rather than only noticing at the next event.
     _staleTimer = Timer.periodic(
@@ -231,6 +242,46 @@ class _ManageScreenState extends State<ManageScreen>
     if (gap.inHours < 1) return 'last update ${gap.inMinutes}m ago';
     return 'last update ${gap.inHours}h ago';
   }
+
+  /// Loads the cached library so progress ticks can be opened. Best
+  /// effort: without it the card simply isn't tappable.
+  Future<void> _loadSeriesIndex() async {
+    try {
+      final cache = LibraryCache(LibraryStorage());
+      await cache.load();
+      if (!mounted) return;
+      setState(() {
+        _seriesById = {for (final s in cache.series) s.opdsId: s};
+      });
+    } on Exception {
+      // No cache yet — nothing to link to.
+    }
+  }
+
+  /// The series a progress tick is about, when it names one and the
+  /// library knows it. Null during a parallel run, where the tick covers
+  /// several novels and the server omits the id.
+  Series? get _progressSeries {
+    final id = _progress?.novelId;
+    return id == null ? null : _seriesById[id];
+  }
+
+  Future<void> _openProgressSeries() async {
+    final series = _progressSeries;
+    if (series == null) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) =>
+            SeriesDetailScreen(series: series, settings: widget.settings),
+      ),
+    );
+    if (mounted) await _refreshQuiet();
+  }
+
+  /// The queue length, preferring the count carried by the last progress
+  /// tick over the polled status — a tick arrives as work happens, while
+  /// the poll waits for a queue event to trigger it.
+  int get _queueLength => _progress?.queueSize ?? _status?.queue.length ?? 0;
 
   /// True when the stream has gone quiet for longer than the server's
   /// heartbeat can explain.
@@ -538,12 +589,32 @@ class _ManageScreenState extends State<ManageScreen>
                       ),
                       if (showProgress) ...[
                         const SizedBox(height: 12),
-                        Text(
-                          p.novelTitle.isEmpty ? '—' : p.novelTitle,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
+                        InkWell(
+                          onTap: _progressSeries == null
+                              ? null
+                              : _openProgressSeries,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  p.novelTitle.isEmpty ? '—' : p.novelTitle,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              // Only offered when there is somewhere to go:
+                              // a parallel run names no single novel, and
+                              // an uncached one cannot be opened.
+                              if (_progressSeries != null)
+                                Icon(
+                                  Icons.chevron_right,
+                                  size: 18,
+                                  color: theme.colorScheme.outline,
+                                ),
+                            ],
                           ),
                         ),
                         Text(
@@ -654,10 +725,10 @@ class _ManageScreenState extends State<ManageScreen>
                             ? null
                             : () => _run(
                                 _client.checkAllUpdates,
-                                'Checking all series for new chapters…',
+                                'Checking for new chapters…',
                               ),
                         icon: const Icon(Icons.sync),
-                        label: const Text('Check all'),
+                        label: const Text('Check updates'),
                       ),
                     ),
                   ],
@@ -733,7 +804,10 @@ class _ManageScreenState extends State<ManageScreen>
                 // ── queue ──────────────────────────────────────────────────
                 SectionHeader(
                   query.isEmpty
-                      ? 'Queue (${queue.length})'
+                      // The live count from the event stream when there is
+                      // one: it moves as work happens, while the polled
+                      // list waits for a queue event to fetch it.
+                      ? 'Queue ($_queueLength)'
                       : 'Queue (${visible.length} of ${queue.length})',
                   padding: const EdgeInsets.only(bottom: 4),
                 ),

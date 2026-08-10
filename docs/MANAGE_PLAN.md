@@ -90,7 +90,7 @@ sound. It is the *activity* half of the screen that is unreliable.
 
 ## Plan
 
-### Tier 1 — stop it lying
+### Tier 1 — stop it lying — **done**
 
 1. **Render each state distinctly.** A label per state — "Downloading",
    "Checking for updates", "Paused between batches", "Building EPUB" — and
@@ -104,7 +104,7 @@ sound. It is the *activity* half of the screen that is unreliable.
    arrives for ~40s while the server claims to be working, show
    "Reconnecting…" rather than a confident stale frame.
 
-### Tier 2 — make it recover
+### Tier 2 — make it recover — **done**
 
 5. **Reconnect the SSE stream** with backoff on error/done, instead of the
    current empty `onError`.
@@ -113,11 +113,18 @@ sound. It is the *activity* half of the screen that is unreliable.
    before suspension.
 7. **A "last updated" line**, so a stale screen is legible as stale.
 
-### Tier 3 — use what is already being sent
+### Tier 3 — use what is already being sent — **done**
 
 8. **Live queue count** from `queue_size` rather than waiting for a poll.
-9. **Tap the progress card to open the series**, using `novel_id`.
-10. **Fix the "Check all" wording** to match what the update policy does.
+   Falls back to the polled list when no tick has arrived.
+9. **Tap the progress card to open the series**, using `novel_id` resolved
+   against the offline library cache. Only offered when there is somewhere
+   to go: a parallel run names no single novel and the server omits the id,
+   and a series missing from the cache cannot be opened.
+10. **"Check all" is now "Check updates".** The old label promised a full
+    sweep; `update_policy` checks ongoing series every sweep but finished
+    and dropped ones only after a few days. The server already reports how
+    many it skipped, so the honest label is the smaller claim.
 
 ### Tier 4 — worth considering, not obviously right
 
