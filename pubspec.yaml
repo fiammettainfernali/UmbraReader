@@ -98,6 +98,7 @@ dependencies:
   timezone: ^0.11.1
   flutter_timezone: ^5.1.0
   webview_flutter: ^4.14.1
+  background_downloader: ^9.5.7
 
 dev_dependencies:
   flutter_test:

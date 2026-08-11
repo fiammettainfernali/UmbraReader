@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:background_downloader/background_downloader.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/download_record.dart';
@@ -21,57 +22,151 @@ class DownloadException implements Exception {
 }
 
 /// Downloads volume EPUBs to local storage and records them in the store.
+/// Moves the bytes of one file to [target], reporting 0..1 progress.
+///
+/// A seam under [DownloadService] rather than an abstraction for its own
+/// sake: the platform downloader lives behind a method channel that does
+/// not exist in a test process, and the pipeline worth testing — the part
+/// file, the rename, the manifest write, the reparse — is everything
+/// *around* the transfer. [httpFetch] lets that be exercised without a
+/// device.
+typedef FileFetch =
+    Future<void> Function(
+      Uri url,
+      Map<String, String> headers,
+      File target,
+      void Function(double progress) onProgress,
+    );
+
+/// The real one: hands the transfer to the platform — URLSession on iOS —
+/// so it survives the app being backgrounded.
+Future<void> platformFetch(
+  Uri url,
+  Map<String, String> headers,
+  File target,
+  void Function(double progress) onProgress,
+) async {
+  final task = DownloadTask(
+    url: url.toString(),
+    headers: headers,
+    directory: target.parent.path,
+    filename: target.uri.pathSegments.last,
+    baseDirectory: BaseDirectory.root,
+    updates: Updates.statusAndProgress,
+    allowPause: true,
+    retries: 2,
+  );
+  final result = await FileDownloader().download(
+    task,
+    onProgress: (p) {
+      // The platform reports -1 for "unknown"; passing that through would
+      // drive a progress bar backwards.
+      if (p >= 0) onProgress(p.clamp(0.0, 1.0));
+    },
+  );
+  switch (result.status) {
+    case TaskStatus.complete:
+      return;
+    case TaskStatus.canceled:
+      throw const _FetchFailure('the download was cancelled');
+    case TaskStatus.notFound:
+      throw const _FetchFailure('the server no longer has it');
+    default:
+      throw _FetchFailure(result.exception?.description ?? 'transfer failed');
+  }
+}
+
+/// A plain in-process download, for tests and for platforms where the
+/// background downloader isn't available.
+Future<void> httpFetch(
+  Uri url,
+  Map<String, String> headers,
+  File target,
+  void Function(double progress) onProgress,
+) async {
+  final client = http.Client();
+  IOSink? sink;
+  try {
+    final request = http.Request('GET', url)..headers.addAll(headers);
+    final response = await client.send(request);
+    if (response.statusCode != 200) {
+      throw _FetchFailure('server returned HTTP ${response.statusCode}');
+    }
+    sink = target.openWrite();
+    final total = response.contentLength ?? 0;
+    var received = 0;
+    await for (final chunk in response.stream) {
+      sink.add(chunk);
+      received += chunk.length;
+      if (total > 0) onProgress((received / total).clamp(0.0, 1.0));
+    }
+    await sink.flush();
+  } finally {
+    await sink?.close();
+    client.close();
+  }
+}
+
+class _FetchFailure implements Exception {
+  const _FetchFailure(this.reason);
+  final String reason;
+  @override
+  String toString() => reason;
+}
+
 class DownloadService {
   DownloadService({
     required this.settings,
     required this.storage,
     required this.store,
-  });
+    FileFetch? fetch,
+  }) : fetch = fetch ?? platformFetch;
 
   final OpdsSettings settings;
   final LibraryStorage storage;
   final DownloadStore store;
 
-  /// Downloads [volume]'s EPUB, reporting fractional progress (0..1) through
-  /// [onProgress]. The bytes land in a `.part` file first and are renamed into
-  /// place only on success, so an interrupted download never looks complete.
+  /// How the bytes get here. Defaults to the platform downloader.
+  final FileFetch fetch;
+
+  /// Downloads [volume]'s EPUB, reporting fractional progress (0..1)
+  /// through [onProgress].
+  ///
+  /// The transfer is handed to the platform's own downloader — URLSession
+  /// on iOS — rather than streamed through Dart. That is what lets it keep
+  /// going once the app is backgrounded: iOS freezes Dart the moment the
+  /// process suspends, so a Dart-side download of a large EPUB simply
+  /// stopped the instant the reader looked away, and a whole-library run
+  /// only progressed while someone watched it.
+  ///
+  /// The bytes still land in a `.part` file and are renamed into place
+  /// only on success, so an interrupted download never looks complete.
   Future<void> download(
     Volume volume, {
     required void Function(double progress) onProgress,
   }) async {
-    final client = http.Client();
-    IOSink? sink;
     File? partFile;
     try {
-      final request = http.Request('GET', Uri.parse(volume.downloadUrl));
-      request.headers.addAll(OpdsClient(settings).authHeaders);
-
-      final response = await client.send(request);
-      if (response.statusCode != 200) {
-        throw DownloadException(
-          'Server returned HTTP ${response.statusCode} while downloading '
-          '"${volume.title}".',
-        );
-      }
-
       final epubFile = await storage.epubFile(volume);
       await epubFile.parent.create(recursive: true);
       partFile = File('${epubFile.path}.part');
-      sink = partFile.openWrite();
+      if (partFile.existsSync()) await partFile.delete();
 
-      final total = response.contentLength ?? volume.fileSizeBytes;
-      var received = 0;
       onProgress(0);
-      await for (final chunk in response.stream) {
-        sink.add(chunk);
-        received += chunk.length;
-        if (total > 0) {
-          onProgress((received / total).clamp(0.0, 1.0));
-        }
+      await fetch(
+        Uri.parse(volume.downloadUrl),
+        OpdsClient(settings).authHeaders,
+        partFile,
+        onProgress,
+      );
+
+      if (!partFile.existsSync()) {
+        throw DownloadException(
+          'Download of "${volume.title}" reported success but produced no '
+          'file.',
+        );
       }
-      await sink.flush();
-      await sink.close();
-      sink = null;
+      final received = await partFile.length();
 
       if (epubFile.existsSync()) await epubFile.delete();
       await partFile.rename(epubFile.path);
@@ -85,13 +180,18 @@ class DownloadService {
           sizeBytes: received,
           downloadedAt: DateTime.now(),
           volumeUpdatedAt: volume.updatedAt,
-          etag: response.headers['etag'],
+          // The platform downloader does not surface response headers, so
+          // the etag is no longer captured here. Freshness still works:
+          // volumeUpdatedAt is what needsDownload actually compares.
+          etag: null,
         ),
       );
 
       await _refreshReadingProgress(volume, epubFile);
     } on DownloadException {
       rethrow;
+    } on _FetchFailure catch (e) {
+      throw DownloadException('Could not download "${volume.title}" — $e.');
     } on FileSystemException catch (e) {
       // ENOSPC — the one storage failure worth a specific, actionable
       // message instead of a raw error dump.
@@ -105,11 +205,6 @@ class DownloadService {
     } on Exception catch (e) {
       throw DownloadException('Could not download "${volume.title}".\n($e)');
     } finally {
-      try {
-        await sink?.close();
-      } on Exception {
-        // Already closing/closed — nothing to recover.
-      }
       if (partFile != null && partFile.existsSync()) {
         try {
           await partFile.delete();
@@ -117,7 +212,6 @@ class DownloadService {
           // Leftover .part cleanup is best-effort.
         }
       }
-      client.close();
     }
   }
 

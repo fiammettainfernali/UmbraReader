@@ -220,6 +220,7 @@ void main() {
       settings: settings,
       storage: storage,
       store: store,
+      fetch: httpFetch,
     ).download(volume, onProgress: progressTicks.add);
     final epubFile = await storage.epubFile(volume);
     expect(epubFile.existsSync(), isTrue);
@@ -259,6 +260,7 @@ void main() {
         settings: settings,
         storage: storage,
         store: DownloadStore(storage),
+        fetch: httpFetch,
       ).download(volume, onProgress: (_) {});
     });
 
