@@ -79,7 +79,7 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: HomeShell()));
     await _settle(tester);
 
-    for (final label in ['Library', 'Discover', 'Notes', 'You']) {
+    for (final label in ['Library', 'Discover', 'Server', 'You']) {
       expect(find.text(label), findsWidgets, reason: '$label destination');
     }
     expect(find.byType(NavigationBar), findsOneWidget);
@@ -92,7 +92,10 @@ void main() {
   testWidgets('Notes is reachable from the bar without opening a book', (
     tester,
   ) async {
-    // The whole point: annotations used to require going into a book first.
+    // Still the whole point: annotations used to require going into a book
+    // first. Notes gave up its tab when the server took one — it now lives
+    // under You, alongside the rest of your reading history — but it must
+    // stay reachable from the bar rather than only from inside a reader.
     await BookmarkStore().add(
       _volume(),
       _mark(highlight: true, selected: 'the sect elder is the traitor'),
@@ -104,7 +107,9 @@ void main() {
 
     await tester.pumpWidget(const MaterialApp(home: HomeShell()));
     await _settle(tester);
-    await tester.tap(find.byIcon(Icons.bookmark_border).last);
+    await tester.tap(find.text('You').last);
+    await _settle(tester);
+    await tester.tap(find.byTooltip('Notes and highlights'));
     await _settle(tester);
 
     expect(find.byType(NotesScreen), findsOneWidget);

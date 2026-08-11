@@ -14,9 +14,8 @@ import '../services/bookmark_store.dart';
 import '../services/collection_store.dart';
 import '../services/reading_progress_store.dart';
 import '../services/rec_outcome_store.dart';
-import '../services/rec_weight_learner.dart';
-import '../services/recommendation_engine.dart';
 import '../services/cloud_sync_service.dart';
+import '../services/control_client.dart';
 import '../services/recommendation_feedback_store.dart';
 import '../services/saved_view_store.dart';
 import '../services/series_status_store.dart';
@@ -32,7 +31,6 @@ import 'imported_books_screen.dart';
 import 'library_cards.dart';
 import 'library_downloads.dart';
 import 'library_filters.dart';
-import 'library_recommendations.dart';
 import 'library_search_screen.dart';
 import '../widgets/pro_sheet.dart';
 import 'reader_screen.dart';
@@ -54,11 +52,7 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen>
-    with
-        WidgetsBindingObserver,
-        LibraryDownloads,
-        LibraryFiltering,
-        LibraryRecommendations {
+    with WidgetsBindingObserver, LibraryDownloads, LibraryFiltering {
   final _settingsService = SettingsService();
   final _scrollController = ScrollController();
 
@@ -103,10 +97,14 @@ class _LibraryScreenState extends State<LibraryScreen>
   List<Collection> _collections = const [];
   int _dailyGoalMinutes = 0;
 
-  /// "Recommended for you" — rebuilt whenever reading history or the library
-  /// changes so it tracks current taste with no manual training step. We
-  /// hold a wider pool (~40) and show one window of it; the shuffle button
-  /// rotates through the rest.
+  /// True while Novel Grabber is working on something.
+  ///
+  /// The server moved to its own tab, so downloads no longer announce
+  /// themselves on the way past. This is a quiet pulse on the app bar —
+  /// enough to notice, and a tap away from the detail.
+  bool _serverBusy = false;
+  StreamSubscription<ControlEvent>? _serverEvents;
+
   /// Download records, used to flag series with content newer than what's
   /// been downloaded. Null until first loaded.
   DownloadStore? _downloads;
@@ -175,8 +173,30 @@ class _LibraryScreenState extends State<LibraryScreen>
     }
   }
 
+  /// Watches the server only for whether it is busy — the Server tab owns
+  /// the detail. Failure is silence, which is the correct answer when the
+  /// server cannot be reached anyway.
+  void _watchServer() {
+    final settings = _settings;
+    if (settings == null || !settings.isConfigured) return;
+    _serverEvents?.cancel();
+    _serverEvents = ControlClient(settings).events().listen(
+      (event) {
+        if (!mounted) return;
+        final progress = event.progress;
+        if (progress == null) return;
+        final busy = !progress.isIdle;
+        if (busy != _serverBusy) setState(() => _serverBusy = busy);
+      },
+      onError: (_) {
+        if (mounted && _serverBusy) setState(() => _serverBusy = false);
+      },
+    );
+  }
+
   @override
   void dispose() {
+    _serverEvents?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     if (CloudSyncService().onRemoteMerge != null) {
       CloudSyncService().onRemoteMerge = null;
@@ -272,49 +292,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         )
         .take(12)
         .toList();
-    final signals = RecSignals(
-      volumeSeconds: activity.perVolumeSeconds,
-      volumeWords: activity.perVolumeWords,
-      highlightsPerSeries: highlights,
-      hiddenVolumeKeys: hidden,
-      collectionSeriesIds: {for (final c in collections) ...c.seriesIds},
-      outcomes: outcomes,
-      // The user's own status picker, translated to engine vocabulary —
-      // "caught up" on a series listened to entirely outside the app is a
-      // full like even with zero in-app reading entries.
-      statusOverrides: {
-        for (final e in status.entries)
-          if (e.value == SeriesStatus.caughtUp)
-            e.key: 'completed'
-          else if (e.value == SeriesStatus.dropped)
-            e.key: 'dropped'
-          else if (e.value == SeriesStatus.reading)
-            e.key: 'ongoing',
-      },
-    );
-    // Learn this user's feature-group weights from recommendation outcomes
-    // (full refit from the prior each time — deterministic and cheap), then
-    // rank under them. Zero outcomes → the hand-tuned prior, exactly.
-    const recEngine = RecommendationEngine(maxResults: 40);
-    final examples = buildRecTrainingExamples(
-      engine: recEngine,
-      allSeries: _library ?? const <Series>[],
-      readingEntries: entries,
-      feedback: feedback,
-      signals: signals,
-    );
-    final learned = const RecWeightLearner().fit(examples);
-    await RecWeightsStore().save(learned);
-    final recs = recEngine.recommend(
-      allSeries: _library ?? const <Series>[],
-      readingEntries: entries,
-      feedback: feedback,
-      signals: signals,
-      weights: learned,
-      explore: true,
-    );
     if (!mounted) return;
-    setRecommendations(recs);
     setState(() {
       _allReadingEntries = entries;
       _activity = activity;
@@ -323,7 +301,6 @@ class _LibraryScreenState extends State<LibraryScreen>
       _seriesStatus = status;
       _reading = inProgress;
     });
-    recordShelfImpressions();
   }
 
   /// Records a "not interested" on a recommendation and refreshes the shelf
@@ -407,10 +384,12 @@ class _LibraryScreenState extends State<LibraryScreen>
     final settings = await _settingsService.load();
     if (!mounted) return;
     setState(() => _settings = settings);
+    _watchServer();
     if (settings.isConfigured) await _sync();
   }
 
-  @override
+  /// Opens a series, then reloads so anything read or downloaded inside is
+  /// reflected on return.
   Future<void> openSeries(Series series) async {
     final settings = _settings;
     if (settings == null) return;
@@ -733,6 +712,22 @@ class _LibraryScreenState extends State<LibraryScreen>
                     tooltip: 'Download whole library',
                     onPressed: confirmDownloadEverything,
                   ),
+                if (_serverBusy)
+                  IconButton(
+                    icon: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        color: Theme.of(context).colorScheme.tertiary,
+                      ),
+                    ),
+                    tooltip: 'Novel Grabber is working — see the Server tab',
+                    onPressed: () => _snack(
+                      'Novel Grabber is working. Open the Server tab for '
+                      'details.',
+                    ),
+                  ),
                 IconButton(
                   icon: const Icon(Icons.more_horiz),
                   tooltip: 'More',
@@ -926,25 +921,35 @@ class _LibraryScreenState extends State<LibraryScreen>
       // list. Once the user narrows to a reading-state chip (Reading / Unread /
       // Finished / Dropped) or searches, drop straight to the matching grid —
       // recently-updated/recommended aren't relevant to a filtered browse.
-      final showShelves =
+      // "Home" extras — the streak and Continue reading — only belong on an
+      // unfiltered list. Once a chip or a query narrows things, the screen
+      // is answering a question and everything else is in the way.
+      //
+      // Recently updated and Recommended now live on Discover: they are
+      // about choosing something, not about the collection, and here they
+      // pushed the actual grid below the fold.
+      final showHome =
           searchQuery.trim().isEmpty && readingState == ReadingStateFilter.any;
+      final hasHomeContent =
+          showHome &&
+          (_reading.isNotEmpty ||
+              _activity.currentStreak() > 0 ||
+              _dailyGoalMinutes > 0);
       return [
         if (_offline) SliverToBoxAdapter(child: _buildOfflineBanner()),
         if (bulkDownloading) SliverToBoxAdapter(child: buildBulkBanner()),
         SliverToBoxAdapter(child: buildControls(all.length, visible.length)),
-        if (showShelves &&
+        if (showHome &&
             (_activity.currentStreak() > 0 || _dailyGoalMinutes > 0))
           SliverToBoxAdapter(child: _buildStreakChip()),
-        if (showShelves && _reading.isNotEmpty)
+        if (showHome && _reading.isNotEmpty)
           SliverToBoxAdapter(child: _buildContinueHero()),
-        if (showShelves && _reading.length > 1)
+        if (showHome && _reading.length > 1)
           SliverToBoxAdapter(child: _buildContinueShelf()),
-        if (showShelves && _recentlyUpdated.isNotEmpty)
-          SliverToBoxAdapter(child: _buildRecentShelf()),
-        if (showShelves && recommendations.isNotEmpty)
-          SliverToBoxAdapter(child: buildRecommendedShelf()),
-        // Distinct header so the full grid doesn't blend into the shelf above.
-        if (showShelves && visible.isNotEmpty)
+        // Only worth a heading when something sits above it. With nothing
+        // in progress the grid starts right under the controls, and
+        // "All books" would just be a label on the only thing there is.
+        if (hasHomeContent && visible.isNotEmpty)
           SliverToBoxAdapter(child: _sectionHeader('All books')),
         if (visible.isEmpty)
           SliverFillRemaining(hasScrollBody: false, child: buildEmptyState())
@@ -1305,50 +1310,4 @@ class _LibraryScreenState extends State<LibraryScreen>
       ],
     );
   }
-
-  /// The 10 most-recently-updated series in the library (most-recent first).
-  /// Used as the "Recently updated" shelf — Novel Grabber bumps a series'
-  /// updatedAt every time it recompiles a volume, so this surfaces what's
-  /// genuinely new.
-  List<Series> get _recentlyUpdated {
-    final all = _library ?? const <Series>[];
-    if (all.length < 3) return const [];
-    final dated = all.where((s) => s.updatedAt != null).toList()
-      ..sort((a, b) => b.updatedAt!.compareTo(a.updatedAt!));
-    if (dated.length < 3) return const [];
-    return dated.take(10).toList();
-  }
-
-  /// Horizontal shelf of the freshest series in the library.
-  Widget _buildRecentShelf() {
-    final headers = (_settings?.isConfigured ?? false)
-        ? OpdsClient(_settings!).authHeaders
-        : const <String, String>{};
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionHeader('Recently updated'),
-        SizedBox(
-          height: 226,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: _recentlyUpdated.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 14),
-            itemBuilder: (context, index) {
-              final series = _recentlyUpdated[index];
-              return RecommendCard(
-                series: series,
-                imageHeaders: headers,
-                onTap: () => openSeries(series),
-              );
-            },
-          ),
-        ),
-        const SizedBox(height: 12),
-      ],
-    );
-  }
-
-  /// Horizontal shelf of "you might like" suggestions from the engine.
 }

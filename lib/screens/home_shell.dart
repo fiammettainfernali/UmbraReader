@@ -4,7 +4,7 @@ import '../services/settings_service.dart';
 import '../widgets/glass_nav_bar.dart';
 import 'library_screen.dart';
 import 'manage_screen.dart';
-import 'notes_screen.dart';
+import 'discover_screen.dart';
 import 'stats_screen.dart';
 
 /// The app's root: four destinations behind a bottom bar.
@@ -15,6 +15,13 @@ import 'stats_screen.dart';
 /// the app a spine, and in doing so gives annotations a home of their own
 /// (they were previously reachable only from inside a book) and puts adding a
 /// book one tap away instead of three.
+///
+/// The four are deliberately different jobs. Library is the collection and
+/// where reading resumes. Discover answers "what should I read" — the
+/// shelves and every kind of search. Server answers "what is the machine
+/// doing", which is a question about the downloader, not about books, and
+/// used to hide behind a tab labelled Discover. You is reading history,
+/// including the notes and highlights that were once a tab of their own.
 ///
 /// Configuration and maintenance — settings, storage, backup, imported books —
 /// deliberately stay *off* the bar: they are things you adjust, not places you
@@ -65,12 +72,15 @@ class _HomeShellState extends State<HomeShell> {
           index: _index,
           children: [
             const LibraryScreen(),
-            settings == null
-                ? const Scaffold(
-                    body: Center(child: CircularProgressIndicator()),
-                  )
-                : ManageScreen(settings: settings),
-            const NotesScreen(),
+            // Both of these need the server address, so they wait on the
+            // same settings load rather than each guessing at it.
+            if (settings == null) ...[
+              const Scaffold(body: Center(child: CircularProgressIndicator())),
+              const Scaffold(body: Center(child: CircularProgressIndicator())),
+            ] else ...[
+              DiscoverScreen(settings: settings),
+              ManageScreen(settings: settings),
+            ],
             const StatsScreen(),
           ],
         ),
@@ -90,9 +100,9 @@ class _HomeShellState extends State<HomeShell> {
             label: 'Discover',
           ),
           NavigationDestination(
-            icon: Icon(Icons.bookmark_border),
-            selectedIcon: Icon(Icons.bookmark),
-            label: 'Notes',
+            icon: Icon(Icons.dns_outlined),
+            selectedIcon: Icon(Icons.dns),
+            label: 'Server',
           ),
           NavigationDestination(
             icon: Icon(Icons.insights_outlined),

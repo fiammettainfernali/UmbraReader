@@ -7,6 +7,7 @@ import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
 import '../services/settings_service.dart';
 import '../widgets/section_header.dart';
+import 'notes_screen.dart';
 import 'series_detail_screen.dart';
 
 /// Shows reading statistics derived from saved reading positions and
@@ -120,7 +121,22 @@ class _StatsScreenState extends State<StatsScreen> {
   Widget build(BuildContext context) {
     final entries = _entries;
     return Scaffold(
-      appBar: AppBar(title: const Text('Reading stats')),
+      appBar: AppBar(
+        title: const Text('You'),
+        actions: [
+          // Notes lost their own tab when the server gained one. They sit
+          // here rather than in the library menu because highlights are
+          // about your reading, like everything else on this screen — the
+          // collection is a different subject.
+          IconButton(
+            icon: const Icon(Icons.bookmark_border),
+            tooltip: 'Notes and highlights',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const NotesScreen()),
+            ),
+          ),
+        ],
+      ),
       body: entries == null
           ? const Center(child: CircularProgressIndicator())
           : entries.isEmpty && _activity.totalSeconds == 0
