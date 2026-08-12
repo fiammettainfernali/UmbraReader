@@ -45,10 +45,29 @@ class DiscoverScreenState extends State<DiscoverScreen>
 
   bool _loading = true;
 
+  /// What the library looked like the last time recommendations were fitted,
+  /// so a reload that changes nothing doesn't refit or reshuffle them.
+  String _librarySignature = '';
+
   @override
   void initState() {
     super.initState();
     _load();
+    // This tab is kept alive by the shell's IndexedStack, so initState runs
+    // once for the life of the app. Syncing happens on the library screen;
+    // without this listener the shelves showed the library as it was at
+    // launch, forever.
+    libraryCacheRevision.addListener(_onCacheChanged);
+  }
+
+  @override
+  void dispose() {
+    libraryCacheRevision.removeListener(_onCacheChanged);
+    super.dispose();
+  }
+
+  void _onCacheChanged() {
+    if (mounted) _load();
   }
 
   // ── LibraryRecommendations proxies ──────────────────────────────────────
@@ -75,7 +94,7 @@ class DiscoverScreenState extends State<DiscoverScreen>
   /// that is already known, and the library screen owns fetching. Sharing
   /// the cache means both see the same books without either waiting on the
   /// other.
-  Future<void> _load() async {
+  Future<void> _load({bool force = false}) async {
     final cache = LibraryCache(LibraryStorage());
     final downloads = DownloadStore(LibraryStorage());
     await (cache.load(), downloads.load()).wait;
@@ -86,9 +105,34 @@ class DiscoverScreenState extends State<DiscoverScreen>
       _downloads = downloads;
       _loading = false;
     });
+
+    // The shelves above are a cheap re-read and always refresh. The
+    // recommendations are not: they read seven stores and refit the ranking
+    // weights, and the shelf shuffles its pool — so recomputing them when
+    // the library hasn't changed would both cost real work and make the tab
+    // appear to reorder itself while being looked at.
+    final signature = _signatureOf(library);
+    if (!force && signature == _librarySignature) return;
+    _librarySignature = signature;
+
     final recs = await const RecommendationLoader().load(library);
     if (!mounted) return;
     setRecommendations(recs);
+  }
+
+  /// Cheap stand-in for "the library changed in a way the shelves care
+  /// about" — size, plus the newest date of each kind.
+  static String _signatureOf(List<Series> library) {
+    DateTime? updated;
+    DateTime? added;
+    for (final s in library) {
+      final u = s.updatedAt;
+      if (u != null && (updated == null || u.isAfter(updated))) updated = u;
+      final a = s.addedAt;
+      if (a != null && (added == null || a.isAfter(added))) added = a;
+    }
+    return '${library.length}|${updated?.toIso8601String()}'
+        '|${added?.toIso8601String()}';
   }
 
   /// True when the server has content newer than anything downloaded.
@@ -141,6 +185,7 @@ class DiscoverScreenState extends State<DiscoverScreen>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final recent = recentlyUpdated(_library);
+    final added = recentlyAdded(_library);
 
     return Scaffold(
       appBar: AppBar(
@@ -156,7 +201,9 @@ class DiscoverScreenState extends State<DiscoverScreen>
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _load,
+              // A deliberate pull means "redo it", including the parts the
+              // signature check would otherwise skip.
+              onRefresh: () => _load(force: true),
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: EdgeInsets.fromLTRB(
@@ -177,8 +224,21 @@ class DiscoverScreenState extends State<DiscoverScreen>
                     ),
                     _shelf(recent),
                   ],
+                  // Below "updated" because new chapters in something you're
+                  // already reading beat a book you haven't started — but
+                  // above the recommendations, since these are books you
+                  // chose yourself.
+                  if (added.isNotEmpty) ...[
+                    const SectionHeader(
+                      'Recently added',
+                      padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+                    ),
+                    _shelf(added),
+                  ],
                   if (recommendations.isNotEmpty) buildRecommendedShelf(),
-                  if (recent.isEmpty && recommendations.isEmpty)
+                  if (recent.isEmpty &&
+                      added.isEmpty &&
+                      recommendations.isEmpty)
                     Padding(
                       padding: const EdgeInsets.fromLTRB(32, 48, 32, 32),
                       child: Column(

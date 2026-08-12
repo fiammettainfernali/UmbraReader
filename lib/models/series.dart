@@ -17,6 +17,7 @@ class Series {
     required this.updatedAt,
     required this.directEpubUrl,
     required this.volumesFeedUrl,
+    this.addedAt,
   });
 
   /// Numeric id from the OPDS entry urn (`urn:novel-grabber:novel:<id>`).
@@ -36,6 +37,17 @@ class Series {
 
   /// When the series' newest EPUB was last (re)compiled. Used for sync.
   final DateTime? updatedAt;
+
+  /// When the series was added to Novel Grabber's library.
+  ///
+  /// Deliberately not [updatedAt]: that is EPUB mtime and moves on every
+  /// recompile, so a bulk pass over the library resets it for everything at
+  /// once. This is the date the novel was first taken on, and it never moves.
+  ///
+  /// Optional because a Novel Grabber older than this feature doesn't send
+  /// it — null means "unknown", which is why the shelf hides rather than
+  /// guessing an order.
+  final DateTime? addedAt;
 
   /// Direct EPUB download URL — set only when the series has exactly one
   /// EPUB batch (Novel Grabber links straight to it in that case).
@@ -59,6 +71,7 @@ class Series {
     'downloadedChapters': downloadedChapters,
     'coverUrl': coverUrl,
     'updatedAt': updatedAt?.toIso8601String(),
+    'addedAt': addedAt?.toIso8601String(),
     'directEpubUrl': directEpubUrl,
     'volumesFeedUrl': volumesFeedUrl,
   };
@@ -76,6 +89,7 @@ class Series {
     downloadedChapters: (json['downloadedChapters'] as num?)?.toInt() ?? 0,
     coverUrl: json['coverUrl'] as String?,
     updatedAt: DateTime.tryParse(json['updatedAt'] as String? ?? ''),
+    addedAt: DateTime.tryParse(json['addedAt'] as String? ?? ''),
     directEpubUrl: json['directEpubUrl'] as String?,
     volumesFeedUrl: json['volumesFeedUrl'] as String?,
   );

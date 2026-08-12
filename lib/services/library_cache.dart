@@ -1,9 +1,24 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../models/series.dart';
 import '../models/volume.dart';
 import 'library_storage.dart';
+
+/// Bumped whenever a sync rewrites the cached series list.
+///
+/// The library screen owns fetching, but it is no longer the only screen
+/// showing the library: Discover reads the same cache from its own
+/// instance. Without a signal, its shelves stayed at whatever was on disk
+/// when the tab was first built — it never learned that a sync had landed,
+/// so "recently updated" simply stopped moving.
+///
+/// Series only. Volume writes happen once per series during a sync and
+/// don't feed any shelf, so bumping on those would be hundreds of wake-ups
+/// to redraw the same thing.
+final ValueNotifier<int> libraryCacheRevision = ValueNotifier<int>(0);
 
 /// Caches library metadata on disk so the library can be browsed — and
 /// downloaded books opened — while the OPDS server is unreachable.
@@ -62,6 +77,7 @@ class LibraryCache {
   Future<void> saveSeries(List<Series> series) async {
     _series = series;
     await _flush();
+    libraryCacheRevision.value++;
   }
 
   Future<void> saveVolumes(int seriesId, List<Volume> volumes) async {

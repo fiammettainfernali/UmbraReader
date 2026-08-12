@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:xml/xml.dart';
 
@@ -59,7 +60,7 @@ class OpdsClient {
       throw OpdsException('Server returned HTTP ${response.statusCode}.');
     }
 
-    return _parseLibraryFeed(_decodeUtf8(response));
+    return parseLibraryFeed(_decodeUtf8(response));
   }
 
   /// Decodes the response body as UTF-8 from the raw bytes. The OPDS feed is
@@ -135,7 +136,13 @@ class OpdsClient {
     );
   }
 
-  List<Series> _parseLibraryFeed(String xmlBody) {
+  /// Turns an "All Books" feed into series.
+  ///
+  /// Exposed for tests: every field the app shows is decided here, and a
+  /// field that parses in isolation but is never wired into the entry is a
+  /// bug no unit test of the pieces would catch.
+  @visibleForTesting
+  List<Series> parseLibraryFeed(String xmlBody) {
     final XmlDocument doc;
     try {
       doc = XmlDocument.parse(xmlBody);
@@ -204,6 +211,11 @@ class OpdsClient {
       coverUrl: coverUrl,
       updatedAt: DateTime.tryParse(
         entry.getElement('updated')?.innerText.trim() ?? '',
+      ),
+      // Absent from servers older than the shelf that uses it, which
+      // tryParse turns into null — exactly what "unknown" should be.
+      addedAt: DateTime.tryParse(
+        entry.getElement('ng:addedAt')?.innerText.trim() ?? '',
       ),
       directEpubUrl: directEpubUrl,
       volumesFeedUrl: volumesFeedUrl,

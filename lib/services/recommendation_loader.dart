@@ -106,3 +106,14 @@ List<Series> recentlyUpdated(List<Series> library, {int limit = 12}) {
   dated.sort((a, b) => b.updatedAt!.compareTo(a.updatedAt!));
   return dated.take(limit).toList();
 }
+
+/// The series most recently taken into the library.
+///
+/// A different question from [recentlyUpdated], which sorts by EPUB mtime
+/// and so reshuffles whenever Novel Grabber recompiles — this answers
+/// "what did I add and not start yet", and its order never changes.
+List<Series> recentlyAdded(List<Series> library, {int limit = 12}) {
+  final dated = [for (final s in library) if (s.addedAt != null) s];
+  dated.sort((a, b) => b.addedAt!.compareTo(a.addedAt!));
+  return dated.take(limit).toList();
+}
