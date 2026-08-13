@@ -129,6 +129,17 @@ class $ReadingProgressRowsTable extends ReadingProgressRows
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _hiddenAtMeta = const VerificationMeta(
+    'hiddenAt',
+  );
+  @override
+  late final GeneratedColumn<String> hiddenAt = GeneratedColumn<String>(
+    'hidden_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _ttsResumeMeta = const VerificationMeta(
     'ttsResume',
   );
@@ -152,6 +163,7 @@ class $ReadingProgressRowsTable extends ReadingProgressRows
     endReached,
     volumeJson,
     hidden,
+    hiddenAt,
     ttsResume,
   ];
   @override
@@ -237,6 +249,12 @@ class $ReadingProgressRowsTable extends ReadingProgressRows
         hidden.isAcceptableOrUnknown(data['hidden']!, _hiddenMeta),
       );
     }
+    if (data.containsKey('hidden_at')) {
+      context.handle(
+        _hiddenAtMeta,
+        hiddenAt.isAcceptableOrUnknown(data['hidden_at']!, _hiddenAtMeta),
+      );
+    }
     if (data.containsKey('tts_resume')) {
       context.handle(
         _ttsResumeMeta,
@@ -292,6 +310,10 @@ class $ReadingProgressRowsTable extends ReadingProgressRows
         DriftSqlType.bool,
         data['${effectivePrefix}hidden'],
       )!,
+      hiddenAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}hidden_at'],
+      ),
       ttsResume: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}tts_resume'],
@@ -332,6 +354,15 @@ class ReadingProgressRow extends DataClass
   /// Hidden from the "Continue reading" shelf (position still kept).
   final bool hidden;
 
+  /// When [hidden] last changed, so the flag can be merged across devices.
+  ///
+  /// Separate from [updatedAt] because they answer different questions and
+  /// move at different times: [updatedAt] is when the *position* last
+  /// changed, and reusing it would both make hiding look like reading and
+  /// let any position write undo a removal. Null on rows whose shelf state
+  /// has never been touched, which loses to any device that has an opinion.
+  final String? hiddenAt;
+
   /// Read-aloud word-exact resume point, "blockIndex:charOffset". Device
   /// local and ephemeral — never synced.
   final String? ttsResume;
@@ -346,6 +377,7 @@ class ReadingProgressRow extends DataClass
     required this.endReached,
     this.volumeJson,
     required this.hidden,
+    this.hiddenAt,
     this.ttsResume,
   });
   @override
@@ -367,6 +399,9 @@ class ReadingProgressRow extends DataClass
       map['volume_json'] = Variable<String>(volumeJson);
     }
     map['hidden'] = Variable<bool>(hidden);
+    if (!nullToAbsent || hiddenAt != null) {
+      map['hidden_at'] = Variable<String>(hiddenAt);
+    }
     if (!nullToAbsent || ttsResume != null) {
       map['tts_resume'] = Variable<String>(ttsResume);
     }
@@ -391,6 +426,9 @@ class ReadingProgressRow extends DataClass
           ? const Value.absent()
           : Value(volumeJson),
       hidden: Value(hidden),
+      hiddenAt: hiddenAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(hiddenAt),
       ttsResume: ttsResume == null && nullToAbsent
           ? const Value.absent()
           : Value(ttsResume),
@@ -413,6 +451,7 @@ class ReadingProgressRow extends DataClass
       endReached: serializer.fromJson<bool>(json['endReached']),
       volumeJson: serializer.fromJson<String?>(json['volumeJson']),
       hidden: serializer.fromJson<bool>(json['hidden']),
+      hiddenAt: serializer.fromJson<String?>(json['hiddenAt']),
       ttsResume: serializer.fromJson<String?>(json['ttsResume']),
     );
   }
@@ -430,6 +469,7 @@ class ReadingProgressRow extends DataClass
       'endReached': serializer.toJson<bool>(endReached),
       'volumeJson': serializer.toJson<String?>(volumeJson),
       'hidden': serializer.toJson<bool>(hidden),
+      'hiddenAt': serializer.toJson<String?>(hiddenAt),
       'ttsResume': serializer.toJson<String?>(ttsResume),
     };
   }
@@ -445,6 +485,7 @@ class ReadingProgressRow extends DataClass
     bool? endReached,
     Value<String?> volumeJson = const Value.absent(),
     bool? hidden,
+    Value<String?> hiddenAt = const Value.absent(),
     Value<String?> ttsResume = const Value.absent(),
   }) => ReadingProgressRow(
     volumeKey: volumeKey ?? this.volumeKey,
@@ -457,6 +498,7 @@ class ReadingProgressRow extends DataClass
     endReached: endReached ?? this.endReached,
     volumeJson: volumeJson.present ? volumeJson.value : this.volumeJson,
     hidden: hidden ?? this.hidden,
+    hiddenAt: hiddenAt.present ? hiddenAt.value : this.hiddenAt,
     ttsResume: ttsResume.present ? ttsResume.value : this.ttsResume,
   );
   ReadingProgressRow copyWithCompanion(ReadingProgressRowsCompanion data) {
@@ -483,6 +525,7 @@ class ReadingProgressRow extends DataClass
           ? data.volumeJson.value
           : this.volumeJson,
       hidden: data.hidden.present ? data.hidden.value : this.hidden,
+      hiddenAt: data.hiddenAt.present ? data.hiddenAt.value : this.hiddenAt,
       ttsResume: data.ttsResume.present ? data.ttsResume.value : this.ttsResume,
     );
   }
@@ -500,6 +543,7 @@ class ReadingProgressRow extends DataClass
           ..write('endReached: $endReached, ')
           ..write('volumeJson: $volumeJson, ')
           ..write('hidden: $hidden, ')
+          ..write('hiddenAt: $hiddenAt, ')
           ..write('ttsResume: $ttsResume')
           ..write(')'))
         .toString();
@@ -517,6 +561,7 @@ class ReadingProgressRow extends DataClass
     endReached,
     volumeJson,
     hidden,
+    hiddenAt,
     ttsResume,
   );
   @override
@@ -533,6 +578,7 @@ class ReadingProgressRow extends DataClass
           other.endReached == this.endReached &&
           other.volumeJson == this.volumeJson &&
           other.hidden == this.hidden &&
+          other.hiddenAt == this.hiddenAt &&
           other.ttsResume == this.ttsResume);
 }
 
@@ -547,6 +593,7 @@ class ReadingProgressRowsCompanion extends UpdateCompanion<ReadingProgressRow> {
   final Value<bool> endReached;
   final Value<String?> volumeJson;
   final Value<bool> hidden;
+  final Value<String?> hiddenAt;
   final Value<String?> ttsResume;
   final Value<int> rowid;
   const ReadingProgressRowsCompanion({
@@ -560,6 +607,7 @@ class ReadingProgressRowsCompanion extends UpdateCompanion<ReadingProgressRow> {
     this.endReached = const Value.absent(),
     this.volumeJson = const Value.absent(),
     this.hidden = const Value.absent(),
+    this.hiddenAt = const Value.absent(),
     this.ttsResume = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -574,6 +622,7 @@ class ReadingProgressRowsCompanion extends UpdateCompanion<ReadingProgressRow> {
     this.endReached = const Value.absent(),
     this.volumeJson = const Value.absent(),
     this.hidden = const Value.absent(),
+    this.hiddenAt = const Value.absent(),
     this.ttsResume = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : volumeKey = Value(volumeKey);
@@ -588,6 +637,7 @@ class ReadingProgressRowsCompanion extends UpdateCompanion<ReadingProgressRow> {
     Expression<bool>? endReached,
     Expression<String>? volumeJson,
     Expression<bool>? hidden,
+    Expression<String>? hiddenAt,
     Expression<String>? ttsResume,
     Expression<int>? rowid,
   }) {
@@ -602,6 +652,7 @@ class ReadingProgressRowsCompanion extends UpdateCompanion<ReadingProgressRow> {
       if (endReached != null) 'end_reached': endReached,
       if (volumeJson != null) 'volume_json': volumeJson,
       if (hidden != null) 'hidden': hidden,
+      if (hiddenAt != null) 'hidden_at': hiddenAt,
       if (ttsResume != null) 'tts_resume': ttsResume,
       if (rowid != null) 'rowid': rowid,
     });
@@ -618,6 +669,7 @@ class ReadingProgressRowsCompanion extends UpdateCompanion<ReadingProgressRow> {
     Value<bool>? endReached,
     Value<String?>? volumeJson,
     Value<bool>? hidden,
+    Value<String?>? hiddenAt,
     Value<String?>? ttsResume,
     Value<int>? rowid,
   }) {
@@ -632,6 +684,7 @@ class ReadingProgressRowsCompanion extends UpdateCompanion<ReadingProgressRow> {
       endReached: endReached ?? this.endReached,
       volumeJson: volumeJson ?? this.volumeJson,
       hidden: hidden ?? this.hidden,
+      hiddenAt: hiddenAt ?? this.hiddenAt,
       ttsResume: ttsResume ?? this.ttsResume,
       rowid: rowid ?? this.rowid,
     );
@@ -670,6 +723,9 @@ class ReadingProgressRowsCompanion extends UpdateCompanion<ReadingProgressRow> {
     if (hidden.present) {
       map['hidden'] = Variable<bool>(hidden.value);
     }
+    if (hiddenAt.present) {
+      map['hidden_at'] = Variable<String>(hiddenAt.value);
+    }
     if (ttsResume.present) {
       map['tts_resume'] = Variable<String>(ttsResume.value);
     }
@@ -692,6 +748,7 @@ class ReadingProgressRowsCompanion extends UpdateCompanion<ReadingProgressRow> {
           ..write('endReached: $endReached, ')
           ..write('volumeJson: $volumeJson, ')
           ..write('hidden: $hidden, ')
+          ..write('hiddenAt: $hiddenAt, ')
           ..write('ttsResume: $ttsResume, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -2964,6 +3021,7 @@ typedef $$ReadingProgressRowsTableCreateCompanionBuilder =
       Value<bool> endReached,
       Value<String?> volumeJson,
       Value<bool> hidden,
+      Value<String?> hiddenAt,
       Value<String?> ttsResume,
       Value<int> rowid,
     });
@@ -2979,6 +3037,7 @@ typedef $$ReadingProgressRowsTableUpdateCompanionBuilder =
       Value<bool> endReached,
       Value<String?> volumeJson,
       Value<bool> hidden,
+      Value<String?> hiddenAt,
       Value<String?> ttsResume,
       Value<int> rowid,
     });
@@ -3039,6 +3098,11 @@ class $$ReadingProgressRowsTableFilterComposer
 
   ColumnFilters<bool> get hidden => $composableBuilder(
     column: $table.hidden,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get hiddenAt => $composableBuilder(
+    column: $table.hiddenAt,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -3107,6 +3171,11 @@ class $$ReadingProgressRowsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get hiddenAt => $composableBuilder(
+    column: $table.hiddenAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get ttsResume => $composableBuilder(
     column: $table.ttsResume,
     builder: (column) => ColumnOrderings(column),
@@ -3163,6 +3232,9 @@ class $$ReadingProgressRowsTableAnnotationComposer
 
   GeneratedColumn<bool> get hidden =>
       $composableBuilder(column: $table.hidden, builder: (column) => column);
+
+  GeneratedColumn<String> get hiddenAt =>
+      $composableBuilder(column: $table.hiddenAt, builder: (column) => column);
 
   GeneratedColumn<String> get ttsResume =>
       $composableBuilder(column: $table.ttsResume, builder: (column) => column);
@@ -3221,6 +3293,7 @@ class $$ReadingProgressRowsTableTableManager
                 Value<bool> endReached = const Value.absent(),
                 Value<String?> volumeJson = const Value.absent(),
                 Value<bool> hidden = const Value.absent(),
+                Value<String?> hiddenAt = const Value.absent(),
                 Value<String?> ttsResume = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ReadingProgressRowsCompanion(
@@ -3234,6 +3307,7 @@ class $$ReadingProgressRowsTableTableManager
                 endReached: endReached,
                 volumeJson: volumeJson,
                 hidden: hidden,
+                hiddenAt: hiddenAt,
                 ttsResume: ttsResume,
                 rowid: rowid,
               ),
@@ -3249,6 +3323,7 @@ class $$ReadingProgressRowsTableTableManager
                 Value<bool> endReached = const Value.absent(),
                 Value<String?> volumeJson = const Value.absent(),
                 Value<bool> hidden = const Value.absent(),
+                Value<String?> hiddenAt = const Value.absent(),
                 Value<String?> ttsResume = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ReadingProgressRowsCompanion.insert(
@@ -3262,6 +3337,7 @@ class $$ReadingProgressRowsTableTableManager
                 endReached: endReached,
                 volumeJson: volumeJson,
                 hidden: hidden,
+                hiddenAt: hiddenAt,
                 ttsResume: ttsResume,
                 rowid: rowid,
               ),

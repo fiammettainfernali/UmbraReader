@@ -138,15 +138,35 @@ class ReadingProgressStore {
     // end, re-opening it or scrolling around must not flip it back to
     // in-progress. Only a chapter-count change (new chapters compiled in)
     // resets the flag — at which point there genuinely is more to read.
+    final existing = await _row(_key(volume));
     var endReached = progress.endReached;
     if (!endReached) {
-      final existing = await _row(_key(volume));
       if (existing != null &&
           existing.endReached &&
           existing.chapterCount == progress.chapterCount) {
         endReached = true;
       }
     }
+
+    // `updatedAt` is when the position last actually *moved*, not when this
+    // row was last written to. The distinction decides cross-device merges,
+    // which are last-write-wins on this field.
+    //
+    // Plenty of writes land here without the reader having read anything:
+    // opening a book re-saves where it already was, and a background pass
+    // refreshes the chapter count after a re-download. Stamping those with
+    // `now()` made merely opening a book on one device outrank genuine
+    // reading done earlier on another — so a book finished on the phone
+    // came back unread after the iPad was so much as opened on it.
+    final moved =
+        existing == null ||
+        existing.chapterIndex != progress.chapterIndex ||
+        existing.blockIndex != progress.blockIndex ||
+        existing.blockChar != progress.blockChar ||
+        existing.endReached != endReached;
+    final stamp = moved
+        ? DateTime.now().toIso8601String()
+        : (existing.updatedAt ?? DateTime.now().toIso8601String());
     // hidden is absent on background writes (and on the update arm) so the
     // shelf state survives; ttsResume is always absent so a position save
     // never wipes the read-aloud resume point.
@@ -157,10 +177,16 @@ class ReadingProgressStore {
       blockChar: Value(progress.blockChar),
       chapterPath: Value(progress.chapterPath),
       chapterCount: Value(progress.chapterCount),
-      updatedAt: Value(DateTime.now().toIso8601String()),
+      updatedAt: Value(stamp),
       endReached: Value(endReached),
       volumeJson: Value(jsonEncode(volume.toJson())),
       hidden: unhide ? const Value(false) : const Value.absent(),
+      // Un-hiding is a shelf change like any other and has to be able to
+      // travel; without a fresh stamp the other device's older removal
+      // would win and the book would vanish again.
+      hiddenAt: unhide && (existing?.hidden ?? false)
+          ? Value(DateTime.now().toIso8601String())
+          : const Value.absent(),
     );
     await _db
         .into(_table)
@@ -208,17 +234,27 @@ class ReadingProgressStore {
   /// saved place. Reopening (and reading) it un-hides it again.
   Future<void> hideFromContinue(Volume volume) async {
     await _ensureMigrated();
+    // Stamped and pushed: this used to write the flag and stop there, so a
+    // book removed from the shelf on one device stayed on every other one
+    // forever — there was no timestamp to merge on and nothing told the
+    // cloud anything had happened.
+    final now = Value(DateTime.now().toIso8601String());
     await _db
         .into(_table)
         .insert(
           ReadingProgressRowsCompanion(
             volumeKey: Value(_key(volume)),
             hidden: const Value(true),
+            hiddenAt: now,
           ),
           onConflict: DoUpdate(
-            (_) => const ReadingProgressRowsCompanion(hidden: Value(true)),
+            (_) => ReadingProgressRowsCompanion(
+              hidden: const Value(true),
+              hiddenAt: now,
+            ),
           ),
         );
+    CloudSyncService().pushReadingProgressSoon();
   }
 
   /// Records the word-level resume point ([blockIndex], [charOffset]) reached
@@ -376,10 +412,21 @@ class ReadingProgressStore {
   /// the same `seriesId/fileName` used locally, carrying each entry's
   /// `updatedAt` so the other device can resolve conflicts by recency.
   Future<String> exportSyncBlob() async {
+    // Shelf state comes from the rows: [allEntries] exposes the position but
+    // not whether the book was removed from Continue reading, and a removal
+    // has to be exported precisely *because* it is a removal.
+    await _ensureMigrated();
+    final shelf = <String, (bool, String?)>{
+      for (final row in await _db.select(_table).get())
+        row.volumeKey: (row.hidden, row.hiddenAt),
+    };
     final entries = await allEntries();
     final map = <String, dynamic>{
       for (final e in entries)
         _key(e.volume): {
+          if (shelf[_key(e.volume)]?.$1 ?? false) 'hidden': true,
+          if (shelf[_key(e.volume)]?.$2 != null)
+            'hiddenAt': shelf[_key(e.volume)]!.$2,
           'chapterIndex': e.progress.chapterIndex,
           'blockIndex': e.progress.blockIndex,
           if (e.progress.blockChar != 0) 'blockChar': e.progress.blockChar,
@@ -420,20 +467,64 @@ class ReadingProgressStore {
       final volume = value['volume'];
       if (volume is! Map) continue;
       final local = await _row(key);
+
+      // Shelf state merges on its own clock, independently of the position.
+      // A device can hold the newer removal and the older position, or the
+      // other way round, and both facts should survive.
+      final cloudHiddenAt = DateTime.tryParse(
+        value['hiddenAt'] as String? ?? '',
+      );
+      final localHiddenAt = DateTime.tryParse(local?.hiddenAt ?? '');
+      final takeShelf =
+          cloudHiddenAt != null &&
+          (localHiddenAt == null || cloudHiddenAt.isAfter(localHiddenAt));
+      if (takeShelf && local != null) {
+        await (_db.update(_table)..where((t) => t.volumeKey.equals(key))).write(
+          ReadingProgressRowsCompanion(
+            hidden: Value(value['hidden'] == true),
+            hiddenAt: Value(cloudHiddenAt.toIso8601String()),
+          ),
+        );
+        changed = true;
+      }
+
       final localUpdated = DateTime.tryParse(local?.updatedAt ?? '');
       if (localUpdated != null && !cloudUpdated.isAfter(localUpdated)) {
         continue;
       }
+
+      // Finishing is sticky across a merge, exactly as it is across a local
+      // save: once a book has been read to the end, nothing short of new
+      // chapters may flip it back to in-progress. Without this a merge
+      // could un-finish a book the reader had genuinely finished here —
+      // which is what made books read on one device reappear as unread.
+      final cloudCount = (value['chapterCount'] as num?)?.toInt() ?? 0;
+      var endReached = value['endReached'] == true;
+      if (!endReached &&
+          local != null &&
+          local.endReached &&
+          local.chapterCount == cloudCount) {
+        endReached = true;
+      }
+
       final companion = ReadingProgressRowsCompanion(
         volumeKey: Value(key),
         chapterIndex: Value((value['chapterIndex'] as num?)?.toInt() ?? 0),
         blockIndex: Value((value['blockIndex'] as num?)?.toInt() ?? 0),
         blockChar: Value((value['blockChar'] as num?)?.toInt() ?? 0),
         chapterPath: Value(value['chapterPath'] as String?),
-        chapterCount: Value((value['chapterCount'] as num?)?.toInt() ?? 0),
+        chapterCount: Value(cloudCount),
         updatedAt: Value(cloudUpdated.toIso8601String()),
-        endReached: Value(value['endReached'] == true),
+        endReached: Value(endReached),
         volumeJson: Value(jsonEncode(volume)),
+        // Shelf state was settled above on its own clock; leaving it absent
+        // keeps a position merge from quietly undoing a removal.
+        hidden: takeShelf
+            ? Value(value['hidden'] == true)
+            : const Value.absent(),
+        hiddenAt: takeShelf
+            ? Value(cloudHiddenAt.toIso8601String())
+            : const Value.absent(),
       );
       await _db
           .into(_table)

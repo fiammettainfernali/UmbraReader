@@ -38,6 +38,15 @@ class ReadingProgressRows extends Table {
   /// Hidden from the "Continue reading" shelf (position still kept).
   BoolColumn get hidden => boolean().withDefault(const Constant(false))();
 
+  /// When [hidden] last changed, so the flag can be merged across devices.
+  ///
+  /// Separate from [updatedAt] because they answer different questions and
+  /// move at different times: [updatedAt] is when the *position* last
+  /// changed, and reusing it would both make hiding look like reading and
+  /// let any position write undo a removal. Null on rows whose shelf state
+  /// has never been touched, which loses to any device that has an opinion.
+  TextColumn get hiddenAt => text().nullable()();
+
   /// Read-aloud word-exact resume point, "blockIndex:charOffset". Device
   /// local and ephemeral — never synced.
   TextColumn get ttsResume => text().nullable()();
@@ -184,7 +193,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -218,6 +227,13 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(bookmarkRows, bookmarkRows.endChar);
         await m.addColumn(bookmarkRows, bookmarkRows.endBlockIndex);
         await m.addColumn(bookmarkRows, bookmarkRows.selectedText);
+      }
+      if (from < 7) {
+        // v7: shelf removals sync between devices. Removing a book from
+        // Continue reading was device-local — there was no path for it to
+        // reach another device — because the flag had no timestamp to
+        // merge on.
+        await m.addColumn(readingProgressRows, readingProgressRows.hiddenAt);
       }
     },
   );
