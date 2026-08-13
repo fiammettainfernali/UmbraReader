@@ -162,15 +162,40 @@ class _LibraryScreenState extends State<LibraryScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
     // Returning to the app is a user-caused boundary, so a merge that landed
     // while they were away can safely surface now.
-    if (state == AppLifecycleState.resumed && _remoteMergePending) {
+    if (_remoteMergePending) {
       _loadReading();
       // The merge may have carried a newer arrangement from the other
       // device. Same reasoning as the shelf reload: apply it at a boundary
       // the user caused, never under their finger.
       reloadSavedView();
     }
+    _syncIfStale();
+  }
+
+  /// Fetches the library again if the last fetch is old enough to be worth
+  /// redoing.
+  ///
+  /// Until this existed, the app fetched exactly once per launch — plus
+  /// whatever pull-to-refresh the reader did on this screen. An app left
+  /// open for a day showed the library as it was when it started, and no
+  /// other screen could fix that: they all read the cache this screen
+  /// writes. Novel Grabber compiles all day, so that is a lot of missed
+  /// news.
+  ///
+  /// Resume rather than a timer: it is the moment the reader came back and
+  /// is a boundary they caused, and iOS freezes Dart timers on suspend
+  /// anyway. The interval keeps flicking in and out of the app from
+  /// hammering a server that is usually mid-download.
+  static const _resyncAfter = Duration(minutes: 5);
+  DateTime? _lastSyncAt;
+
+  void _syncIfStale() {
+    final last = _lastSyncAt;
+    if (last != null && DateTime.now().difference(last) < _resyncAfter) return;
+    _sync();
   }
 
   /// Watches the server only for whether it is busy — the Server tab owns
@@ -343,6 +368,7 @@ class _LibraryScreenState extends State<LibraryScreen>
     try {
       final library = await OpdsClient(settings).fetchLibrary();
       await _cache?.saveSeries(library);
+      _lastSyncAt = DateTime.now();
       if (!mounted) return;
       setState(() {
         _library = library;

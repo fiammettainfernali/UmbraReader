@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/series.dart';
 import '../services/library_cache.dart';
+import '../services/library_refresh.dart';
 import '../services/library_storage.dart';
 import '../services/opds_client.dart';
 import '../services/recommendation_loader.dart';
@@ -120,6 +121,21 @@ class DiscoverScreenState extends State<DiscoverScreen>
     setRecommendations(recs);
   }
 
+  /// Pull-to-refresh — which now actually goes to the server.
+  ///
+  /// Reading the cache was the entire behaviour, so a pull here could never
+  /// produce anything the library screen hadn't already fetched. That made
+  /// the one gesture a reader would reach for when the shelves looked stale
+  /// the one gesture guaranteed not to help.
+  ///
+  /// The result goes through the cache rather than into a field, so the
+  /// fresh copy lands where every other screen looks for it — and the write
+  /// bumps the revision that reloads these shelves.
+  Future<void> _refresh() async {
+    await const LibraryRefresh().run(widget.settings);
+    await _load(force: true);
+  }
+
   /// Cheap stand-in for "the library changed in a way the shelves care
   /// about" — size, plus the newest date of each kind.
   static String _signatureOf(List<Series> library) {
@@ -201,9 +217,9 @@ class DiscoverScreenState extends State<DiscoverScreen>
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              // A deliberate pull means "redo it", including the parts the
-              // signature check would otherwise skip.
-              onRefresh: () => _load(force: true),
+              // A deliberate pull means "go and look", including the parts
+              // the signature check would otherwise skip.
+              onRefresh: _refresh,
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: EdgeInsets.fromLTRB(
