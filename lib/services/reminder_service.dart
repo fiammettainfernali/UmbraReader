@@ -156,6 +156,7 @@ class ReminderService {
           title: invitations[(seed + i) % invitations.length],
           notificationDetails: const NotificationDetails(
             iOS: DarwinNotificationDetails(presentBadge: false),
+            android: _androidReminder,
           ),
           // Irrelevant on iOS; the inexact mode is the one that needs no
           // special Android permission, so it is the honest default here.
@@ -166,6 +167,18 @@ class ReminderService {
       }
     }
   }
+
+  /// Android delivers through a channel or not at all. The reminder is an
+  /// invitation, not an alert, so it posts without sound at default
+  /// importance — visible in the shade, never interrupting.
+  static const _androidReminder = AndroidNotificationDetails(
+    'reading_reminders',
+    'Reading reminders',
+    channelDescription: 'The daily nudge to pick your book back up.',
+    importance: Importance.defaultImportance,
+    priority: Priority.defaultPriority,
+    playSound: false,
+  );
 
   Future<void> _cancelAll() async {
     for (var i = 0; i < kReminderHorizonDays; i++) {
@@ -180,6 +193,20 @@ class ReminderService {
   Future<bool> _requestPermission() async {
     if (!await _ensureReady()) return false;
     try {
+      // Each platform answers through its own implementation, and resolving
+      // the wrong one returns null — which read as "denied" and left Android
+      // silently without reminders.
+      final android = _plugin
+          .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin
+          >();
+      if (android != null) {
+        // Below API 33 there is no prompt to show, so this reports whether
+        // notifications are switched on for the app at all. Null only comes
+        // back if the channel answers with nothing; take that as available
+        // and let the scheduling attempt be the thing that fails loudly.
+        return await android.requestNotificationsPermission() ?? true;
+      }
       final ios = _plugin
           .resolvePlatformSpecificImplementation<
             IOSFlutterLocalNotificationsPlugin
@@ -217,6 +244,7 @@ class ReminderService {
             requestBadgePermission: false,
             requestSoundPermission: false,
           ),
+          android: AndroidInitializationSettings('@mipmap/ic_launcher'),
         ),
       );
       _ready = true;

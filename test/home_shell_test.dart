@@ -89,6 +89,38 @@ void main() {
     CloudSyncService().cancelPendingTimers();
   });
 
+  testWidgets('Android back returns to Library before it leaves the app', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: HomeShell()));
+    await _settle(tester);
+
+    await tester.tap(find.text('You').last);
+    await _settle(tester);
+
+    // Back on a sub-tab belongs to the tab strip: it returns to Library
+    // rather than closing the app out from under the reader.
+    final popped = await tester.binding.handlePopRoute();
+    await _settle(tester);
+    expect(popped, isTrue, reason: 'the shell handled back itself');
+    expect(
+      tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+      0,
+      reason: 'back from a sub-tab lands on Library',
+    );
+
+    // A second back is the one that leaves: nothing is left to return to.
+    expect(
+      await tester.binding.handlePopRoute(),
+      isFalse,
+      reason: 'back from Library falls through to the system',
+    );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    CloudSyncService().cancelPendingTimers();
+  });
+
   testWidgets('Notes is reachable from the bar without opening a book', (
     tester,
   ) async {

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The secure store is encrypted with a Keystore key that never leaves the
+  device it was generated on. Backing the ciphertext up only restores a blob
+  the new device cannot decrypt, so exclude it and let the user sign in again.
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+</full-backup-content>
