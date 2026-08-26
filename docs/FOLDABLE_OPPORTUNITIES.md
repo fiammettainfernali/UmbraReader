@@ -161,20 +161,147 @@ repagination on resize is tested. What is worth adding:
 
 ---
 
+## Group C — Android platform polish
+
+Small, mostly self-contained, and the difference between an iOS app that runs
+on Android and one that belongs there. Three of these are already *missing*
+rather than merely absent — checked against the manifest tonight.
+
+### C1. Opt into predictive back. *One line, and it finishes tonight's work.*
+
+`android:enableOnBackInvokedCallback="true"` is **not set**. The `PopScope`
+added to `HomeShell` works, but without this the system cannot draw the
+predictive preview — the peel-back animation showing where the gesture will
+land before you commit to it. Flutter's `PopScope` was designed for exactly
+this and already supplies `canPop` ahead of time, which is the hard part.
+
+The one thing to verify: with the shell intercepting back on sub-tabs, the
+preview should show the Library rather than the home screen.
+
+### C2. App shortcuts
+
+Long-press the launcher icon: *Continue reading*, *Library*, *Search*. Static
+shortcuts are an XML file; a dynamic one could name the actual current book.
+These also populate Samsung's Edge panel, so C2 quietly does D3's work.
+
+### C3. A themed (monochrome) app icon
+
+**Not present.** On One UI's themed-icon setting every other icon tints to the
+wallpaper and Umbra stays full-colour — conspicuous in the wrong way. A single
+monochrome drawable fixes it.
+
+### C4. Dynamic colour, as an option rather than a default
+
+The theme is a fixed dusk-plum seed, deliberately — the "comfy witchy library"
+identity is the app's own. Android can theme from the wallpaper instead.
+
+Offer it as a setting, off by default. The reader's own page themes should stay
+untouched either way: what you read on is a reading decision, not a system one.
+
+### C5. Respect the system font scale in the chrome
+
+The reader has its own size control, so it is exempt. The library, settings and
+stats are not, and One UI's font-size slider is prominent enough that people
+actually move it. Worth a pass at the largest setting.
+
+### C6. A Quick Settings tile
+
+One pull-down, straight back into the current book. Cheap, and it suits a
+reader better than most app types.
+
+---
+
+## Group D — One UI and Samsung
+
+### D1. The Now Bar. *The most interesting thing Samsung has opened up.*
+
+One UI 8 opens the Now Bar to third-party apps, built on Android 16's **Live
+Updates** — an ongoing notification with `Notification.ProgressStyle` and
+`setRequestPromotedOngoing(true)`, promoted to the lock screen and the Now Bar.
+This is Android's answer to iOS Live Activities, and it arrived after the iOS
+app was written.
+
+It requires targeting API 36. **The app already does.**
+
+The natural fit is a series download: chapters fetched, volumes remaining,
+progress advancing on the lock screen without unlocking. `background_downloader`
+already emits exactly that progress. A second candidate is the daily reading
+goal, which `StatsScreen` already computes.
+
+Of everything in this document, this is the one with the largest gap between
+"clearly possible" and "nobody has done it in a reading app".
+
+### D2. Samsung DeX
+
+An external monitor is a very wide viewport, and `shouldUseSpread` already
+handles those correctly. Mostly a matter of trying it and seeing what the
+chrome does at desktop scale. Free until proven otherwise.
+
+### D3. Edge panel
+
+No API to integrate with — but the Apps edge panel picks up app shortcuts, so
+C2 delivers this without extra work. Worth knowing rather than planning.
+
+### D4. Modes and Routines — *speculative, verify before believing*
+
+One UI 8 expanded Routines with new triggers and actions. A "Reading" mode that
+dims the screen, silences notifications and opens the current book is obviously
+attractive. What I could not confirm is how much a third-party app can *expose*
+to Routines versus merely being launched by one. Treat as an experiment to run
+on the device, not a feature to plan around.
+
+### D5. Quick Share for backups
+
+`backup_service.dart` already writes a file and hands it to the system share
+sheet. On a Samsung device that sheet includes Quick Share, so the backup can
+go straight to another device. Already works — worth testing rather than
+building.
+
+---
+
 ## Suggested order
 
-Measurement first, then the cheap high-value Android work, then the hinge.
+Measurement first, then the things that are nearly free, then the big ones.
 
-1. **Measure both panels, both postures, both display-scaling extremes.**
-   Everything else is calibrated against these numbers. (Day one, minutes.)
-2. **B1 — share a URL to add a novel.** Highest value per hour in the list;
-   the server plumbing already exists.
-3. **A2 — per-posture reading settings.** Small, and it is what stops the
-   device feeling like a big phone.
-4. **B2 — open `.epub` from anywhere.** Test alongside the picker MIME issue.
-5. **A1 — table-top reading.** The differentiator, and the largest piece.
-6. **B3 — the widget.** Self-contained; good work for an evening.
-7. **A3, A4, B4, B5, B6** — as appetite allows.
+**Day one, before anything is built**
 
-Deliberately excluded: anything requiring the S Pen, and anything that would
-change iOS behaviour to suit Android.
+1. **Measure both panels, both postures, and both display-scaling extremes.**
+   Everything here is calibrated against those numbers, and C1's 752dp margin
+   at density 3.0 is the one that could quietly disable the spread.
+
+**Then the cheap wins — roughly an evening for all four together**
+
+2. **C1 predictive back** — one manifest line, and it completes the back-gesture
+   work already done.
+3. **C3 themed icon** — one drawable; without it the icon stands out on a
+   themed home screen.
+4. **C2 app shortcuts** — an XML file, and it populates the Edge panel for free.
+5. **D5 / D2 / B6** — Quick Share, DeX and multi-window need *testing*, not
+   building. Find out what already works before planning anything.
+
+**Then the real features, in value order**
+
+6. **B1 share a URL to add a novel.** Highest value per hour in the document.
+   The server call already exists; this removes the laptop from the loop.
+7. **A2 per-posture reading settings.** Small, and it is what stops an
+   unfolded device feeling like a big phone.
+8. **B2 open `.epub` from anywhere.** Test with the picker MIME question.
+9. **D1 the Now Bar via Live Updates.** The largest gap between "clearly
+   possible" and "nobody has done this in a reading app". Needs no new
+   permissions and the target SDK is already right.
+10. **A1 table-top reading.** The differentiator, and the biggest single piece.
+11. **B3 the home screen widget.**
+
+**As appetite allows:** A3, A4, B4, B5, C4, C5, C6, D3, D4.
+
+---
+
+## Excluded, and why
+
+- **Anything needing the S Pen.** The Fold 8 Ultra does not have it.
+- **Anything that changes iOS behaviour to suit Android.** The port has held
+  that line so far and it is worth keeping.
+- **Dynamic colour as a default** (C4). The app's identity is deliberate; the
+  wallpaper should be able to override it only on request.
+- **D4 Modes and Routines** is listed but unverified — how much a third-party
+  app can expose to Routines is a question for the device, not a plan.
