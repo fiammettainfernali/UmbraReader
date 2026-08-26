@@ -69,6 +69,28 @@ where it started, both directions. The manifest's `configChanges` already
 covers `screenLayout|smallestScreenSize|screenSize|density`, so a fold reaches
 the existing activity rather than recreating it.
 
+**The four bridges are all resolved.**
+
+- `umbra/icloud_kv` and `umbra/icloud_docs` — `NullSyncBackend`, by decision
+  rather than omission.
+- `umbra/define` — implemented in `MainActivity.kt` as a PROCESS_TEXT intent.
+  Android has no system dictionary, so the honest equivalent is handing the
+  word to whatever the reader has installed. Where nothing does, the channel
+  returns false and the reader now says so: the haptic has already fired by
+  then, and silence reads as the app being broken. The `<queries>` element
+  this needs was already in the manifest — without it the lookup comes back
+  empty on API 30+ however many dictionaries are installed.
+- `umbra/now_playing` — a safe no-op. It catches `MissingPluginException`,
+  and read-aloud is gated off regardless.
+
+**Why the pagination guard is likely to pass, and why it still has to run.**
+Reading fonts are bundled assets, identical on both platforms. The default is
+the *platform* font — SF Pro against Roboto — but both the measure and the
+render pass go through one style function, and it sets `inherit: false`, so
+nothing can pick up an ambient font between them. Page counts will differ from
+iOS; pages overflowing would be a real failure. Run it anyway: this is an
+argument, not a measurement.
+
 ### What actually needs the device
 
 In rough order of how much rides on it:

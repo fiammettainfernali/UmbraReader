@@ -1049,7 +1049,19 @@ class _ReaderScreenState extends State<ReaderScreen>
       return;
     }
     _hapticSelection();
-    DictionaryService().define(word);
+    unawaited(_defineWord(word));
+  }
+
+  /// Looks [word] up, and says so when nothing can. The haptic has already
+  /// fired by this point, so silence would promise a lookup that never came.
+  Future<void> _defineWord(String word) async {
+    if (await DictionaryService().define(word)) return;
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(content: Text('No dictionary app installed')),
+      );
   }
 
   /// Quick thought capture (Phase 6): instantly drops a bookmark at the

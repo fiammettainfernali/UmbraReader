@@ -426,12 +426,23 @@ mixin ReaderSelection<T extends StatefulWidget> on State<T> {
     unawaited(Clipboard.setData(ClipboardData(text: text)));
   }
 
-  void defineSelection() {
+  Future<void> defineSelection() async {
     final text = selectedText.trim();
     clearSelection();
     if (text.isEmpty) return;
     // A phrase resolves to its first word for the dictionary.
-    DictionaryService().define(text.split(RegExp(r'\s+')).first);
+    final shown = await DictionaryService().define(
+      text.split(RegExp(r'\s+')).first,
+    );
+    if (shown || !mounted) return;
+    // iOS always has a dictionary; Android has none of its own and borrows
+    // whatever is installed. With nothing to borrow, say so — the button
+    // doing nothing at all reads as the app being broken.
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(content: Text('No dictionary app installed')),
+      );
   }
 
   /// Builds a range-highlight bookmark from the current selection, or null if
