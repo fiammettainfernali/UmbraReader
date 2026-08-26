@@ -257,4 +257,14 @@ class ReminderService {
   /// Test-only: forgets initialisation state.
   @visibleForTesting
   void resetForTest() => _ready = false;
+
+  /// Test-only: whether the plugin and timezone database come up on this
+  /// platform.
+  ///
+  /// Worth being able to ask directly, because failure here is silent by
+  /// design: every later call checks `_ensureReady` and returns quietly, so
+  /// an Android build missing its initialisation settings does not throw or
+  /// log — the reminders simply never arrive.
+  @visibleForTesting
+  Future<bool> ensureReadyForTest() => _ensureReady();
 }
