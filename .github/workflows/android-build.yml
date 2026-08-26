@@ -69,8 +69,10 @@ jobs:
           # enough to get it installed and short enough not to hoard builds.
           retention-days: 14
 
-  pagination:
-    name: Pagination guard on a real font stack
+  # Both on-device jobs share one emulator boot — spinning a second one up
+  # costs more than the tests take to run.
+  device:
+    name: On-device checks (real fonts, real SQLite)
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -101,16 +103,23 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Run the pagination guard
-        # This is the one check that cannot be done on the host. `flutter test`
-        # renders with a stub font whose glyphs are all one width, so measure
-        # and render can agree there and still disagree under real fonts. An
-        # emulator has Android's actual font stack, which is the half of the
-        # risk that does not need the physical device — the panel geometry is
-        # the other half, and only hardware answers that.
+      - name: Boot the app and run the guards
+        # The checks that cannot be done on the host at all.
+        #
+        # Pagination: `flutter test` renders with a stub font whose glyphs are
+        # all one width, so measure and render can agree there and still
+        # disagree under real fonts. An emulator has Android's actual font
+        # stack — the half of that risk not needing the physical device. Panel
+        # geometry is the other half, and only hardware answers it.
+        #
+        # Boot: the host suite replaces every platform binding with a fake, so
+        # nothing there proves the app starts. This runs the real main() —
+        # drift against a native SQLite file, path_provider, the Keystore.
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           arch: x86_64
           profile: pixel_6
-          script: flutter test integration_test/pagination_overflow_test.dart
+          # The boot test runs first: if the app cannot start on Android,
+          # a pagination result is not the thing worth reading.
+          script: flutter test integration_test/

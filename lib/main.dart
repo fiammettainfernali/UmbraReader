@@ -89,7 +89,15 @@ class UmbraReaderApp extends StatelessWidget {
     // using an iOS system font so it needs no download and works offline; body
     // and labels stay in the clean default for legibility.
     const heading = 'Georgia';
-    TextStyle? h(TextStyle? s) => s?.copyWith(fontFamily: heading);
+    // Android ships no Georgia, and an unresolvable family falls back to the
+    // default sans without complaint — the serif simply disappears and the
+    // app looks like a different one. Lora is already bundled for the reader,
+    // so naming it here costs no bytes and leaves iOS on Georgia untouched.
+    const headingFallback = ['Lora'];
+    TextStyle? h(TextStyle? s) => s?.copyWith(
+      fontFamily: heading,
+      fontFamilyFallback: headingFallback,
+    );
     final t = base.textTheme;
     final textTheme = t.copyWith(
       displayLarge: h(t.displayLarge),
@@ -110,6 +118,7 @@ class UmbraReaderApp extends StatelessWidget {
         centerTitle: false,
         titleTextStyle: TextStyle(
           fontFamily: heading,
+          fontFamilyFallback: headingFallback,
           fontSize: 24,
           fontWeight: FontWeight.w600,
           color: scheme.onSurface,
