@@ -182,10 +182,10 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// be measured without a MediaQuery lookup (e.g. during dispose).
   double _lastContentWidth = 0;
 
-  /// True when the viewport is tablet-sized and landscape — paged mode then
-  /// renders a two-page spread (an open book) on iPad. Cached each build so
+  /// True when the viewport has the shape for a two-page spread (an open
+  /// book) in paged mode — see [shouldUseSpread]. Cached each build so
   /// [_pageStride] stays safe to read during dispose-time saves.
-  bool _wideLandscape = false;
+  bool _spreadFits = false;
 
   /// Viewport width at the last build/metrics tick — distinguishes a real
   /// rotation (width change) from keyboard/inset churn in didChangeMetrics.
@@ -720,7 +720,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// block-index and page-index go through this.
   int get _pageStride =>
       _settings.tvMode ||
-          (_wideLandscape && _settings.mode == ReadingMode.paged)
+          (_spreadFits && _settings.mode == ReadingMode.paged)
       ? 2
       : 1;
 
@@ -2317,10 +2317,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     final preset = _settings.theme;
     if (listenMode) return buildListenView(book, preset);
     final mq = MediaQuery.of(context);
-    // 700dp shortest side = real tablets (iPad mini is 744): big phones in
-    // landscape stay single-page.
-    _wideLandscape =
-        mq.size.shortestSide >= 700 && mq.size.width > mq.size.height;
+    _spreadFits = shouldUseSpread(mq.size);
     _lastViewWidth = mq.size.width;
     // Centred-column mode caps the reading area to a comfortable measure and
     // centres it (wide side gutters); otherwise it spans the screen. Any

@@ -14,6 +14,85 @@ below reuses it.
 
 ---
 
+## Progress — 2026-08-25 evening
+
+Phases 0 and 1 are done as far as they can go without hardware. The build
+passes, the suite is green, and nothing below has run on a device.
+
+**Phase 0 — done.** The `android/` target exists and `app-debug.apk` builds.
+Core library desugaring was the blocker: `flutter_local_notifications`
+schedules with `java.time`, and the AAR metadata check refuses the build
+outright without it. The NDK and CMake installed themselves on the way past.
+
+**Phase 1 — four real bugs, and four items that needed nothing.**
+
+Fixed:
+
+- *Back gesture.* There was no `PopScope` anywhere in the app — iOS never
+  needed one. Back from any tab left the app instead of returning to Library.
+- *Secure storage.* Auto-backup carries SharedPreferences to new hardware but
+  not the Keystore key, so a restored install came back with server and
+  username intact and an undecryptable password that `resetOnError` then
+  deleted. It looked configured and answered every request with 401. The
+  secure store is now excluded from backup, and a marker distinguishes "never
+  had a password" from "lost it".
+- *Reminders were dead on Android three times over* — no init settings, no
+  channel, and a permission request that resolved only the iOS implementation
+  and read its null as a denial.
+- *The launcher showed `umbra_reader`.*
+
+Needed no work, verified rather than assumed:
+
+- *Storage paths* never persist anything absolute; every directory is derived
+  fresh from `path_provider`.
+- *Background downloads* already had the permissions, and
+  `inexactAllowWhileIdle` already survives Doze without exact-alarm
+  permission.
+- *Cloud sync* deliberately gives Android `NullSyncBackend`.
+- *TTS voices is a dead item* — `kReadAloudEnabled = false` gates the feature
+  off entirely.
+
+**Phase 2 — the spread rule is fixed; continuity already worked.**
+
+`shouldUseSpread` in `reader_layout.dart` replaces the old
+`shortestSide >= 700 && width > height`. The shortest-side gate was doing real
+work and is kept; the landscape flag was the bug — an unfolded panel is
+tablet-sized and nearly square, so it read as portrait and never opened the
+spread it had room for. The rule is now shortest-side plus an aspect ratio,
+and `kSpreadMinAspectRatio` is **provisional at 0.8**: it preserves every
+current iOS viewport exactly, but has never been checked against a real
+unfolded panel.
+
+Fold continuity turned out to already work. A test that reads five pages in,
+unfolds across the spread boundary and folds back lands within four blocks of
+where it started, both directions. The manifest's `configChanges` already
+covers `screenLayout|smallestScreenSize|screenSize|density`, so a fold reaches
+the existing activity rather than recreating it.
+
+### What actually needs the device
+
+In rough order of how much rides on it:
+
+1. **Measure both panels, both postures.** `MediaQuery.sizeOf`, written down.
+   Everything below depends on these numbers, and none of them are known yet.
+2. **Calibrate `kSpreadMinAspectRatio`** against the unfolded ratio. If the
+   inner panel is squarer than 0.8 it will not spread; if the cover screen is
+   somehow above it, it will spread when it must not.
+3. **Run the pagination guard on-device:**
+   `flutter test integration_test/pagination_overflow_test.dart`. The host
+   suite renders with a stub font whose glyphs are all one width, so measure
+   and render can agree there and still disagree under Android's font stack.
+   This is the one that invalidates everything else if it fails.
+4. **Unfold mid-paragraph and confirm the same word.** The widget test
+   simulates a resize; it cannot simulate the display switch.
+5. **Import an `.epub`.** `FileType.custom` with `allowedExtensions: ['epub']`
+   maps to `application/epub+zip`, and providers that do not report that MIME
+   grey the files out. Left alone deliberately — guessing could make it worse.
+6. **Secure storage round-trip**, then reminders (permission prompt, and one
+   actually arriving).
+
+---
+
 ## Where the code actually stands
 
 Measured, not assumed:
