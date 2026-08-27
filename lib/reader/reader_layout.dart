@@ -17,7 +17,16 @@ const double kParagraphGap = 16;
 /// Shortest side at or above which a viewport is a tablet rather than a
 /// large phone. A phone in landscape is wide but short; splitting it gives
 /// two columns with three lines each.
-const double kSpreadMinShortestSide = 700;
+///
+/// 600 rather than the iPad mini's 744, because the gap this sits in is
+/// wide and the top of it is the wrong end. Measured on the Fold: the inner
+/// panel is 752dp at the default 480dpi — 52dp of headroom — and One UI's
+/// display-size slider moves density in steps that eat that immediately.
+/// At 540dpi the panel reports 668dp and the spread silently stops opening,
+/// with nothing to explain why. The largest phones are around 440dp, so
+/// 600 sits in the middle of the gap instead of at its edge and survives
+/// every display-size setting the device offers.
+const double kSpreadMinShortestSide = 600;
 
 /// Width/height at or above which a tablet-sized viewport opens into a
 /// two-page spread.

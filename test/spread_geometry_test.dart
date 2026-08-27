@@ -47,6 +47,43 @@ void main() {
     });
   });
 
+  group('measured on the Fold, not guessed', () {
+    // Read off the device with `adb shell dumpsys display`, 2026-08-26.
+    // Both panels are 480dpi (3.0x): cover 1080x2520px, inner 2256x2504px.
+    test('the cover screen is one column', () {
+      expect(shouldUseSpread(const Size(360, 840)), isFalse);
+    });
+
+    test('the cover screen stays one column turned sideways', () {
+      // Ratio 2.33 sails past the aspect gate — only the shortest-side gate
+      // stops this splitting a 360dp strip into two columns.
+      expect(shouldUseSpread(const Size(840, 360)), isFalse);
+    });
+
+    test('the unfolded panel opens a spread', () {
+      // 0.901: portrait, and the old landscape flag refused exactly this.
+      expect(shouldUseSpread(const Size(752, 835)), isTrue);
+    });
+
+    test('the unfolded panel still spreads at the largest display size', () {
+      // One UI's display-size slider raises density, which shrinks every
+      // logical dimension. At 540dpi the inner panel reports 668dp and at
+      // 600dpi it reports 602dp. Under the old 700 gate both lost the
+      // spread with nothing on screen to explain it.
+      expect(shouldUseSpread(const Size(668, 742)), isTrue,
+          reason: 'display size one notch up must not cost the spread');
+      expect(shouldUseSpread(const Size(602, 668)), isTrue,
+          reason: 'the largest display size must not cost the spread');
+    });
+
+    test('a large phone is still refused with the lower gate', () {
+      // The gate moved down to 600, so this is the case that had to keep
+      // working: the biggest phones are around 440dp on the short side.
+      expect(shouldUseSpread(const Size(956, 440)), isFalse);
+      expect(shouldUseSpread(const Size(440, 956)), isFalse);
+    });
+  });
+
   test('the threshold is the boundary it claims to be', () {
     // Guards the constant itself: a viewport just inside spreads, just
     // outside does not, so a careless edit to either number shows up here.
