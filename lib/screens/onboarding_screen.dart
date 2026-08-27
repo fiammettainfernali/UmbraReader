@@ -122,7 +122,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               const SizedBox(height: 8),
               Text(
                 'Connect to your Novel Grabber library to start reading. '
-                'The OPDS server runs on your computer over your local network.',
+                'The OPDS server runs on your computer — over your local '
+                'network, or from anywhere via Tailscale or a reverse proxy.',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,

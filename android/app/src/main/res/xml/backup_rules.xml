@@ -6,4 +6,12 @@
 -->
 <full-backup-content>
     <exclude domain="sharedpref" path="FlutterSecureStorage.xml" />
+    <!--
+      Downloaded books are re-downloadable from the server, and Android's
+      auto-backup quota is 25MB per app. A library of any size exceeds that,
+      at which point the backup fails for everything — including the small
+      things worth keeping. Exclude the books and let the server be their
+      backup.
+    -->
+    <exclude domain="root" path="app_flutter/library" />
 </full-backup-content>

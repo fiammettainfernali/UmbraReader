@@ -158,8 +158,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'In Novel Grabber, start the OPDS server and copy the LAN address '
-            'it shows (something like http://192.168.1.42:8765).',
+            'In Novel Grabber, start the OPDS server and copy the address it '
+            'shows — something like http://192.168.1.42:8765. That address '
+            'only works on your home Wi-Fi; a Tailscale or reverse-proxy '
+            'address works anywhere, and usually needs no port.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 20),
