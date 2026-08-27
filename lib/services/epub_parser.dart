@@ -9,6 +9,7 @@ import 'package:xml/xml.dart';
 
 import '../models/content_block.dart';
 import '../models/epub_book.dart';
+import 'epub_source.dart';
 
 /// Raised when an EPUB can't be parsed. [message] is safe to show to the user.
 class EpubException implements Exception {
@@ -35,7 +36,13 @@ class _ManifestItem {
 /// Keep one instance alive while a book is open — it retains the decoded
 /// archive so chapters can be extracted lazily as the reader needs them.
 class EpubParser {
-  Archive? _archive;
+  /// Where bytes come from — a decoded local archive, or the hub.
+  ///
+  /// Named as an interface so the same parser reads a downloaded file or a
+  /// streamed book without knowing which. Everything below resolves paths
+  /// through it, so nothing else in parsing, rendering or pagination has
+  /// to care which it is.
+  EpubSource? _source;
   String _opfDir = '';
 
   /// Opens [file] and returns its metadata + chapter list. The archive is
@@ -49,7 +56,7 @@ class EpubParser {
     }
 
     try {
-      _archive = ZipDecoder().decodeBytes(bytes);
+      _source = LocalArchiveSource(ZipDecoder().decodeBytes(bytes));
     } on Exception catch (e) {
       throw EpubException('This file is not a valid EPUB.\n($e)');
     }
@@ -184,23 +191,10 @@ class EpubParser {
 
   // ── archive helpers ──────────────────────────────────────────────────────
 
-  List<int>? _findBytes(String path) {
-    final archive = _archive;
-    if (archive == null) return null;
-    final normalized = path.replaceAll('\\', '/');
-    var found = archive.findFile(normalized);
-    if (found == null) {
-      final lower = normalized.toLowerCase();
-      for (final file in archive.files) {
-        if (file.name.toLowerCase() == lower) {
-          found = file;
-          break;
-        }
-      }
-    }
-    if (found == null || !found.isFile) return null;
-    return found.content;
-  }
+  /// The one place a path becomes bytes. Every other resolution in this
+  /// file goes through here, which is why swapping the source is enough
+  /// to read a book that is not on this device.
+  List<int>? _findBytes(String path) => _source?.bytes(path);
 
   String _decode(List<int> bytes) => utf8.decode(bytes, allowMalformed: true);
 
