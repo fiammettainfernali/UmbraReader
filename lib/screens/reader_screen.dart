@@ -60,11 +60,24 @@ class ReaderScreen extends StatefulWidget {
 
   /// Read from the server instead of from a downloaded file.
   ///
-  /// Deliberately explicit rather than "stream whatever is not downloaded":
-  /// streaming and downloading fail in different ways, and which one you
-  /// are doing should be something you chose, not something inferred from
-  /// the state of your storage.
+  /// Asking for it explicitly is a real choice — streaming and downloading
+  /// fail in different ways. But it is not the only way to end up
+  /// streaming; see [shouldStream].
   final bool stream;
+
+  /// Whether this open will read from the server.
+  ///
+  /// Requesting it is one route. The other is having no file: Continue
+  /// reading, a search hit, a note, the next volume and a finished volume
+  /// that auto-delete removed all open the reader without the flag, and
+  /// every one of them used to die on "This volume is not downloaded".
+  /// Streaming there is not a preference being inferred — it is the only
+  /// way to honour a request to open a book that is not on the device.
+  @visibleForTesting
+  static bool shouldStream({
+    required bool requested,
+    required bool hasLocalFile,
+  }) => requested || !hasLocalFile;
 
   /// When set, the reader opens at this exact spot (e.g. a library-search
   /// hit) instead of the saved reading position.
@@ -105,6 +118,14 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   /// True while waiting on a chapter that has not arrived yet.
   bool _fetchingChapter = false;
+
+  /// Whether this book is actually being streamed.
+  ///
+  /// Not the same as widget.stream, which says only what was asked
+  /// for. A resume from Continue reading carries no flag and still
+  /// streams, and reading the flag instead of this meant the first
+  /// chapter was never fetched.
+  bool _streaming = false;
   EpubBook? _book;
   int _chapterIndex = 0;
   List<ContentBlock>? _blocks;
@@ -435,8 +456,24 @@ class _ReaderScreenState extends State<ReaderScreen>
     try {
       final parser = EpubParser();
       final EpubBook book;
-      if (widget.stream) {
+      // Streaming is a deliberate choice at the point of opening a book,
+      // but it is also the only way to honour a request to open one that
+      // is not on the device. Resuming from Continue reading, following a
+      // search hit, jumping to a note, moving to the next volume — none of
+      // those carry the flag, and a volume can also have been auto-deleted
+      // after finishing. Refusing them all with "not downloaded" would
+      // strand every book ever read this way.
+      final localFile = await LibraryStorage().epubFile(widget.volume);
+      final streaming = ReaderScreen.shouldStream(
+        requested: widget.stream,
+        hasLocalFile: localFile.existsSync(),
+      );
+      if (streaming) {
         final settings = await SettingsService().load();
+        if (settings.baseUrl.isEmpty) {
+          _fail('This volume is not downloaded, and no server is set up.');
+          return;
+        }
         final source = RemoteEpubSource(
           baseUrl: settings.baseUrl,
           novelId: widget.volume.seriesOpdsId,
@@ -448,13 +485,9 @@ class _ReaderScreenState extends State<ReaderScreen>
         // file, contents. Only once per book.
         await source.warmUp();
         book = await parser.openSource(source);
+        _streaming = true;
       } else {
-        final file = await LibraryStorage().epubFile(widget.volume);
-        if (!file.existsSync()) {
-          _fail('This volume is not downloaded.');
-          return;
-        }
-        book = await parser.open(file);
+        book = await parser.open(localFile);
       }
       if (book.chapters.isEmpty) {
         _fail('No readable chapters were found in this book.');
@@ -471,7 +504,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         final byPath = book.chapters.indexWhere((c) => c.zipPath == savedPath);
         if (byPath >= 0) chapterIndex = byPath;
       }
-      if (widget.stream &&
+      if (_streaming &&
           !await parser.prepareChapter(book.chapters[chapterIndex])) {
         _fail('Could not reach the server to load this chapter.');
         return;
@@ -614,7 +647,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// further ahead spends the reader's data on chapters they may never
   /// open.
   void _readAhead(int from) {
-    if (!widget.stream) return;
+    if (!_streaming) return;
     final book = _book;
     final parser = _parser;
     if (book == null || parser == null) return;
