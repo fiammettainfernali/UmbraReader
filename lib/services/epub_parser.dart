@@ -60,7 +60,24 @@ class EpubParser {
     } on Exception catch (e) {
       throw EpubException('This file is not a valid EPUB.\n($e)');
     }
+    return _readStructure();
+  }
 
+  /// Opens a book from any source — a hub that serves it a file at a time,
+  /// as much as a decoded archive.
+  ///
+  /// The source is expected to have whatever opening needs already in
+  /// hand: [bytes] is synchronous, so a remote source warms the container,
+  /// the package file and the contents before this is called.
+  Future<EpubBook> openSource(EpubSource source) async {
+    _source = source;
+    await source.prefetch(const ['META-INF/container.xml']);
+    return _readStructure();
+  }
+
+  /// Reads the container, package file and spine — the part of opening a
+  /// book that does not care where the bytes came from.
+  Future<EpubBook> _readStructure() async {
     final containerBytes = _findBytes('META-INF/container.xml');
     if (containerBytes == null) {
       throw EpubException('Not a valid EPUB — container.xml is missing.');
@@ -138,6 +155,49 @@ class EpubParser {
   /// trailing index of the `fn-…-N` anchor id. Set by [parseChapter] and
   /// read inside [_collectInline] to attach bodies to inline note refs.
   final Map<int, String> _currentNotes = {};
+
+  /// Whether [parseChapter] can render this chapter right now.
+  ///
+  /// Always true for a downloaded book. For a streamed one it is the
+  /// difference between turning a page and waiting for the network, which
+  /// is what lets the reader stay synchronous on the common path and go
+  /// asynchronous only when it has to.
+  bool isChapterReady(EpubChapter chapter) =>
+      _source?.bytes(chapter.zipPath) != null;
+
+  /// Makes everything [parseChapter] will reach for available first.
+  ///
+  /// Only does anything for a source that fetches: locally the archive
+  /// already holds it all. Two passes are unavoidable — the chapter has to
+  /// be in hand before its images can be named, because they are named
+  /// inside it.
+  ///
+  /// Returns false when the chapter itself could not be fetched, which is
+  /// the caller's cue to say so rather than render "could not be loaded"
+  /// as though the book were damaged.
+  Future<bool> prepareChapter(EpubChapter chapter) async {
+    final source = _source;
+    if (source == null) return false;
+    await source.prefetch([chapter.zipPath]);
+    final bytes = source.bytes(chapter.zipPath);
+    if (bytes == null) return false;
+
+    // Images are resolved into ImageBlock during the parse itself, which
+    // is synchronous, so they have to be here before it starts.
+    final dir = _dirOf(chapter.zipPath);
+    final wanted = <String>{};
+    for (final m in RegExp(
+      r'''<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']''',
+      caseSensitive: false,
+    ).allMatches(_decode(bytes))) {
+      final src = m.group(1);
+      if (src == null || src.isEmpty) continue;
+      if (src.startsWith('data:') || src.startsWith('http')) continue;
+      wanted.add(_resolve(dir, src));
+    }
+    if (wanted.isNotEmpty) await source.prefetch(wanted);
+    return true;
+  }
 
   /// Extracts and parses one chapter into renderable content blocks.
   List<ContentBlock> parseChapter(EpubChapter chapter) {

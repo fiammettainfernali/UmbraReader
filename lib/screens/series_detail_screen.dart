@@ -372,13 +372,22 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     setState(() => _similar = updated);
   }
 
-  Future<void> _openReader(Volume volume) async {
+  Future<void> _openReader(Volume volume, {bool stream = false}) async {
     await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => ReaderScreen(volume: volume)),
+      MaterialPageRoute<void>(
+        builder: (_) => ReaderScreen(volume: volume, stream: stream),
+      ),
     );
     // Refresh per-volume progress markers on return from the reader.
     await _loadReading();
   }
+
+  /// Reads a volume from the server without keeping a copy.
+  ///
+  /// Reading position is stored against the volume, not against the file,
+  /// so a book started here and downloaded later carries on from the same
+  /// place.
+  Future<void> _stream(Volume volume) => _openReader(volume, stream: true);
 
   void _openAuthor(String author) {
     final trimmed = author.trim();
@@ -769,6 +778,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
               progress: _progress[volume.fileName] ?? 0,
               reading: _reading[volume.fileName],
               onDownload: () => _download(volume),
+              onStream: () => _stream(volume),
               onDelete: () => _delete(volume),
               onShare: () => _share(volume),
               onResetProgress: () => _resetProgress(volume),
@@ -1057,6 +1067,7 @@ class _VolumeTile extends StatelessWidget {
     required this.progress,
     required this.reading,
     required this.onDownload,
+    required this.onStream,
     required this.onDelete,
     required this.onShare,
     required this.onResetProgress,
@@ -1071,6 +1082,10 @@ class _VolumeTile extends StatelessWidget {
   /// Saved reading progress for this volume, or null if never opened.
   final ReadingProgress? reading;
   final VoidCallback onDownload;
+
+  /// Read it from the server without keeping a copy.
+  final VoidCallback onStream;
+
   final VoidCallback onDelete;
   final VoidCallback onShare;
   final VoidCallback onResetProgress;
@@ -1145,10 +1160,23 @@ class _VolumeTile extends StatelessWidget {
   Widget _trailing(BuildContext context) {
     switch (status) {
       case _VolumeStatus.notDownloaded:
-        return IconButton(
-          icon: const Icon(Icons.download_outlined),
-          tooltip: 'Download',
-          onPressed: onDownload,
+        // Two actions, because they are genuinely different choices rather
+        // than one being a fallback: a download is yours offline, a stream
+        // costs nothing to start and stops working when the server does.
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.play_circle_outline),
+              tooltip: 'Read without downloading',
+              onPressed: onStream,
+            ),
+            IconButton(
+              icon: const Icon(Icons.download_outlined),
+              tooltip: 'Download',
+              onPressed: onDownload,
+            ),
+          ],
         );
       case _VolumeStatus.downloading:
         return SizedBox(

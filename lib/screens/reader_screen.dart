@@ -22,6 +22,8 @@ import '../services/bookmark_store.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/dictionary_service.dart';
 import '../services/epub_parser.dart';
+import '../services/opds_client.dart';
+import '../services/remote_epub_source.dart';
 import '../models/series.dart';
 import '../services/glossary_store.dart';
 import '../services/library_cache.dart';
@@ -51,9 +53,18 @@ class ReaderScreen extends StatefulWidget {
     required this.volume,
     this.initialChapterIndex,
     this.initialBlockIndex,
+    this.stream = false,
   });
 
   final Volume volume;
+
+  /// Read from the server instead of from a downloaded file.
+  ///
+  /// Deliberately explicit rather than "stream whatever is not downloaded":
+  /// streaming and downloading fail in different ways, and which one you
+  /// are doing should be something you chose, not something inferred from
+  /// the state of your storage.
+  final bool stream;
 
   /// When set, the reader opens at this exact spot (e.g. a library-search
   /// hit) instead of the saved reading position.
@@ -87,6 +98,13 @@ class _ReaderScreenState extends State<ReaderScreen>
   final _pageController = PageController();
 
   EpubParser? _parser;
+
+  /// The streaming source, when reading from the server. Held so it can be
+  /// closed along with the screen.
+  RemoteEpubSource? _remoteSource;
+
+  /// True while waiting on a chapter that has not arrived yet.
+  bool _fetchingChapter = false;
   EpubBook? _book;
   int _chapterIndex = 0;
   List<ContentBlock>? _blocks;
@@ -311,6 +329,10 @@ class _ReaderScreenState extends State<ReaderScreen>
   void dispose() {
     _saveProgress();
     flushReadingSession();
+    // Closes the HTTP client and drops the chapter cache. Leaving the book
+    // means the next open should ask the server what it has now, not read
+    // a copy from a session that may be hours old.
+    _remoteSource?.dispose();
     // Release any reader-imposed orientation lock so the rest of the app
     // (library, settings) follows the device's normal auto-rotate setting.
     _applyOrientation(ReaderOrientation.auto);
@@ -411,13 +433,29 @@ class _ReaderScreenState extends State<ReaderScreen>
     ).cached(widget.volume.seriesOpdsId);
     ttsCoverPath = cover?.path;
     try {
-      final file = await LibraryStorage().epubFile(widget.volume);
-      if (!file.existsSync()) {
-        _fail('This volume is not downloaded.');
-        return;
-      }
       final parser = EpubParser();
-      final book = await parser.open(file);
+      final EpubBook book;
+      if (widget.stream) {
+        final settings = await SettingsService().load();
+        final source = RemoteEpubSource(
+          baseUrl: settings.baseUrl,
+          novelId: widget.volume.seriesOpdsId,
+          fileName: widget.volume.fileName,
+          headers: OpdsClient(settings).authHeaders,
+        );
+        _remoteSource = source;
+        // Three round trips before a word is on screen: container, package
+        // file, contents. Only once per book.
+        await source.warmUp();
+        book = await parser.openSource(source);
+      } else {
+        final file = await LibraryStorage().epubFile(widget.volume);
+        if (!file.existsSync()) {
+          _fail('This volume is not downloaded.');
+          return;
+        }
+        book = await parser.open(file);
+      }
       if (book.chapters.isEmpty) {
         _fail('No readable chapters were found in this book.');
         return;
@@ -432,6 +470,11 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (widget.initialChapterIndex == null && savedPath != null) {
         final byPath = book.chapters.indexWhere((c) => c.zipPath == savedPath);
         if (byPath >= 0) chapterIndex = byPath;
+      }
+      if (widget.stream &&
+          !await parser.prepareChapter(book.chapters[chapterIndex])) {
+        _fail('Could not reach the server to load this chapter.');
+        return;
       }
       final blocks = parser.parseChapter(book.chapters[chapterIndex]);
       if (!mounted) return;
@@ -523,6 +566,66 @@ class _ReaderScreenState extends State<ReaderScreen>
     });
   }
 
+  /// Fetches a streamed chapter, then goes to it.
+  ///
+  /// Only reached on a miss — the read-ahead means most turns find the
+  /// chapter already there. A failure keeps the reader where it is and
+  /// says the server is unreachable, rather than dropping out of the book
+  /// and losing the place: the position is still perfectly good, and the
+  /// network will probably be back in a minute.
+  Future<void> _fetchThenGoToChapter(
+    int index, {
+    bool landOnLastPage = false,
+    bool fromTts = false,
+  }) async {
+    final book = _book;
+    final parser = _parser;
+    if (book == null || parser == null) return;
+    if (_fetchingChapter) return;
+    setState(() => _fetchingChapter = true);
+    final ok = await parser.prepareChapter(book.chapters[index]);
+    if (!mounted) return;
+    setState(() => _fetchingChapter = false);
+    if (!ok) {
+      _showChapterUnreachable();
+      return;
+    }
+    _goToChapter(index, landOnLastPage: landOnLastPage, fromTts: fromTts);
+  }
+
+  void _showChapterUnreachable() {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Couldn't reach the server for the next chapter. "
+            'Your place is saved.',
+          ),
+        ),
+      );
+  }
+
+  /// Pulls the next couple of chapters down in the background.
+  ///
+  /// Two, because that is what makes a page turn feel like a page turn
+  /// rather than a download: one covers the chapter you are about to
+  /// reach, the second covers reading faster than the network. Fetching
+  /// further ahead spends the reader's data on chapters they may never
+  /// open.
+  void _readAhead(int from) {
+    if (!widget.stream) return;
+    final book = _book;
+    final parser = _parser;
+    if (book == null || parser == null) return;
+    for (var i = from + 1; i <= from + 2 && i < book.chapters.length; i++) {
+      // Deliberately not awaited and deliberately not reported: this is a
+      // convenience, and a failed read-ahead should be invisible until the
+      // reader actually asks for that chapter.
+      unawaited(parser.prepareChapter(book.chapters[i]));
+    }
+  }
+
   void _goToChapter(
     int index, {
     bool landOnLastPage = false,
@@ -567,11 +670,25 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
     final clamped = index.clamp(0, book.chapters.length - 1);
     if (clamped == _chapterIndex && _blocks != null) return;
+    // A streamed chapter that has not arrived yet cannot be parsed on this
+    // frame. Going asynchronous here would mean every caller — page turns,
+    // TTS advance, contents jumps — awaiting a network round trip it
+    // almost never needs, since the next chapters are fetched ahead. So
+    // the miss is handled out of line and this returns.
+    if (!parser.isChapterReady(book.chapters[clamped])) {
+      _fetchThenGoToChapter(
+        clamped,
+        landOnLastPage: landOnLastPage,
+        fromTts: fromTts,
+      );
+      return;
+    }
     // A manual chapter change stops read-aloud; a TTS-driven advance keeps it.
     if (!fromTts) ttsEngine.stop();
     _lastChapterChange = DateTime.now();
     _edgeOverscroll = 0;
     final blocks = parser.parseChapter(book.chapters[clamped]);
+    _readAhead(clamped);
     setState(() {
       _chapterIndex = clamped;
       _lastSavedBlock = -1;
