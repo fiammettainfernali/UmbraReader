@@ -3009,11 +3009,6 @@ class _ReaderScreenState extends State<ReaderScreen>
           // from the screen behind it. A sheet lifted off that screen has to
           // bring its paper with it or the page underneath shows through.
           background: preset.background,
-          // Where the hinge goes. A single page turns about its left margin.
-          // A spread turns about the middle: advancing it is one leaf of a
-          // book going over — 2|3 becomes 4|5 — so only the right-hand page
-          // moves, and the left one stays flat where it already lay.
-          spineFraction: stride == 2 ? 0.5 : 0.0,
           // Every paged turn lands here — swiped, tapped, keyed or automatic
           // — which is why the sound hangs off this rather than off the tap
           // handler that only sees some of them.

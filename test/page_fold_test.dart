@@ -1,7 +1,7 @@
-﻿// The geometry of a folding page turn.
+// The geometry of a folding page turn.
 //
-// The fold's whole reason for existing is paint order â€” the page being left
-// has to be drawn above the one being revealed â€” so what is pinned here is
+// The fold's whole reason for existing is paint order — the page being left
+// has to be drawn above the one being revealed — so what is pinned here is
 // which page is folding at any moment, and how far. Get that wrong by one
 // and the reader folds the page you are turning *to*, which looks like the
 // book going backwards.
@@ -30,8 +30,8 @@ void main() {
     });
 
     test('mid-turn, the page being left is the one that folds', () {
-      // Going forward from page 3: the pager reads 3.4, and it is page 3 â€”
-      // the one you are leaving â€” that lifts. Page 4 lies flat underneath.
+      // Going forward from page 3: the pager reads 3.4, and it is page 3 —
+      // the one you are leaving — that lifts. Page 4 lies flat underneath.
       final frame = foldFrameFor(3.4);
       expect(frame, isNotNull);
       expect(frame!.index, 3);
@@ -130,7 +130,7 @@ void main() {
     });
 
     testWidgets('a flat sheet is one undivided page', (tester) async {
-      // At rest the reader must be exactly what it is with folding off â€” no
+      // At rest the reader must be exactly what it is with folding off — no
       // crease, no flap, no seam down a page nobody is turning.
       await tester.pumpWidget(
         const MaterialApp(
@@ -170,7 +170,7 @@ void main() {
       tester,
     ) async {
       // The overlay draws the folding page a second time. At rest nothing is
-      // folding, so nothing may be doubled â€” a duplicate here would show as
+      // folding, so nothing may be doubled — a duplicate here would show as
       // bolded text where two copies overlap.
       await tester.pumpWidget(
         MaterialApp(
@@ -236,7 +236,7 @@ void main() {
       await tester.pump();
 
       // The lifting sheet is drawn by the overlay, once per strip of the
-      // curve. The page being uncovered is drawn by the pager exactly once â€”
+      // curve. The page being uncovered is drawn by the pager exactly once —
       // that is the invariant with teeth, because pinned pages all occupy
       // the same rectangle, so a second one would print a whole chapter over
       // the top of another.
@@ -252,11 +252,12 @@ void main() {
     testWidgets('mid-turn the left page stays put and the right one lifts', (
       tester,
     ) async {
-      // Turning a spread is one leaf going over: the right page lifts, the
-      // left stays flat, and the next spread waits underneath. So the page
-      // being left has to remain wholly on screen for the whole turn -- an
-      // earlier version folded the entire spread about the outer edge, which
-      // swung the left page off a spine it was resting on.
+      // A two-column spread creases across the whole screen like any other
+      // page. It is one continuous run of text set in two columns, not the
+      // facing pages of a bound book -- an earlier version hinged it down the
+      // middle as though there were a spine there, which folded a page in
+      // half that was never two pages and left the crease stranded in the
+      // centre of the screen.
       final controller = PageController();
       addTearDown(controller.dispose);
       await tester.pumpWidget(
@@ -266,7 +267,6 @@ void main() {
               controller: controller,
               background: const Color(0xFF101010),
               itemCount: 3,
-              spineFraction: 0.5,
               itemBuilder: (context, i) => Row(
                 children: [
                   Expanded(child: Text('left $i')),
@@ -282,18 +282,24 @@ void main() {
       final gesture = await tester.startGesture(
         tester.getCenter(find.byType(PageView)),
       );
-      await gesture.moveBy(const Offset(-400, 0));
+      // A quarter of the way: far enough to have a crease, not so far that
+      // the sheet is folded exactly in half, which is the one position where
+      // nothing of it is still lying flat.
+      await gesture.moveBy(const Offset(-200, 0));
       await tester.pump();
 
-      // The outgoing spread is on screen as its flat left page plus the
-      // strips of the lifting leaf, each a clipped copy of the whole spread.
-      expect(find.text('left 0'), findsWidgets);
-      expect(find.text('right 0'), findsWidgets);
+      // The outgoing spread is on screen twice: the part still lying flat,
+      // and the part folded back showing its reverse.
+      expect(find.text('left 0'), findsNWidgets(2));
+      expect(find.text('right 0'), findsNWidgets(2));
       // The spread being uncovered is drawn once, by the pager, underneath.
       // More than once would be two chapters printed over each other.
       expect(find.text('left 1'), findsOneWidget);
       expect(find.text('right 1'), findsOneWidget);
 
+      // Carry it past halfway so the pager settles forward rather than
+      // springing back, and the turn actually completes.
+      await gesture.moveBy(const Offset(-500, 0));
       await gesture.up();
       await tester.pumpAndSettle();
       expect(find.text('left 0'), findsNothing);
@@ -310,7 +316,6 @@ void main() {
               controller: controller,
               background: const Color(0xFF101010),
               itemCount: 3,
-              spineFraction: 0.5,
               itemBuilder: (context, i) => Text('spread $i'),
             ),
           ),
@@ -434,7 +439,7 @@ void main() {
     test('does not depend on page animations', () {
       // It used to, and that was the bug: reduce-motion turns instant page
       // turns on, which silently disabled a fold the reader had explicitly
-      // switched on. Instant turns need no gate â€” they jump between whole
+      // switched on. Instant turns need no gate — they jump between whole
       // pages, and foldFrameFor finds nothing to fold in between.
       expect(foldFrameFor(3.0), isNull);
       expect(foldFrameFor(4.0), isNull);
