@@ -482,14 +482,12 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                   dense: true,
                   title: const Text('Fold pages like a book'),
                   subtitle: const Text(
-                    'The page lifts and turns about the spine instead of '
-                    'sliding. Off: pages slide.',
+                    'Swiping lifts the page and turns it about the spine '
+                    'instead of sliding it. Instant turns still snap.',
                   ),
-                  // Nothing to fold when turns are instant.
-                  value: _settings.pageFold && _settings.pageAnimations,
-                  onChanged: _settings.pageAnimations
-                      ? (on) => _update(_settings.copyWith(pageFold: on))
-                      : null,
+                  value: _settings.pageFold,
+                  onChanged: (on) =>
+                      _update(_settings.copyWith(pageFold: on)),
                 ),
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,

@@ -328,6 +328,10 @@ class ReaderSettings {
     brightness: 0.35,
     reduceAnimations: true,
     pageAnimations: false,
+    // Stated outright rather than left to pageAnimations: a drag turns the
+    // page whatever that setting says, so this is the only thing keeping a
+    // rotating sheet out of a comfort preset.
+    pageFold: false,
     pageTurnSound: false,
     hapticFeedback: false,
     autoScroll: false,

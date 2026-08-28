@@ -2997,12 +2997,23 @@ class _ReaderScreenState extends State<ReaderScreen>
         final pager = FoldingPager(
           controller: _pageController,
           itemCount: spreadCount,
-          // Only single pages fold. A spread — the unfolded inner screen, or
-          // TV mode — turns two sheets at once when it advances, which no
-          // single hinge describes: folding the pair about the screen's left
-          // edge would swing the left-hand page away from a spine it is
-          // sitting on. Spreads keep the slide.
-          folding: _settings.pageFold && !_instantPageTurns && stride == 1,
+          // Deliberately not gated on _instantPageTurns. That governs whether
+          // a *programmatic* turn animates; a drag animates whatever it says,
+          // so gating on it suppressed the fold in the one case where the
+          // page was moving anyway — which is all a reader with reduce-motion
+          // on ever saw. Instant turns exclude themselves without help: they
+          // jump from one whole page to the next, and a fold needs a
+          // fractional position that never arrives.
+          folding: _settings.pageFold,
+          // A page widget paints its text and nothing else; the colour comes
+          // from the screen behind it. A sheet lifted off that screen has to
+          // bring its paper with it or the page underneath shows through.
+          background: preset.background,
+          // Where the hinge goes. A single page turns about its left margin.
+          // A spread turns about the middle: advancing it is one leaf of a
+          // book going over — 2|3 becomes 4|5 — so only the right-hand page
+          // moves, and the left one stays flat where it already lay.
+          spineFraction: stride == 2 ? 0.5 : 0.0,
           // Every paged turn lands here — swiped, tapped, keyed or automatic
           // — which is why the sound hangs off this rather than off the tap
           // handler that only sees some of them.

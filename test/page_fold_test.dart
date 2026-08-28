@@ -1,7 +1,7 @@
-// The geometry of a folding page turn.
+﻿// The geometry of a folding page turn.
 //
-// The fold's whole reason for existing is paint order — the page being left
-// has to be drawn above the one being revealed — so what is pinned here is
+// The fold's whole reason for existing is paint order â€” the page being left
+// has to be drawn above the one being revealed â€” so what is pinned here is
 // which page is folding at any moment, and how far. Get that wrong by one
 // and the reader folds the page you are turning *to*, which looks like the
 // book going backwards.
@@ -30,8 +30,8 @@ void main() {
     });
 
     test('mid-turn, the page being left is the one that folds', () {
-      // Going forward from page 3: the pager reads 3.4, and it is page 3 —
-      // the one you are leaving — that lifts. Page 4 lies flat underneath.
+      // Going forward from page 3: the pager reads 3.4, and it is page 3 â€”
+      // the one you are leaving â€” that lifts. Page 4 lies flat underneath.
       final frame = foldFrameFor(3.4);
       expect(frame, isNotNull);
       expect(frame!.index, 3);
@@ -64,38 +64,85 @@ void main() {
   });
 
   group('FoldingPage', () {
-    test('sweeps through a right angle, flat to edge-on', () {
-      expect(FoldingPage.angleFor(0), 0);
-      expect(FoldingPage.angleFor(1), closeTo(-1.5707963, 1e-6));
-      // Negative: the free edge sweeps away from the reader, towards the
-      // spine on the left. A positive angle would swing it out of the screen.
-      expect(FoldingPage.angleFor(0.5), lessThan(0));
+    test('the crease travels from the outer edge to the spine', () {
+      expect(FoldingPage.creaseFor(0), 1, reason: 'flat: nothing uncovered');
+      expect(FoldingPage.creaseFor(0.5), closeTo(0.5, 1e-9));
+      expect(FoldingPage.creaseFor(1), 0, reason: 'turned: all uncovered');
     });
 
-    test('shading deepens with the turn but never reaches black', () {
-      expect(FoldingPage.shadeFor(0), 0);
-      expect(FoldingPage.shadeFor(1), lessThan(0.5));
-      expect(FoldingPage.shadeFor(1), greaterThan(FoldingPage.shadeFor(0.5)));
+    test('the dragged edge outruns the crease, two to one', () {
+      // Folding a sheet in half moves its edge two units for every one the
+      // crease moves. Getting this wrong by a factor leaves half a page of
+      // flap lying on the screen at the end of the turn instead of carrying
+      // it off the side.
+      for (final t in [0.1, 0.3, 0.7]) {
+        final creaseTravel = 1 - FoldingPage.creaseFor(t);
+        final edgeTravel = 1 - FoldingPage.edgeFor(t);
+        expect(edgeTravel, closeTo(2 * creaseTravel, 1e-9));
+      }
     });
 
-    test('out-of-range turns are clamped rather than exaggerated', () {
-      // A pager can overshoot on a fling; the sheet must not spin past
-      // edge-on or invert its shading.
-      expect(FoldingPage.angleFor(1.4), FoldingPage.angleFor(1));
-      expect(FoldingPage.shadeFor(-0.2), 0);
+    test('the flap has left the screen by the end of the turn', () {
+      expect(FoldingPage.edgeFor(1), lessThanOrEqualTo(0));
+    });
+
+    test('past halfway there is no flat page left, only flap', () {
+      // The sheet is folded in half at turn 0.5; beyond that the whole of it
+      // is doubled over and nothing of it is still lying flat.
+      expect(FoldingPage.edgeFor(0.5), closeTo(0, 1e-9));
+      expect(FoldingPage.edgeFor(0.75), lessThan(0));
+    });
+
+    test('the back of the sheet is dimmed, but is never a black bar', () {
+      expect(FoldingPage.backingFor(0), 0);
+      expect(FoldingPage.backingFor(1), lessThan(0.8));
+      expect(
+        FoldingPage.backingFor(0.5),
+        greaterThan(FoldingPage.backingFor(0.001)),
+      );
+    });
+
+    test('the backing fades in rather than appearing at full strength', () {
+      // A flap has no area at all at turn 0. If its darkening were already
+      // at full strength the instant the crease formed, the fold would begin
+      // with a black sliver snapping into existence at the page edge.
+      expect(FoldingPage.backingFor(0.02), lessThan(FoldingPage.backingFor(1)));
+    });
+
+    test('clamps rather than extrapolating past a finished turn', () {
+      // A pager can overshoot on a fling.
+      expect(FoldingPage.creaseFor(1.4), FoldingPage.creaseFor(1));
+      expect(FoldingPage.edgeFor(1.4), FoldingPage.edgeFor(1));
+      expect(FoldingPage.backingFor(-0.2), 0);
     });
 
     testWidgets('renders its page', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
           home: Scaffold(
-            body: FoldingPage(turn: 0.5, child: Text('mid-turn')),
+            body: FoldingPage(turn: 0.4, child: Text('mid-turn')),
           ),
         ),
       );
-      expect(find.text('mid-turn'), findsOneWidget);
+      // Twice: the part still lying flat, and the part folded back on itself
+      // showing its own reverse.
+      expect(find.text('mid-turn'), findsNWidgets(2));
+    });
+
+    testWidgets('a flat sheet is one undivided page', (tester) async {
+      // At rest the reader must be exactly what it is with folding off â€” no
+      // crease, no flap, no seam down a page nobody is turning.
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: FoldingPage(turn: 0, child: Text('at rest')),
+          ),
+        ),
+      );
+      expect(find.text('at rest'), findsOneWidget);
     });
   });
+
 
   group('FoldingPager', () {
     testWidgets('with folding off it is a plain PageView', (tester) async {
@@ -107,6 +154,7 @@ void main() {
           home: Scaffold(
             body: FoldingPager(
               controller: PageController(),
+              background: const Color(0xFF101010),
               itemCount: 3,
               folding: false,
               itemBuilder: (context, i) => Text('page $i'),
@@ -122,13 +170,14 @@ void main() {
       tester,
     ) async {
       // The overlay draws the folding page a second time. At rest nothing is
-      // folding, so nothing may be doubled — a duplicate here would show as
+      // folding, so nothing may be doubled â€” a duplicate here would show as
       // bolded text where two copies overlap.
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
             body: FoldingPager(
               controller: PageController(),
+              background: const Color(0xFF101010),
               itemCount: 3,
               itemBuilder: (context, i) => Text('page $i'),
             ),
@@ -147,6 +196,7 @@ void main() {
           home: Scaffold(
             body: FoldingPager(
               controller: controller,
+              background: const Color(0xFF101010),
               itemCount: 3,
               itemBuilder: (context, i) => Text('page $i'),
             ),
@@ -169,6 +219,7 @@ void main() {
           home: Scaffold(
             body: FoldingPager(
               controller: controller,
+              background: const Color(0xFF101010),
               itemCount: 3,
               itemBuilder: (context, i) => Text('page $i'),
             ),
@@ -184,11 +235,127 @@ void main() {
       await gesture.moveBy(const Offset(-400, 0));
       await tester.pump();
 
-      // The lifting sheet (drawn by the overlay) and the page being
-      // uncovered (drawn by the pager) — one copy each. Two copies of page 0
-      // would mean the pager is still painting the page the overlay took.
-      expect(find.text('page 0'), findsOneWidget);
+      // The lifting sheet is drawn by the overlay, once per strip of the
+      // curve. The page being uncovered is drawn by the pager exactly once â€”
+      // that is the invariant with teeth, because pinned pages all occupy
+      // the same rectangle, so a second one would print a whole chapter over
+      // the top of another.
+      expect(find.text('page 0'), findsWidgets);
       expect(find.text('page 1'), findsOneWidget);
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+    });
+  });
+
+  group('spreads', () {
+    testWidgets('mid-turn the left page stays put and the right one lifts', (
+      tester,
+    ) async {
+      // Turning a spread is one leaf going over: the right page lifts, the
+      // left stays flat, and the next spread waits underneath. So the page
+      // being left has to remain wholly on screen for the whole turn -- an
+      // earlier version folded the entire spread about the outer edge, which
+      // swung the left page off a spine it was resting on.
+      final controller = PageController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FoldingPager(
+              controller: controller,
+              background: const Color(0xFF101010),
+              itemCount: 3,
+              spineFraction: 0.5,
+              itemBuilder: (context, i) => Row(
+                children: [
+                  Expanded(child: Text('left $i')),
+                  Expanded(child: Text('right $i')),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(PageView)),
+      );
+      await gesture.moveBy(const Offset(-400, 0));
+      await tester.pump();
+
+      // The outgoing spread is on screen as its flat left page plus the
+      // strips of the lifting leaf, each a clipped copy of the whole spread.
+      expect(find.text('left 0'), findsWidgets);
+      expect(find.text('right 0'), findsWidgets);
+      // The spread being uncovered is drawn once, by the pager, underneath.
+      // More than once would be two chapters printed over each other.
+      expect(find.text('left 1'), findsOneWidget);
+      expect(find.text('right 1'), findsOneWidget);
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+      expect(find.text('left 0'), findsNothing);
+      expect(find.text('left 1'), findsOneWidget);
+    });
+
+    testWidgets('a settled spread is not doubled', (tester) async {
+      final controller = PageController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FoldingPager(
+              controller: controller,
+              background: const Color(0xFF101010),
+              itemCount: 3,
+              spineFraction: 0.5,
+              itemBuilder: (context, i) => Text('spread $i'),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('spread 0'), findsOneWidget);
+    });
+  });
+
+  group('the sheet is opaque', () {
+    testWidgets('a lifted page brings its paper with it', (tester) async {
+      // The bug this pins shipped and was obvious the moment it was seen: a
+      // page widget paints its text and nothing else, so the sheet lifted
+      // into the overlay was transparent and the page being uncovered read
+      // straight through it. Two chapters of text superimposed, for the
+      // whole turn.
+      const paper = Color(0xFF101010);
+      final controller = PageController();
+      addTearDown(controller.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: FoldingPager(
+              controller: controller,
+              background: paper,
+              itemCount: 3,
+              itemBuilder: (context, i) => Text('page $i'),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(PageView)),
+      );
+      await gesture.moveBy(const Offset(-400, 0));
+      await tester.pump();
+
+      // Something opaque, in the sheet's colour, is between the two pages.
+      final painted = tester.widgetList<ColoredBox>(
+        find.byType(ColoredBox),
+      ).where((b) => b.color == paper);
+      expect(painted, isNotEmpty, reason: 'the turning sheet has no paper');
 
       await gesture.up();
       await tester.pumpAndSettle();
@@ -256,11 +423,21 @@ void main() {
       expect(ReaderSettings.defaults.pageFold, isTrue);
     });
 
-    test('migraine mode stops it, by stopping page animation', () {
-      // The fold is gated on pageAnimations, which the comfort preset turns
-      // off along with every other motion.
-      expect(ReaderSettings.defaults.migraineAdjusted().pageAnimations,
-          isFalse);
+    test('migraine mode stops it outright', () {
+      // Not by way of pageAnimations: that governs programmatic turns, and a
+      // drag rotates the sheet whatever it says. The comfort preset has to
+      // say so itself.
+      final on = ReaderSettings.defaults.copyWith(pageFold: true);
+      expect(on.migraineAdjusted().pageFold, isFalse);
+    });
+
+    test('does not depend on page animations', () {
+      // It used to, and that was the bug: reduce-motion turns instant page
+      // turns on, which silently disabled a fold the reader had explicitly
+      // switched on. Instant turns need no gate â€” they jump between whole
+      // pages, and foldFrameFor finds nothing to fold in between.
+      expect(foldFrameFor(3.0), isNull);
+      expect(foldFrameFor(4.0), isNull);
     });
   });
 }
