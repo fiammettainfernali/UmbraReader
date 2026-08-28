@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../reader/block_view.dart';
+import '../reader/edge_crossing.dart';
 import '../reader/line_focus_overlay.dart';
 import '../reader/book_search_screen.dart';
 import '../reader/bookmarks_sheet.dart';
@@ -23,6 +24,7 @@ import '../services/cloud_sync_service.dart';
 import '../services/dictionary_service.dart';
 import '../services/epub_parser.dart';
 import '../services/opds_client.dart';
+import '../services/page_turn_sound.dart';
 import '../services/remote_epub_source.dart';
 import '../models/series.dart';
 import '../services/glossary_store.dart';
@@ -144,9 +146,12 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// now-correct metrics.
   int _fontToken = 0;
 
-  /// Peak distance the drag travelled past a content edge (signed: positive
-  /// past the end, negative past the start) — used to cross chapters.
-  double _edgeOverscroll = 0;
+  /// How far the current gesture has travelled past a content edge, and so
+  /// whether letting go should cross into the next or previous chapter.
+  final _crossing = EdgeCrossDetector();
+
+  /// When the page-turn sound last played, for coalescing.
+  DateTime _lastPageSound = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// The brightness being set by the edge-slide gesture; non-null only while
   /// the heads-up readout is showing. Drives the transient pill.
@@ -362,6 +367,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     WidgetsBinding.instance.removeObserver(this);
     _autoScrollTimer?.cancel();
     _autoPageTimer?.cancel();
+    // Hand the native player back rather than holding it while the reader is
+    // closed; opening a book warms it again, off the critical path.
+    PageTurnSound.instance.dispose();
     disposeSession();
     _brightnessHudTimer?.cancel();
     disposeTtsSession();
@@ -434,6 +442,9 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   Future<void> _open() async {
     var settings = await ReaderPreferences().load(volume: widget.volume);
+    // Decoding the clip takes long enough to be audible as a late first
+    // sound, and the reader has network and parsing to do anyway.
+    if (settings.pageTurnSound) PageTurnSound.instance.warmUp();
     // Apply this series' remembered narrator, if one was chosen for it.
     final seriesVoice = await ReaderPreferences().seriesVoice(
       widget.volume.seriesOpdsId,
@@ -719,7 +730,10 @@ class _ReaderScreenState extends State<ReaderScreen>
     // A manual chapter change stops read-aloud; a TTS-driven advance keeps it.
     if (!fromTts) ttsEngine.stop();
     _lastChapterChange = DateTime.now();
-    _edgeOverscroll = 0;
+    _crossing.reset();
+    // Crossing a chapter is a page turn too — and in scroll mode it is the
+    // only one the pager never hears about.
+    _playPageTurnSound();
     final blocks = parser.parseChapter(book.chapters[clamped]);
     _readAhead(clamped);
     setState(() {
@@ -1486,6 +1500,9 @@ class _ReaderScreenState extends State<ReaderScreen>
       _pageJumpTarget = currentPage;
     });
     ReaderPreferences().save(next, volume: widget.volume);
+    // Decode the clip on the way in, so the turn that follows switching the
+    // setting on is the one that demonstrates it.
+    if (next.pageTurnSound) PageTurnSound.instance.warmUp();
     if (engineChanged) syncEngineToSettings();
     if (rateChanged) ttsEngine.setRate(next.speechRate);
     if (voiceChanged) {
@@ -1605,6 +1622,28 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   void _hapticMedium() {
     if (_settings.hapticFeedback) HapticFeedback.mediumImpact();
+  }
+
+  /// Plays the page-turn sound, if it is wanted right now.
+  ///
+  /// Coalesces calls a fraction of a second apart. One turn can legitimately
+  /// be reported twice — crossing a chapter both changes chapter and jumps
+  /// the pager — and two sounds a frame apart read as a stutter rather than
+  /// as two pages.
+  void _playPageTurnSound() {
+    if (!shouldPlayPageTurnSound(
+      enabled: _settings.pageTurnSound,
+      speaking: ttsEngine.state != TtsPlaybackState.stopped,
+      autoTurn: _autoPageTimer != null,
+    )) {
+      return;
+    }
+    final now = DateTime.now();
+    if (now.difference(_lastPageSound) < const Duration(milliseconds: 150)) {
+      return;
+    }
+    _lastPageSound = now;
+    PageTurnSound.instance.play();
   }
 
   /// Scrolls/pages so the block being read stays visible — only when the
@@ -1968,7 +2007,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     final clamped = chapterIndex.clamp(0, book.chapters.length - 1);
     ttsEngine.stop();
     _lastChapterChange = DateTime.now();
-    _edgeOverscroll = 0;
+    _crossing.reset();
     final blocks = (clamped == _chapterIndex && _blocks != null)
         ? _blocks!
         : parser.parseChapter(book.chapters[clamped]);
@@ -2006,6 +2045,9 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   /// Crosses into the adjacent chapter when the reader is swiped/scrolled
   /// firmly past its first or last page.
+  ///
+  /// The measuring is [EdgeCrossDetector]'s; what is left here is deciding
+  /// which notifications belong to this gesture at all.
   bool _onScrollNotification(ScrollNotification notification) {
     // Focus mode advances by tap, not by scrolling past an edge — a long
     // paragraph's own scroll view must never cross chapters.
@@ -2021,38 +2063,34 @@ class _ReaderScreenState extends State<ReaderScreen>
     // scrollable is transiently out of bounds and would otherwise re-trigger.
     if (DateTime.now().difference(_lastChapterChange) <
         const Duration(milliseconds: 600)) {
-      _edgeOverscroll = 0;
+      _crossing.reset();
       return false;
     }
 
     if (notification is ScrollStartNotification) {
-      _edgeOverscroll = 0;
+      _crossing.reset();
       return false;
     }
 
-    // iOS bouncing physics moves the position *past* the extent rather than
-    // emitting OverscrollNotifications, so watch the metrics directly and
-    // record how far past either edge the drag travelled.
+    if (notification is OverscrollNotification) {
+      _crossing.noteRefused(notification.overscroll);
+    }
     final m = notification.metrics;
-    final pastEnd = m.pixels - m.maxScrollExtent;
-    final pastStart = m.pixels - m.minScrollExtent;
-    if (pastEnd > 0 && pastEnd > _edgeOverscroll) {
-      _edgeOverscroll = pastEnd;
-    }
-    if (pastStart < 0 && pastStart < _edgeOverscroll) {
-      _edgeOverscroll = pastStart;
-    }
+    _crossing.noteMetrics(
+      pixels: m.pixels,
+      minExtent: m.minScrollExtent,
+      maxExtent: m.maxScrollExtent,
+    );
 
     if (notification is ScrollEndNotification) {
-      final amount = _edgeOverscroll;
-      _edgeOverscroll = 0;
-      if (amount > 90) {
-        _goToChapter(_chapterIndex + 1);
-      } else if (amount < -90) {
-        _goToChapter(_chapterIndex - 1, landOnLastPage: true);
-      } else {
-        // Settled within the chapter — record the reading position.
-        _saveProgress();
+      switch (_crossing.settle()) {
+        case ChapterCross.next:
+          _goToChapter(_chapterIndex + 1);
+        case ChapterCross.previous:
+          _goToChapter(_chapterIndex - 1, landOnLastPage: true);
+        case ChapterCross.none:
+          // Settled within the chapter — record the reading position.
+          _saveProgress();
       }
     }
     return false;
@@ -2265,6 +2303,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         _goToChapter(_chapterIndex + 1);
       } else {
         _hapticLight();
+        _playPageTurnSound();
         final next = (pos.pixels + step).clamp(0.0, pos.maxScrollExtent);
         if (_instantPageTurns) {
           _scrollController.jumpTo(next);
@@ -2282,6 +2321,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         _goToChapter(_chapterIndex - 1);
       } else {
         _hapticLight();
+        _playPageTurnSound();
         final prev = (pos.pixels - step).clamp(0.0, pos.maxScrollExtent);
         if (_instantPageTurns) {
           _scrollController.jumpTo(prev);
@@ -2956,6 +2996,10 @@ class _ReaderScreenState extends State<ReaderScreen>
         final pager = PageView.builder(
           controller: _pageController,
           itemCount: spreadCount,
+          // Every paged turn lands here — swiped, tapped, keyed or automatic
+          // — which is why the sound hangs off this rather than off the tap
+          // handler that only sees some of them.
+          onPageChanged: (_) => _playPageTurnSound(),
           itemBuilder: (context, spreadIndex) {
             if (stride == 1) {
               return _buildPagedColumn(pages, spreadIndex, preset);

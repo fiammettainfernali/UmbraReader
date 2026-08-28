@@ -58,6 +58,7 @@ class ReaderPreferences {
   static const _kTapZoneWidth = 'reader_tap_zone_width';
   static const _kEdgeBrightnessGesture = 'reader_edge_brightness_gesture';
   static const _kPageAnimations = 'reader_page_animations';
+  static const _kPageTurnSound = 'reader_page_turn_sound';
   static const _kDoubleTapAction = 'reader_double_tap_action';
   static const _kAutoPageSeconds = 'reader_auto_page_seconds';
   static const _kTtsEngine = 'reader_tts_engine';
@@ -111,6 +112,7 @@ class ReaderPreferences {
     _kTapZoneWidth,
     _kEdgeBrightnessGesture,
     _kPageAnimations,
+    _kPageTurnSound,
     _kDoubleTapAction,
     _kAutoPageSeconds,
     _kTtsEngine,
@@ -202,6 +204,7 @@ class ReaderPreferences {
           prefs.getBool('$p$_kEdgeBrightnessGesture') ??
           d.edgeBrightnessGesture,
       pageAnimations: prefs.getBool('$p$_kPageAnimations') ?? d.pageAnimations,
+      pageTurnSound: prefs.getBool('$p$_kPageTurnSound') ?? d.pageTurnSound,
       doubleTapAction: ReaderDoubleTap.values.firstWhere(
         (v) => v.name == prefs.getString('$p$_kDoubleTapAction'),
         orElse: () => d.doubleTapAction,
@@ -264,6 +267,7 @@ class ReaderPreferences {
       settings.edgeBrightnessGesture,
     );
     await prefs.setBool('$p$_kPageAnimations', settings.pageAnimations);
+    await prefs.setBool('$p$_kPageTurnSound', settings.pageTurnSound);
     await prefs.setString(
       '$p$_kDoubleTapAction',
       settings.doubleTapAction.name,
@@ -382,6 +386,7 @@ class ReaderPreferences {
         'brightness': s.brightness,
         'reduceAnimations': s.reduceAnimations,
         'pageAnimations': s.pageAnimations,
+        'pageTurnSound': s.pageTurnSound,
         'hapticFeedback': s.hapticFeedback,
         'autoScroll': s.autoScroll,
         'autoPageSeconds': s.autoPageSeconds,
@@ -415,6 +420,7 @@ class ReaderPreferences {
       brightness: (decoded['brightness'] as num?)?.toDouble(),
       reduceAnimations: decoded['reduceAnimations'] as bool?,
       pageAnimations: decoded['pageAnimations'] as bool?,
+      pageTurnSound: decoded['pageTurnSound'] as bool?,
       hapticFeedback: decoded['hapticFeedback'] as bool?,
       autoScroll: decoded['autoScroll'] as bool?,
       autoPageSeconds: (decoded['autoPageSeconds'] as num?)?.toInt(),

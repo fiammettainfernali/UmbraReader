@@ -7,7 +7,6 @@
 // connection. Streaming makes those ordinary rather than exceptional.
 
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;

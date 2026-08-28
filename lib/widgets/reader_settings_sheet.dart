@@ -477,6 +477,18 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                   onChanged: (on) =>
                       _update(_settings.copyWith(pageAnimations: on)),
                 ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Page-turn sound'),
+                  subtitle: const Text(
+                    'A short paper sound on each turn. Stays quiet during '
+                    'read-aloud and hands-free turning.',
+                  ),
+                  value: _settings.pageTurnSound,
+                  onChanged: (on) =>
+                      _update(_settings.copyWith(pageTurnSound: on)),
+                ),
                 const SizedBox(height: 8),
                 _label(theme, 'Double-tap'),
                 Align(

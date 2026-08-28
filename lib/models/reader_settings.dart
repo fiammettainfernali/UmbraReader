@@ -69,6 +69,7 @@ class ReaderSettings {
     required this.tapZoneWidth,
     required this.edgeBrightnessGesture,
     required this.pageAnimations,
+    required this.pageTurnSound,
     required this.doubleTapAction,
     required this.autoPageSeconds,
     required this.ttsEngine,
@@ -219,6 +220,14 @@ class ReaderSettings {
   /// instant). Lets a reader keep other motion but snap pages.
   final bool pageAnimations;
 
+  /// When true, turning a page plays a short paper sound.
+  ///
+  /// Off by default: a noise on every page turn is a strong opinion to hold
+  /// on a reader's behalf, and it is the sort of thing that is delightful for
+  /// a day and grating for a month. It is also silenced while read-aloud is
+  /// speaking, where it would land in the middle of a sentence.
+  final bool pageTurnSound;
+
   /// What a double-tap on the page triggers. [ReaderDoubleTap.none] keeps the
   /// double-tap recogniser off so single taps stay instant.
   final ReaderDoubleTap doubleTapAction;
@@ -286,6 +295,7 @@ class ReaderSettings {
     tapZoneWidth: 0.33,
     edgeBrightnessGesture: true,
     pageAnimations: true,
+    pageTurnSound: false,
     doubleTapAction: ReaderDoubleTap.none,
     autoPageSeconds: 0,
     ttsEngine: TtsEngineKind.system,
@@ -311,6 +321,7 @@ class ReaderSettings {
     brightness: 0.35,
     reduceAnimations: true,
     pageAnimations: false,
+    pageTurnSound: false,
     hapticFeedback: false,
     autoScroll: false,
     autoPageSeconds: 0,
@@ -365,6 +376,7 @@ class ReaderSettings {
     double? tapZoneWidth,
     bool? edgeBrightnessGesture,
     bool? pageAnimations,
+    bool? pageTurnSound,
     ReaderDoubleTap? doubleTapAction,
     int? autoPageSeconds,
     TtsEngineKind? ttsEngine,
@@ -411,6 +423,7 @@ class ReaderSettings {
       edgeBrightnessGesture:
           edgeBrightnessGesture ?? this.edgeBrightnessGesture,
       pageAnimations: pageAnimations ?? this.pageAnimations,
+      pageTurnSound: pageTurnSound ?? this.pageTurnSound,
       doubleTapAction: doubleTapAction ?? this.doubleTapAction,
       autoPageSeconds: autoPageSeconds ?? this.autoPageSeconds,
       ttsEngine: ttsEngine ?? this.ttsEngine,
