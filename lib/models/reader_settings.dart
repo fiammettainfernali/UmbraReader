@@ -70,6 +70,7 @@ class ReaderSettings {
     required this.edgeBrightnessGesture,
     required this.pageAnimations,
     required this.pageTurnSound,
+    required this.pageFold,
     required this.doubleTapAction,
     required this.autoPageSeconds,
     required this.ttsEngine,
@@ -220,6 +221,11 @@ class ReaderSettings {
   /// instant). Lets a reader keep other motion but snap pages.
   final bool pageAnimations;
 
+  /// When true, a page turn folds about the spine like a sheet of paper
+  /// instead of sliding sideways. Only applies in paged mode, and only while
+  /// [pageAnimations] is on — an instant turn has nothing to fold.
+  final bool pageFold;
+
   /// When true, turning a page plays a short paper sound.
   ///
   /// Off by default: a noise on every page turn is a strong opinion to hold
@@ -296,6 +302,7 @@ class ReaderSettings {
     edgeBrightnessGesture: true,
     pageAnimations: true,
     pageTurnSound: false,
+    pageFold: true,
     doubleTapAction: ReaderDoubleTap.none,
     autoPageSeconds: 0,
     ttsEngine: TtsEngineKind.system,
@@ -377,6 +384,7 @@ class ReaderSettings {
     bool? edgeBrightnessGesture,
     bool? pageAnimations,
     bool? pageTurnSound,
+    bool? pageFold,
     ReaderDoubleTap? doubleTapAction,
     int? autoPageSeconds,
     TtsEngineKind? ttsEngine,
@@ -424,6 +432,7 @@ class ReaderSettings {
           edgeBrightnessGesture ?? this.edgeBrightnessGesture,
       pageAnimations: pageAnimations ?? this.pageAnimations,
       pageTurnSound: pageTurnSound ?? this.pageTurnSound,
+      pageFold: pageFold ?? this.pageFold,
       doubleTapAction: doubleTapAction ?? this.doubleTapAction,
       autoPageSeconds: autoPageSeconds ?? this.autoPageSeconds,
       ttsEngine: ttsEngine ?? this.ttsEngine,

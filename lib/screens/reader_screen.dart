@@ -7,6 +7,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../reader/block_view.dart';
 import '../reader/edge_crossing.dart';
+import '../reader/page_fold.dart';
 import '../reader/line_focus_overlay.dart';
 import '../reader/book_search_screen.dart';
 import '../reader/bookmarks_sheet.dart';
@@ -2993,9 +2994,15 @@ class _ReaderScreenState extends State<ReaderScreen>
         }
         final pages = _pages ?? const <List<PageBlock>>[];
         final spreadCount = (pages.length / stride).ceil().clamp(1, 1 << 30);
-        final pager = PageView.builder(
+        final pager = FoldingPager(
           controller: _pageController,
           itemCount: spreadCount,
+          // Only single pages fold. A spread — the unfolded inner screen, or
+          // TV mode — turns two sheets at once when it advances, which no
+          // single hinge describes: folding the pair about the screen's left
+          // edge would swing the left-hand page away from a spine it is
+          // sitting on. Spreads keep the slide.
+          folding: _settings.pageFold && !_instantPageTurns && stride == 1,
           // Every paged turn lands here — swiped, tapped, keyed or automatic
           // — which is why the sound hangs off this rather than off the tap
           // handler that only sees some of them.

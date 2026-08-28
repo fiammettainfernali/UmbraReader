@@ -480,6 +480,20 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
                   dense: true,
+                  title: const Text('Fold pages like a book'),
+                  subtitle: const Text(
+                    'The page lifts and turns about the spine instead of '
+                    'sliding. Off: pages slide.',
+                  ),
+                  // Nothing to fold when turns are instant.
+                  value: _settings.pageFold && _settings.pageAnimations,
+                  onChanged: _settings.pageAnimations
+                      ? (on) => _update(_settings.copyWith(pageFold: on))
+                      : null,
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
                   title: const Text('Page-turn sound'),
                   subtitle: const Text(
                     'A short paper sound on each turn. Stays quiet during '
