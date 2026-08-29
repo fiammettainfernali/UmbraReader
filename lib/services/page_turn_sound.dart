@@ -107,8 +107,16 @@ class PageTurnSound {
 /// your own reading, and dropped into a spoken sentence it just sounds like a
 /// glitch. [autoTurn] silences hands-free turning for the same reason a clock
 /// that chimed every page would get switched off.
+/// [reseating] silences the pager being re-anchored rather than turned.
+/// Repagination — chrome appearing, a font change, a rotation — moves the
+/// reader to whichever page now holds the words they were on. That is a
+/// correction, and it reaches the pager as the same `jumpToPage` a real turn
+/// does. Left ungated it was audible: tapping the middle of the screen to
+/// open the menu played a page-turn sound, because opening the menu changes
+/// the height the text is laid into.
 bool shouldPlayPageTurnSound({
   required bool enabled,
   required bool speaking,
   required bool autoTurn,
-}) => enabled && !speaking && !autoTurn;
+  required bool reseating,
+}) => enabled && !speaking && !autoTurn && !reseating;

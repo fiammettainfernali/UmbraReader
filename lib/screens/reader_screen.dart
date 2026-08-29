@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../reader/block_view.dart';
+import '../reader/chapter_fade.dart';
 import '../reader/edge_crossing.dart';
 import '../reader/page_fold.dart';
 import '../reader/line_focus_overlay.dart';
@@ -153,6 +154,13 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   /// When the page-turn sound last played, for coalescing.
   DateTime _lastPageSound = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// True while the pager is being re-anchored after a repagination.
+  ///
+  /// Re-anchoring is not a turn. It keeps the reader on the words they were
+  /// reading when the page they occupied stopped existing, and it arrives at
+  /// the pager as the same jump a real turn does.
+  bool _reseating = false;
 
   /// The brightness being set by the edge-slide gesture; non-null only while
   /// the heads-up readout is showing. Drives the transient pill.
@@ -1636,6 +1644,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       enabled: _settings.pageTurnSound,
       speaking: ttsEngine.state != TtsPlaybackState.stopped,
       autoTurn: _autoPageTimer != null,
+      reseating: _reseating,
     )) {
       return;
     }
@@ -2262,8 +2271,15 @@ class _ReaderScreenState extends State<ReaderScreen>
       final pages = _pages ?? const [];
       final current =
           (_pageController.hasClients ? _pageController.page : 0)?.round() ?? 0;
+      // The controller counts *spreads*, not pages. On a two-column spread
+      // there are half as many, and comparing a spread index against a page
+      // count made the last spread of every chapter look like the middle of
+      // one: the tap called nextPage, which had nowhere to go, so the edge
+      // of the screen simply stopped responding until you swiped instead.
+      final lastIndex =
+          (pages.length / _pageStride).ceil().clamp(1, 1 << 30) - 1;
       if (forward) {
-        if (current < pages.length - 1) {
+        if (current < lastIndex) {
           _hapticLight();
           if (_instantPageTurns) {
             _pageController.jumpToPage(current + 1);
@@ -2988,7 +3004,15 @@ class _ReaderScreenState extends State<ReaderScreen>
           }
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted || !_pageController.hasClients) return;
+            // Flagged across the jump, and cleared a frame later rather than
+            // on the next line: onPageChanged can arrive during the jump or
+            // just after it, and both are this re-anchoring rather than a
+            // turn the reader asked for.
+            _reseating = true;
             _pageController.jumpToPage(wanted.clamp(0, spreadCount - 1));
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _reseating = false;
+            });
             _saveProgress();
           });
         }
@@ -3034,10 +3058,23 @@ class _ReaderScreenState extends State<ReaderScreen>
             );
           },
         );
-        if (!_settings.tvMode) return pager;
+        // Crossing a chapter is a jump, not a turn, and it used to show its
+        // working: the new chapter is paginated while the pager is still
+        // sitting on the old one's last index, so one frame lands on the
+        // wrong part of the new text before the jump to the start. Held
+        // invisible for that frame and faded in, the arrival reads as a
+        // transition instead of a stutter.
+        final settled = ChapterFade(
+          chapterIndex: _chapterIndex,
+          duration: _reduceMotion
+              ? Duration.zero
+              : const Duration(milliseconds: 160),
+          child: pager,
+        );
+        if (!_settings.tvMode) return settled;
         return Padding(
           padding: EdgeInsets.symmetric(horizontal: tvSafeH, vertical: tvSafeV),
-          child: pager,
+          child: settled,
         );
       },
     );

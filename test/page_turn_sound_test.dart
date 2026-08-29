@@ -13,7 +13,7 @@ void main() {
     test('plays for an ordinary turn when switched on', () {
       expect(
         shouldPlayPageTurnSound(enabled: true, speaking: false,
-            autoTurn: false),
+            autoTurn: false, reseating: false),
         isTrue,
       );
     });
@@ -21,7 +21,7 @@ void main() {
     test('silent when the setting is off', () {
       expect(
         shouldPlayPageTurnSound(enabled: false, speaking: false,
-            autoTurn: false),
+            autoTurn: false, reseating: false),
         isFalse,
       );
     });
@@ -31,7 +31,7 @@ void main() {
       // a glitch, not as atmosphere.
       expect(
         shouldPlayPageTurnSound(enabled: true, speaking: true,
-            autoTurn: false),
+            autoTurn: false, reseating: false),
         isFalse,
       );
     });
@@ -40,7 +40,20 @@ void main() {
       // Unattended pages turning on a timer would tick like a clock.
       expect(
         shouldPlayPageTurnSound(enabled: true, speaking: false,
-            autoTurn: true),
+            autoTurn: true, reseating: false),
+        isFalse,
+      );
+    });
+
+    test('silent while the pager is only being re-anchored', () {
+      // Repagination moves the reader to whichever page now holds the words
+      // they were on. It reaches the pager as the same jump a real turn
+      // does, and it was audible: tapping the middle of the screen to open
+      // the menu changes the height the text is laid into, so the menu
+      // rustled like a page every time it appeared.
+      expect(
+        shouldPlayPageTurnSound(enabled: true, speaking: false,
+            autoTurn: false, reseating: true),
         isFalse,
       );
     });
