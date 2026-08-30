@@ -18,11 +18,16 @@ import 'package:umbra_reader/services/epub_source.dart';
 /// asked for, and refuses to answer anything not prefetched — exactly like
 /// the real one, whose bytes() reads only from cache.
 class _FakeRemote implements EpubSource {
-  _FakeRemote(this.server);
+  _FakeRemote(this.server, {this.lastFailure});
 
   final Map<String, List<int>> server;
   final Map<String, List<int>> _cache = {};
   final List<String> fetched = [];
+
+  /// Set to stand in for a source that could not be reached, as opposed to
+  /// one answering honestly that a book has no such entry.
+  @override
+  final String? lastFailure;
 
   @override
   List<int>? bytes(String path) => _cache[path];
@@ -158,5 +163,45 @@ void main() {
 
     expect(await parser.prepareChapter(book.chapters[1]), isFalse);
     expect(await parser.prepareChapter(book.chapters[0]), isTrue);
+  });
+
+  test('a book that could not be fetched is not called invalid', () async {
+    // The bug this pins: every transport failure — a refused password, a
+    // gateway error, a dropped connection — left the parser with no bytes
+    // and nothing else, so it reported the only thing it could see, that
+    // container.xml was missing. The book was fine; the connection was not.
+    // Being told a book is corrupt sends you looking for a fault in a file
+    // that was never opened.
+    final unreachable = _FakeRemote(
+      <String, List<int>>{},
+      lastFailure: 'The server refused the request (HTTP 401).',
+    );
+    await expectLater(
+      EpubParser().openSource(unreachable),
+      throwsA(
+        isA<Exception>().having(
+          (e) => e.toString(),
+          'message',
+          allOf(contains('HTTP 401'), isNot(contains('Not a valid EPUB'))),
+        ),
+      ),
+    );
+  });
+
+  test('a genuinely malformed book still says so', () async {
+    // The other half: when the source reports no failure, missing bytes
+    // really do mean the archive is wrong, and softening that would hide a
+    // damaged download behind a network excuse.
+    final empty = _FakeRemote(<String, List<int>>{});
+    await expectLater(
+      EpubParser().openSource(empty),
+      throwsA(
+        isA<Exception>().having(
+          (e) => e.toString(),
+          'message',
+          contains('Not a valid EPUB'),
+        ),
+      ),
+    );
   });
 }

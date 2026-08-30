@@ -25,6 +25,16 @@ abstract class EpubSource {
   /// prefetch that throws for one absent image would lose the chapter.
   Future<void> prefetch(Iterable<String> paths) async {}
 
+  /// Why the last fetch failed, or null when nothing has.
+  ///
+  /// [bytes] answering null means only "not here", and for a source that
+  /// reaches over a network that is two very different situations wearing
+  /// the same face: the entry is genuinely not in the book, or it could not
+  /// be collected. Without this the parser can only report the first, so a
+  /// dropped connection was announced as a corrupt book — sending the
+  /// reader to look for a fault in a file that was never opened.
+  String? get lastFailure => null;
+
   /// Releases anything held open. Safe to call more than once.
   void dispose() {}
 }
@@ -56,6 +66,10 @@ class LocalArchiveSource implements EpubSource {
 
   @override
   Future<void> prefetch(Iterable<String> paths) async {}
+
+  /// Always null: a decoded archive cannot fail to reach itself.
+  @override
+  String? get lastFailure => null;
 
   @override
   void dispose() {}

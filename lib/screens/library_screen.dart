@@ -75,6 +75,10 @@ class _LibraryScreenState extends State<LibraryScreen>
   /// last sync couldn't reach the server.
   bool _offline = false;
 
+  /// Why the last library fetch failed, when it did. Shown in the offline
+  /// banner: see the note where it is set.
+  String? _offlineReason;
+
   /// Every saved reading entry — drives the per-series reading-state map
   /// used by the filter chips. Distinct from [_reading], which is the
   /// in-progress-only subset that powers the Continue Reading hero and
@@ -393,6 +397,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       setState(() {
         _library = library;
         _offline = false;
+        _offlineReason = null;
         _loading = false;
       });
       // Recompute "Continue reading" + recommendations against the fresh
@@ -409,6 +414,14 @@ class _LibraryScreenState extends State<LibraryScreen>
           // We have a cached library — stay browsable offline rather than
           // showing a fatal error.
           _offline = true;
+          // Kept, and shown. Going quietly offline threw away the only
+          // account of why, and "Offline" is a guess the app makes rather
+          // than something it knows: a refused password, an expired
+          // certificate and a sleeping server all arrive here and all read
+          // as "no signal". Hours went into one of these from the outside —
+          // hub logs, packet counts, DNS checks — for a reason the app had
+          // in its hand the whole time.
+          _offlineReason = e.message;
         } else {
           _error = e.message;
         }
@@ -1167,12 +1180,29 @@ class _LibraryScreenState extends State<LibraryScreen>
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              'Offline — showing your saved library. Downloaded books can '
-              'still be read.',
-              style: theme.textTheme.labelMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Offline — showing your saved library. Downloaded books '
+                  'can still be read.',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                if (_offlineReason != null && _offlineReason!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      _offlineReason!,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant
+                            .withValues(alpha: 0.75),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ],

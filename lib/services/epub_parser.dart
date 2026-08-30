@@ -80,7 +80,15 @@ class EpubParser {
   Future<EpubBook> _readStructure() async {
     final containerBytes = _findBytes('META-INF/container.xml');
     if (containerBytes == null) {
-      throw EpubException('Not a valid EPUB — container.xml is missing.');
+      // A source that could not be reached reports why. Saying the book is
+      // invalid when the truth is that nothing was collected sends the
+      // reader looking for a fault in a file that was never opened.
+      final why = _source?.lastFailure;
+      throw EpubException(
+        why == null
+            ? 'Not a valid EPUB — container.xml is missing.'
+            : 'Could not read this book from the server. $why',
+      );
     }
     final opfPath = _opfPath(_decode(containerBytes));
     _opfDir = _dirOf(opfPath);

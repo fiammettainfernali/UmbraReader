@@ -52,6 +52,16 @@ class RemoteEpubSource implements EpubSource {
   /// font change.
   final Set<String> _absent = {};
 
+  String? _lastFailure;
+
+  /// Why the last fetch failed, or null when none has.
+  ///
+  /// Only set for failures that are *not* a plain 404: a missing entry is an
+  /// ordinary answer about the book, while everything else is an answer
+  /// about the connection.
+  @override
+  String? get lastFailure => _lastFailure;
+
   /// Members fetched so far, for tests and for deciding what to evict.
   int get cachedCount => _cache.length;
 
@@ -81,22 +91,78 @@ class RemoteEpubSource implements EpubSource {
     await Future.wait(wanted.map(_fetchInto));
   }
 
+  /// Statuses worth asking again for.
+  ///
+  /// These come from the reverse proxy in front of the library, not from the
+  /// library: they mean the request was never delivered. One was seen doing
+  /// exactly that — a book refused to open with a 502 while the server sat
+  /// idle and listening, having never been asked, and the same book opened
+  /// twelve minutes later without a change to anything.
+  ///
+  /// A 404 is not here: that is the library answering, and answering the
+  /// same way however many times it is asked. Nor is 401 — a password does
+  /// not become right on the second try.
+  static const _worthRetrying = {502, 503, 504};
+
+  /// How long to wait before each retry.
+  ///
+  /// Short, and only twice. This runs while someone is looking at a spinner
+  /// waiting for a page, so the budget is a moment's hesitation rather than
+  /// a genuine backoff schedule.
+  static const _retryDelays = [
+    Duration(milliseconds: 250),
+    Duration(milliseconds: 750),
+  ];
+
   Future<void> _fetchInto(String path) async {
+    for (var attempt = 0; ; attempt++) {
+      final again = await _attemptFetch(path);
+      if (!again || attempt >= _retryDelays.length) return;
+      await Future<void>.delayed(_retryDelays[attempt]);
+    }
+  }
+
+  /// One try. Returns true when it is worth another.
+  Future<bool> _attemptFetch(String path) async {
     try {
       final res = await _client
           .get(_uriFor(path), headers: headers)
           .timeout(timeout);
       if (res.statusCode == 200) {
         _cache[path] = res.bodyBytes;
-      } else if (res.statusCode == 404) {
+        _lastFailure = null;
+        return false;
+      }
+      if (res.statusCode == 404) {
         _absent.add(path);
+        return false;
       }
       // Anything else — 401, 500, a proxy error — is left uncached and
       // untracked, so a later attempt can still succeed. Treating a
       // transient failure as "not in this book" would make a dropped
       // connection look like a corrupt one.
-    } on Exception {
+      //
+      // Kept as a reason, though. Without it the parser sees only absent
+      // bytes and says the book is not a valid EPUB, which sends the reader
+      // hunting a fault in a file that was never opened.
+      _lastFailure = switch (res.statusCode) {
+        401 || 403 => 'The server refused the request (HTTP '
+            '${res.statusCode}) — check the username and password.',
+        502 || 503 || 504 => 'The server could not be reached through its '
+            'proxy (HTTP ${res.statusCode}). It may be starting up.',
+        _ => 'The server answered HTTP ${res.statusCode}.',
+      };
+      return _worthRetrying.contains(res.statusCode);
+    } on Exception catch (e) {
       // Same reasoning: no cache entry, no absence record, try again later.
+      final timedOut = e.toString().contains('TimeoutException');
+      _lastFailure = timedOut
+          ? 'The server did not answer in time.'
+          : 'Could not reach the server. ($e)';
+      // A connection that never opened is the same kind of nothing as a 502,
+      // and just as likely to work a moment later. A timeout is not: it
+      // already waited, and waiting again doubles the spinner.
+      return !timedOut;
     }
   }
 

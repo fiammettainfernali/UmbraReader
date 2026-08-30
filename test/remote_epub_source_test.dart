@@ -45,7 +45,7 @@ const _opf = '''
 
 List<int> _b(String s) => utf8.encode(s);
 
-RemoteEpubSource _source(_FakeClient client) => RemoteEpubSource(
+RemoteEpubSource _source(http.BaseClient client) => RemoteEpubSource(
       baseUrl: 'https://hub.example.ts.net',
       novelId: 42,
       fileName: 'A Book.epub',
@@ -188,12 +188,97 @@ void main() {
       expect(s.cachedCount, 0);
     });
   });
+
+  group('a proxy that did not deliver the request', () {
+    // Observed: a book refused to open with HTTP 502 while the server sat
+    // idle and listening, having never been asked for it — the reverse
+    // proxy in front of the library failed to hand the request over. The
+    // same book opened twelve minutes later with nothing changed. A 502
+    // says the library was never consulted, which makes asking again the
+    // obvious move, and it was the one thing that never happened.
+
+    test('a 502 is retried, and the retry is believed', () async {
+      final c = _FlakyClient(failures: 1, status: 502, body: 'ok');
+      final s = _source(c);
+      await s.prefetch(['thing']);
+      expect(c.calls, 2, reason: 'asked twice');
+      expect(utf8.decode(s.bytes('thing')!), 'ok');
+      expect(s.lastFailure, isNull, reason: 'it succeeded in the end');
+    });
+
+    test('503 and 504 too', () async {
+      for (final status in [503, 504]) {
+        final c = _FlakyClient(failures: 1, status: status, body: 'ok');
+        await _source(c).prefetch(['thing']);
+        expect(c.calls, 2, reason: 'status $status');
+      }
+    });
+
+    test('it gives up rather than hammering', () async {
+      // Someone is watching a spinner. Two retries, then report.
+      final c = _FlakyClient(failures: 99, status: 502, body: 'never');
+      final s = _source(c);
+      await s.prefetch(['thing']);
+      expect(c.calls, 3);
+      expect(s.lastFailure, contains('502'));
+    });
+
+    test('a 404 is not retried: that is the library answering', () async {
+      final c = _FlakyClient(failures: 99, status: 404, body: '');
+      await _source(c).prefetch(['thing']);
+      expect(c.calls, 1);
+    });
+
+    test('a 401 is not retried: a password does not improve with age',
+        () async {
+      final c = _FlakyClient(failures: 99, status: 401, body: '');
+      final s = _source(c);
+      await s.prefetch(['thing']);
+      expect(c.calls, 1);
+      expect(s.lastFailure, contains('401'));
+    });
+
+    test('a connection that never opened is retried', () async {
+      final c = _ExplodingClient();
+      await _source(c).prefetch(['thing']);
+      expect(c.calls, 3);
+    });
+  });
+}
+
+/// Fails the first [failures] calls with [status], then serves [body].
+class _FlakyClient extends http.BaseClient {
+  _FlakyClient({
+    required this.failures,
+    required this.status,
+    required this.body,
+  });
+
+  final int failures;
+  final int status;
+  final String body;
+  int calls = 0;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    calls++;
+    if (calls <= failures) {
+      return http.StreamedResponse(
+        const Stream<List<int>>.empty(), status, request: request);
+    }
+    return http.StreamedResponse(
+      Stream.value(utf8.encode(body)), 200, request: request);
+  }
 }
 
 class _ExplodingClient extends http.BaseClient {
+  int calls = 0;
+
   @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) =>
-      Future.error(const SocketExceptionStub());
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    calls++;
+    return Future.error(const SocketExceptionStub());
+  }
 }
 
 class SocketExceptionStub implements Exception {
