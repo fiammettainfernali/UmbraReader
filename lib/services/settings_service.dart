@@ -7,6 +7,7 @@ class OpdsSettings {
     required this.baseUrl,
     required this.username,
     required this.password,
+    this.downloaderUrl = '',
     this.passwordLost = false,
   });
 
@@ -15,6 +16,16 @@ class OpdsSettings {
   final String baseUrl;
   final String username;
   final String password;
+
+  /// Where downloads and update checks are commanded, when that is not the
+  /// same machine the books are read from. Empty means it is.
+  ///
+  /// The library can live on a hub that never fetches anything: a datacenter
+  /// IP is precisely what the source sites screen hardest, so the hub stores
+  /// and serves while a machine at home does the scraping. A hub answers
+  /// every fetching route with 403 and an explanation, which is correct and
+  /// which left the reader's remote control with nowhere to send a sweep.
+  final String downloaderUrl;
 
   /// True when a password was saved on this install but the secure store no
   /// longer returns it. The Keystore key is device-bound, so a restore onto
@@ -29,18 +40,31 @@ class OpdsSettings {
   /// True when basic-auth credentials should be sent.
   bool get hasAuth => username.isNotEmpty;
 
+  /// Where to send a command rather than a request for a book.
+  ///
+  /// Falls back to [baseUrl], which is the whole configuration for anyone
+  /// whose one server both stores and downloads.
+  String get controlUrl =>
+      downloaderUrl.isNotEmpty ? downloaderUrl : baseUrl;
+
+  /// True when reading and downloading are two different machines.
+  bool get downloaderIsElsewhere =>
+      downloaderUrl.isNotEmpty && downloaderUrl != baseUrl;
+
   static const empty = OpdsSettings(baseUrl: '', username: '', password: '');
 
   OpdsSettings copyWith({
     String? baseUrl,
     String? username,
     String? password,
+    String? downloaderUrl,
     bool? passwordLost,
   }) {
     return OpdsSettings(
       baseUrl: baseUrl ?? this.baseUrl,
       username: username ?? this.username,
       password: password ?? this.password,
+      downloaderUrl: downloaderUrl ?? this.downloaderUrl,
       passwordLost: passwordLost ?? this.passwordLost,
     );
   }
@@ -74,6 +98,7 @@ String normalizeOpdsUrl(String input) {
 /// SharedPreferences so behaviour is unchanged.
 class SettingsService {
   static const _kBaseUrl = 'opds_base_url';
+  static const _kDownloaderUrl = 'downloader_base_url';
   static const _kUsername = 'opds_username';
   static const _kPassword = 'opds_password';
   static const _kHasPassword = 'opds_password_saved';
@@ -121,6 +146,7 @@ class SettingsService {
       baseUrl: prefs.getString(_kBaseUrl) ?? '',
       username: prefs.getString(_kUsername) ?? '',
       password: password ?? '',
+      downloaderUrl: prefs.getString(_kDownloaderUrl) ?? '',
       passwordLost: expected && !hasPassword,
     );
   }
@@ -128,6 +154,7 @@ class SettingsService {
   Future<void> save(OpdsSettings settings) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kBaseUrl, settings.baseUrl);
+    await prefs.setString(_kDownloaderUrl, settings.downloaderUrl);
     await prefs.setString(_kUsername, settings.username);
     await prefs.setBool(_kHasPassword, settings.password.isNotEmpty);
     if (await _writeSecure(_kPassword, settings.password)) {

@@ -306,9 +306,29 @@ class _LibraryScreenState extends State<LibraryScreen>
       CollectionStore().list(),
       RecOutcomeStore().load(),
     ).wait;
+    // A finished book whose EPUB has been rebuilt since has more in it than
+    // when it was finished. Downloaded volumes learn that by being
+    // re-downloaded and re-read; streamed ones are never downloaded, so
+    // without this they stayed finished for good however many chapters
+    // arrived. Costs nothing: the timestamps are already in hand.
+    var revived = entries;
+    final rebuilt = <int, DateTime?>{
+      for (final s in _library ?? const <Series>[]) s.opdsId: s.updatedAt,
+    };
+    if (rebuilt.isNotEmpty) {
+      var any = false;
+      for (final e in entries.where((e) => e.progress.isFinished)) {
+        if (await ReadingProgressStore()
+            .unfinishIfRebuilt(e.volume, rebuilt[e.volume.seriesOpdsId])) {
+          any = true;
+        }
+      }
+      if (any) revived = await ReadingProgressStore().allEntries();
+    }
+
     // The Continue shelf excludes volumes the user hid; the filter chips
     // (which use _allReadingEntries) still count them as in-progress.
-    final inProgress = entries
+    final inProgress = revived
         .where(
           (e) =>
               e.progress.isStarted &&
@@ -319,7 +339,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         .toList();
     if (!mounted) return;
     setState(() {
-      _allReadingEntries = entries;
+      _allReadingEntries = revived;
       _activity = activity;
       _collections = collections;
       _dailyGoalMinutes = dailyGoal;

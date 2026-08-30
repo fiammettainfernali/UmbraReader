@@ -294,6 +294,50 @@ class ReadingProgressStore {
 
   /// Every volume with a saved position, newest first. Rows without a volume
   /// snapshot are skipped — they can't be reopened without the metadata.
+  /// Un-finishes a volume whose book has been rebuilt since it was finished.
+  ///
+  /// Returns true when something changed.
+  ///
+  /// A *downloaded* volume gets this for free: re-downloading re-reads the
+  /// EPUB, and a changed chapter count clears the finished flag. A streamed
+  /// volume is never downloaded, so nothing ever re-reads it — a book
+  /// finished while streaming stayed finished for good, and the chapters
+  /// that arrived afterwards could not bring it back to the shelf. The only
+  /// way to notice was to go and open it, which is exactly what the shelf
+  /// exists to save you.
+  ///
+  /// [rebuiltAt] is the newest EPUB mtime the server reports for the series.
+  /// Later than when the book was finished means it has been recompiled, and
+  /// a recompile is the only way it gains chapters.
+  ///
+  /// A rebuild that adds nothing readable — a new cover, a re-run — puts it
+  /// back on the shelf too. That is the right way round to be wrong: an
+  /// unwanted entry is dismissed with one swipe, while a book that never
+  /// returns is invisible.
+  Future<bool> unfinishIfRebuilt(Volume volume, DateTime? rebuiltAt) async {
+    if (rebuiltAt == null) return false;
+    await _ensureMigrated();
+    final row = await _row(_key(volume));
+    if (row == null || !row.endReached) return false;
+    final finishedAt = DateTime.tryParse(row.updatedAt ?? '');
+    // Not after, rather than before: equal timestamps mean this has already
+    // been done once, and re-doing it every load would fight the reader for
+    // control of their own shelf.
+    if (finishedAt != null && !rebuiltAt.isAfter(finishedAt)) return false;
+    final db = AppDatabase.instance;
+    await (db.update(db.readingProgressRows)
+          ..where((t) => t.volumeKey.equals(_key(volume))))
+        .write(
+      ReadingProgressRowsCompanion(
+        endReached: const Value(false),
+        // Stamped now so the comparison above settles, and so the change
+        // travels to other devices like any other shelf change.
+        updatedAt: Value(DateTime.now().toIso8601String()),
+      ),
+    );
+    return true;
+  }
+
   Future<List<ReadingEntry>> allEntries() async {
     await _ensureMigrated();
     final rows = await (_db.select(

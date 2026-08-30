@@ -399,7 +399,15 @@ class ControlClient {
   final OpdsSettings settings;
 
   Map<String, String> get _auth => OpdsClient(settings).authHeaders;
-  Uri _u(String path) => Uri.parse('${settings.baseUrl}$path');
+
+  /// Commands go to the downloader, which need not be the machine the books
+  /// are read from. A hub stores and serves but refuses every fetching route
+  /// — correctly, because a datacenter IP is what the source sites screen
+  /// hardest — so pointing the library at one used to leave the remote
+  /// control with nowhere to send a sweep. [OpdsSettings.controlUrl] falls
+  /// back to the library address, which is the whole story for anyone whose
+  /// one server does both.
+  Uri _u(String path) => Uri.parse('${settings.controlUrl}$path');
 
   Future<ControlStatus> status() async {
     final json = await _get('/api/status');
