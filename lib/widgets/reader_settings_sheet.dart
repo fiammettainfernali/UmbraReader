@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../feature_flags.dart';
@@ -17,6 +18,28 @@ const List<String> kReaderFonts = [
   'Atkinson Hyperlegible',
   'OpenDyslexic',
 ];
+
+/// How TV mode explains itself, in the terms of whatever platform is asking.
+///
+/// The route to a TV is named differently on each: Control Center on iOS,
+/// Smart View on a Samsung, Cast on other Android. Telling a Fold owner to
+/// open Control Center is worse than saying nothing, because it sends them
+/// looking for a thing their phone does not have.
+String get _tvModeSubtitle {
+  const layout = 'Two-column landscape, full-screen — pair with ';
+  const tail = ' to read on a TV with the phone as the remote.';
+  if (defaultTargetPlatform == TargetPlatform.iOS) {
+    return '${layout}screen mirroring '
+        '(Control Center → Screen Mirroring)$tail';
+  }
+  if (defaultTargetPlatform == TargetPlatform.android) {
+    // Samsung's own name for it, with the generic one alongside for the
+    // Androids that do not call it that.
+    return '${layout}Smart View or Cast '
+        '(swipe down → Smart View)$tail';
+  }
+  return '${layout}screen mirroring$tail';
+}
 
 String _fontLabel(String family) => family.isEmpty ? 'System' : family;
 
@@ -294,11 +317,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                   contentPadding: EdgeInsets.zero,
                   dense: true,
                   title: const Text('TV mode'),
-                  subtitle: const Text(
-                    'Two-column landscape, full-screen — pair with iOS screen '
-                    'mirroring (Control Center → Screen Mirroring) to read on '
-                    'a TV with the phone as the remote.',
-                  ),
+                  subtitle: Text(_tvModeSubtitle),
                   value: _settings.tvMode,
                   onChanged: (on) async {
                     if (on &&
@@ -457,6 +476,30 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                   value: _settings.pageAnimations,
                   onChanged: (on) =>
                       _update(_settings.copyWith(pageAnimations: on)),
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Fold pages like a book'),
+                  subtitle: const Text(
+                    'Swiping lifts the page and turns it about the spine '
+                    'instead of sliding it. Instant turns still snap.',
+                  ),
+                  value: _settings.pageFold,
+                  onChanged: (on) =>
+                      _update(_settings.copyWith(pageFold: on)),
+                ),
+                SwitchListTile.adaptive(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  title: const Text('Page-turn sound'),
+                  subtitle: const Text(
+                    'A short paper sound on each turn. Stays quiet during '
+                    'read-aloud and hands-free turning.',
+                  ),
+                  value: _settings.pageTurnSound,
+                  onChanged: (on) =>
+                      _update(_settings.copyWith(pageTurnSound: on)),
                 ),
                 const SizedBox(height: 8),
                 _label(theme, 'Double-tap'),

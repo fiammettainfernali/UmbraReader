@@ -52,64 +52,74 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) {
     final settings = _settings;
     final mq = MediaQuery.of(context);
-    return Scaffold(
-      // The bar is glass, so the tabs have to scroll underneath it — with
-      // nothing passing behind it there is nothing to blur.
-      extendBody: true,
-      body: MediaQuery(
-        // Hand the tabs the bar's full footprint as bottom padding. They paint
-        // beneath it now, so their lists and floating buttons need to know to
-        // clear it; each tab reads this back as `padding.bottom`.
-        data: mq.copyWith(
-          padding: mq.padding.copyWith(
-            bottom: mq.padding.bottom + GlassNavBar.barHeight,
+    // Android has a system back; iOS does not, so nothing here ever needed
+    // to answer it. Back on a sub-tab belongs to the tab strip, not the app:
+    // it returns to Library, and only a back from Library itself leaves.
+    return PopScope(
+      canPop: _index == 0,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        setState(() => _index = 0);
+      },
+      child: Scaffold(
+        // The bar is glass, so the tabs have to scroll underneath it — with
+        // nothing passing behind it there is nothing to blur.
+        extendBody: true,
+        body: MediaQuery(
+          // Hand the tabs the bar's full footprint as bottom padding. They paint
+          // beneath it now, so their lists and floating buttons need to know to
+          // clear it; each tab reads this back as `padding.bottom`.
+          data: mq.copyWith(
+            padding: mq.padding.copyWith(
+              bottom: mq.padding.bottom + GlassNavBar.barHeight,
+            ),
+          ),
+          // IndexedStack keeps each tab alive, so switching away and back doesn't
+          // rebuild the library or lose a scroll position — which would read as
+          // the app moving under you.
+          child: IndexedStack(
+            index: _index,
+            children: [
+              const LibraryScreen(),
+              // Both of these need the server address, so they wait on the
+              // same settings load rather than each guessing at it.
+              if (settings == null) ...[
+                const Scaffold(body: Center(child: CircularProgressIndicator())),
+                const Scaffold(body: Center(child: CircularProgressIndicator())),
+              ] else ...[
+                DiscoverScreen(settings: settings),
+                ManageScreen(settings: settings),
+              ],
+              const StatsScreen(),
+            ],
           ),
         ),
-        // IndexedStack keeps each tab alive, so switching away and back doesn't
-        // rebuild the library or lose a scroll position — which would read as
-        // the app moving under you.
-        child: IndexedStack(
-          index: _index,
-          children: [
-            const LibraryScreen(),
-            // Both of these need the server address, so they wait on the
-            // same settings load rather than each guessing at it.
-            if (settings == null) ...[
-              const Scaffold(body: Center(child: CircularProgressIndicator())),
-              const Scaffold(body: Center(child: CircularProgressIndicator())),
-            ] else ...[
-              DiscoverScreen(settings: settings),
-              ManageScreen(settings: settings),
-            ],
-            const StatsScreen(),
+        bottomNavigationBar: GlassNavBar(
+          selectedIndex: _index,
+          onDestinationSelected: (i) => setState(() => _index = i),
+          destinations: const [
+            NavigationDestination(
+              icon: Icon(Icons.auto_stories_outlined),
+              selectedIcon: Icon(Icons.auto_stories),
+              label: 'Library',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.travel_explore_outlined),
+              selectedIcon: Icon(Icons.travel_explore),
+              label: 'Discover',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.dns_outlined),
+              selectedIcon: Icon(Icons.dns),
+              label: 'Server',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.insights_outlined),
+              selectedIcon: Icon(Icons.insights),
+              label: 'You',
+            ),
           ],
         ),
-      ),
-      bottomNavigationBar: GlassNavBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.auto_stories_outlined),
-            selectedIcon: Icon(Icons.auto_stories),
-            label: 'Library',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.travel_explore_outlined),
-            selectedIcon: Icon(Icons.travel_explore),
-            label: 'Discover',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.dns_outlined),
-            selectedIcon: Icon(Icons.dns),
-            label: 'Server',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.insights_outlined),
-            selectedIcon: Icon(Icons.insights),
-            label: 'You',
-          ),
-        ],
       ),
     );
   }

@@ -181,4 +181,52 @@ void main() {
     await tester.pump();
     CloudSyncService().cancelPendingTimers();
   });
+
+  testWidgets('unfolding keeps the reading position', (tester) async {
+    addTearDown(tester.view.reset);
+
+    // The cover display: narrow, single page. Sizes here are stand-ins for
+    // the shape of the change, not measurements of any real panel — what is
+    // under test is that a large resize across the spread boundary keeps its
+    // place, not that these are the Fold's numbers.
+    _setViewport(tester, const Size(400, 1000));
+    await tester.pumpWidget(MaterialApp(home: ReaderScreen(volume: _volume())));
+    await _settle(tester);
+    expect(_stride(tester), 1, reason: 'the cover screen is one column');
+
+    for (var i = 0; i < 5; i++) {
+      await tester.drag(find.byType(PageView), const Offset(-600, 0));
+      await tester.pumpAndSettle();
+    }
+    await _settle(tester);
+    final before = _topBlock(tester);
+    expect(before, greaterThan(0), reason: 'we must be deep into the book');
+
+    // Unfold: more than double the width, and nearly square — the shape the
+    // old landscape flag refused. Both the spread and the position change.
+    _setViewport(tester, const Size(840, 900));
+    await _settle(tester);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(_stride(tester), 2, reason: 'the inner screen reads as a spread');
+
+    final after = _topBlock(tester);
+    expect(after, greaterThan(0),
+        reason: 'unfolding must not reset to the chapter start');
+    expect((after - before).abs(), lessThanOrEqualTo(4),
+        reason: 'read to block $before, unfolded to $after — the spread '
+            'containing the reading position must be restored');
+
+    // And folding back again: the position survives the return trip too.
+    _setViewport(tester, const Size(400, 1000));
+    await _settle(tester);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(_stride(tester), 1);
+    final folded = _topBlock(tester);
+    expect((folded - before).abs(), lessThanOrEqualTo(4),
+        reason: 'folding back landed on block $folded, not near $before');
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    CloudSyncService().cancelPendingTimers();
+  });
 }

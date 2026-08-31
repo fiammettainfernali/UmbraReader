@@ -9,6 +9,7 @@ import 'package:xml/xml.dart';
 
 import '../models/content_block.dart';
 import '../models/epub_book.dart';
+import 'epub_source.dart';
 
 /// Raised when an EPUB can't be parsed. [message] is safe to show to the user.
 class EpubException implements Exception {
@@ -35,7 +36,13 @@ class _ManifestItem {
 /// Keep one instance alive while a book is open — it retains the decoded
 /// archive so chapters can be extracted lazily as the reader needs them.
 class EpubParser {
-  Archive? _archive;
+  /// Where bytes come from — a decoded local archive, or the hub.
+  ///
+  /// Named as an interface so the same parser reads a downloaded file or a
+  /// streamed book without knowing which. Everything below resolves paths
+  /// through it, so nothing else in parsing, rendering or pagination has
+  /// to care which it is.
+  EpubSource? _source;
   String _opfDir = '';
 
   /// Opens [file] and returns its metadata + chapter list. The archive is
@@ -49,14 +56,39 @@ class EpubParser {
     }
 
     try {
-      _archive = ZipDecoder().decodeBytes(bytes);
+      _source = LocalArchiveSource(ZipDecoder().decodeBytes(bytes));
     } on Exception catch (e) {
       throw EpubException('This file is not a valid EPUB.\n($e)');
     }
+    return _readStructure();
+  }
 
+  /// Opens a book from any source — a hub that serves it a file at a time,
+  /// as much as a decoded archive.
+  ///
+  /// The source is expected to have whatever opening needs already in
+  /// hand: [bytes] is synchronous, so a remote source warms the container,
+  /// the package file and the contents before this is called.
+  Future<EpubBook> openSource(EpubSource source) async {
+    _source = source;
+    await source.prefetch(const ['META-INF/container.xml']);
+    return _readStructure();
+  }
+
+  /// Reads the container, package file and spine — the part of opening a
+  /// book that does not care where the bytes came from.
+  Future<EpubBook> _readStructure() async {
     final containerBytes = _findBytes('META-INF/container.xml');
     if (containerBytes == null) {
-      throw EpubException('Not a valid EPUB — container.xml is missing.');
+      // A source that could not be reached reports why. Saying the book is
+      // invalid when the truth is that nothing was collected sends the
+      // reader looking for a fault in a file that was never opened.
+      final why = _source?.lastFailure;
+      throw EpubException(
+        why == null
+            ? 'Not a valid EPUB — container.xml is missing.'
+            : 'Could not read this book from the server. $why',
+      );
     }
     final opfPath = _opfPath(_decode(containerBytes));
     _opfDir = _dirOf(opfPath);
@@ -132,6 +164,49 @@ class EpubParser {
   /// read inside [_collectInline] to attach bodies to inline note refs.
   final Map<int, String> _currentNotes = {};
 
+  /// Whether [parseChapter] can render this chapter right now.
+  ///
+  /// Always true for a downloaded book. For a streamed one it is the
+  /// difference between turning a page and waiting for the network, which
+  /// is what lets the reader stay synchronous on the common path and go
+  /// asynchronous only when it has to.
+  bool isChapterReady(EpubChapter chapter) =>
+      _source?.bytes(chapter.zipPath) != null;
+
+  /// Makes everything [parseChapter] will reach for available first.
+  ///
+  /// Only does anything for a source that fetches: locally the archive
+  /// already holds it all. Two passes are unavoidable — the chapter has to
+  /// be in hand before its images can be named, because they are named
+  /// inside it.
+  ///
+  /// Returns false when the chapter itself could not be fetched, which is
+  /// the caller's cue to say so rather than render "could not be loaded"
+  /// as though the book were damaged.
+  Future<bool> prepareChapter(EpubChapter chapter) async {
+    final source = _source;
+    if (source == null) return false;
+    await source.prefetch([chapter.zipPath]);
+    final bytes = source.bytes(chapter.zipPath);
+    if (bytes == null) return false;
+
+    // Images are resolved into ImageBlock during the parse itself, which
+    // is synchronous, so they have to be here before it starts.
+    final dir = _dirOf(chapter.zipPath);
+    final wanted = <String>{};
+    for (final m in RegExp(
+      r'''<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']''',
+      caseSensitive: false,
+    ).allMatches(_decode(bytes))) {
+      final src = m.group(1);
+      if (src == null || src.isEmpty) continue;
+      if (src.startsWith('data:') || src.startsWith('http')) continue;
+      wanted.add(_resolve(dir, src));
+    }
+    if (wanted.isNotEmpty) await source.prefetch(wanted);
+    return true;
+  }
+
   /// Extracts and parses one chapter into renderable content blocks.
   List<ContentBlock> parseChapter(EpubChapter chapter) {
     final bytes = _findBytes(chapter.zipPath);
@@ -184,23 +259,10 @@ class EpubParser {
 
   // ── archive helpers ──────────────────────────────────────────────────────
 
-  List<int>? _findBytes(String path) {
-    final archive = _archive;
-    if (archive == null) return null;
-    final normalized = path.replaceAll('\\', '/');
-    var found = archive.findFile(normalized);
-    if (found == null) {
-      final lower = normalized.toLowerCase();
-      for (final file in archive.files) {
-        if (file.name.toLowerCase() == lower) {
-          found = file;
-          break;
-        }
-      }
-    }
-    if (found == null || !found.isFile) return null;
-    return found.content;
-  }
+  /// The one place a path becomes bytes. Every other resolution in this
+  /// file goes through here, which is why swapping the source is enough
+  /// to read a book that is not on this device.
+  List<int>? _findBytes(String path) => _source?.bytes(path);
 
   String _decode(List<int> bytes) => utf8.decode(bytes, allowMalformed: true);
 

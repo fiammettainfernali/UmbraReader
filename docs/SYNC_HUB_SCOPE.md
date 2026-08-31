@@ -140,3 +140,30 @@ data already lives.
 If it happens: do it as a **transport swap, not a rewrite**. The merge
 rules have been debugged the hard way, and they should not be touched
 while the transport changes underneath them.
+
+---
+
+## Continuous reading belongs here too — decided 2026-08-26
+
+A series arrives as separate volume EPUBs, so reading it means picking
+Volume 04, finishing it, and going back to the library for Volume 05. The
+wanted behaviour is one continuous novel.
+
+**Decided: the hub does this, not the device.**
+
+On the device it would mean a real data-model change. `ReaderScreen` takes a
+single `Volume`, and both reading progress and every bookmark and highlight
+are keyed on `volumeKey` = `seriesOpdsId/fileName`. One continuous book means
+a v7→v8 migration, re-keying annotations, and reworking finished-detection —
+and once the hub serves chapters 1..881 as one sequence, most of that work is
+replaced by the thing that replaced it.
+
+An intermediate was considered and also declined: auto-opening the next
+volume when the current one ends. It is small and needs no migration, but it
+buys a convenience the hub delivers properly, and it is one more boundary
+behaviour to unpick later.
+
+**What stays on the device regardless:** the volume `.epub` files themselves.
+They are what gets shared out to Natural Reader, and nothing about continuous
+reading should remove them. Whatever the hub serves for reading, the volumes
+remain the unit of export.

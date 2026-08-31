@@ -75,6 +75,10 @@ class _LibraryScreenState extends State<LibraryScreen>
   /// last sync couldn't reach the server.
   bool _offline = false;
 
+  /// Why the last library fetch failed, when it did. Shown in the offline
+  /// banner: see the note where it is set.
+  String? _offlineReason;
+
   /// Every saved reading entry — drives the per-series reading-state map
   /// used by the filter chips. Distinct from [_reading], which is the
   /// in-progress-only subset that powers the Continue Reading hero and
@@ -306,9 +310,29 @@ class _LibraryScreenState extends State<LibraryScreen>
       CollectionStore().list(),
       RecOutcomeStore().load(),
     ).wait;
+    // A finished book whose EPUB has been rebuilt since has more in it than
+    // when it was finished. Downloaded volumes learn that by being
+    // re-downloaded and re-read; streamed ones are never downloaded, so
+    // without this they stayed finished for good however many chapters
+    // arrived. Costs nothing: the timestamps are already in hand.
+    var revived = entries;
+    final rebuilt = <int, DateTime?>{
+      for (final s in _library ?? const <Series>[]) s.opdsId: s.updatedAt,
+    };
+    if (rebuilt.isNotEmpty) {
+      var any = false;
+      for (final e in entries.where((e) => e.progress.isFinished)) {
+        if (await ReadingProgressStore()
+            .unfinishIfRebuilt(e.volume, rebuilt[e.volume.seriesOpdsId])) {
+          any = true;
+        }
+      }
+      if (any) revived = await ReadingProgressStore().allEntries();
+    }
+
     // The Continue shelf excludes volumes the user hid; the filter chips
     // (which use _allReadingEntries) still count them as in-progress.
-    final inProgress = entries
+    final inProgress = revived
         .where(
           (e) =>
               e.progress.isStarted &&
@@ -319,7 +343,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         .toList();
     if (!mounted) return;
     setState(() {
-      _allReadingEntries = entries;
+      _allReadingEntries = revived;
       _activity = activity;
       _collections = collections;
       _dailyGoalMinutes = dailyGoal;
@@ -373,6 +397,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       setState(() {
         _library = library;
         _offline = false;
+        _offlineReason = null;
         _loading = false;
       });
       // Recompute "Continue reading" + recommendations against the fresh
@@ -389,6 +414,14 @@ class _LibraryScreenState extends State<LibraryScreen>
           // We have a cached library — stay browsable offline rather than
           // showing a fatal error.
           _offline = true;
+          // Kept, and shown. Going quietly offline threw away the only
+          // account of why, and "Offline" is a guess the app makes rather
+          // than something it knows: a refused password, an expired
+          // certificate and a sleeping server all arrive here and all read
+          // as "no signal". Hours went into one of these from the outside —
+          // hub logs, packet counts, DNS checks — for a reason the app had
+          // in its hand the whole time.
+          _offlineReason = e.message;
         } else {
           _error = e.message;
         }
@@ -1147,12 +1180,29 @@ class _LibraryScreenState extends State<LibraryScreen>
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              'Offline — showing your saved library. Downloaded books can '
-              'still be read.',
-              style: theme.textTheme.labelMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Offline — showing your saved library. Downloaded books '
+                  'can still be read.',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                if (_offlineReason != null && _offlineReason!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      _offlineReason!,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant
+                            .withValues(alpha: 0.75),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
         ],

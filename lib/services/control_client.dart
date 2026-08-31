@@ -399,7 +399,39 @@ class ControlClient {
   final OpdsSettings settings;
 
   Map<String, String> get _auth => OpdsClient(settings).authHeaders;
-  Uri _u(String path) => Uri.parse('${settings.baseUrl}$path');
+
+  /// Turns a transport failure into something worth reading.
+  ///
+  /// The one that matters is a TLS handshake against a server that is not
+  /// speaking TLS: the address was entered as `https://` and answered in
+  /// plain HTTP. Dart reports that as `WRONG_VERSION_NUMBER`, quoting a line
+  /// number in a C++ file, which tells a reader nothing about the one
+  /// character they need to change. It is also the likeliest mistake here —
+  /// the library address is https because a reverse proxy fronts it, and the
+  /// downloader at home has no certificate of its own and does not need one
+  /// behind an encrypted tunnel.
+  static String explain(Object error, String url) {
+    // Matched on the text rather than the type: HandshakeException lives in
+    // dart:io, and this service is otherwise free of it.
+    final text = error.toString();
+    if (text.contains('WRONG_VERSION_NUMBER') ||
+        (text.contains('HandshakeException') && url.startsWith('https://'))) {
+      return 'That address answered in plain HTTP, but the app asked for '
+          'HTTPS. Try http:// instead of https:// — a server reached over '
+          'Tailscale or a LAN usually has no certificate of its own, and '
+          'does not need one.';
+    }
+    return 'Could not reach Novel Grabber.\n($error)';
+  }
+
+  /// Commands go to the downloader, which need not be the machine the books
+  /// are read from. A hub stores and serves but refuses every fetching route
+  /// — correctly, because a datacenter IP is what the source sites screen
+  /// hardest — so pointing the library at one used to leave the remote
+  /// control with nowhere to send a sweep. [OpdsSettings.controlUrl] falls
+  /// back to the library address, which is the whole story for anyone whose
+  /// one server does both.
+  Uri _u(String path) => Uri.parse('${settings.controlUrl}$path');
 
   Future<ControlStatus> status() async {
     final json = await _get('/api/status');
@@ -516,7 +548,7 @@ class ControlClient {
       ? _post('/api/queue/remove', {'uid': entry.uid})
       : _post('/api/queue/remove', {'novel_id': entry.novelId});
 
-  // ── low-level ──────────────────────────────────────────────────────────
+  // â”€â”€ low-level â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   Future<Map<String, dynamic>> _get(
     String path, {
@@ -533,7 +565,7 @@ class ControlClient {
       );
     } on Exception catch (e) {
       throw ControlException(
-        'Could not reach Novel Grabber.\n($e)',
+        explain(e, _u(path).toString()),
         isUnreachable: true,
       );
     }
@@ -578,7 +610,7 @@ class ControlClient {
           .timeout(const Duration(seconds: 20));
     } on Exception catch (e) {
       throw ControlException(
-        'Could not reach Novel Grabber.\n($e)',
+        explain(e, _u(path).toString()),
         isUnreachable: true,
       );
     }
@@ -608,7 +640,7 @@ class ControlClient {
           .timeout(const Duration(seconds: 12));
     } on Exception catch (e) {
       throw ControlException(
-        'Could not reach Novel Grabber.\n($e)',
+        explain(e, _u(path).toString()),
         isUnreachable: true,
       );
     }

@@ -18,6 +18,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _settingsService = SettingsService();
   late final TextEditingController _urlController;
+  late final TextEditingController _downloaderController;
   late final TextEditingController _usernameController;
   late final TextEditingController _passwordController;
 
@@ -36,6 +37,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _urlController = TextEditingController(text: widget.initial.baseUrl);
+    _downloaderController =
+        TextEditingController(text: widget.initial.downloaderUrl);
     _usernameController = TextEditingController(text: widget.initial.username);
     _passwordController = TextEditingController(text: widget.initial.password);
     _loadDownloadPrefs();
@@ -90,6 +93,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void dispose() {
     _urlController.dispose();
+    _downloaderController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -99,6 +103,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   OpdsSettings _currentSettings() {
     return OpdsSettings(
       baseUrl: normalizeOpdsUrl(_urlController.text),
+      // Left blank when one machine does both, which is the common case and
+      // the one nobody should have to think about.
+      downloaderUrl: normalizeOpdsUrl(_downloaderController.text),
       username: _usernameController.text.trim(),
       password: _passwordController.text,
     );
@@ -158,8 +165,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const SizedBox(height: 8),
           Text(
-            'In Novel Grabber, start the OPDS server and copy the LAN address '
-            'it shows (something like http://192.168.1.42:8765).',
+            'In Novel Grabber, start the OPDS server and copy the address it '
+            'shows — something like http://192.168.1.42:8765. That address '
+            'only works on your home Wi-Fi; a Tailscale or reverse-proxy '
+            'address works anywhere, and usually needs no port.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 20),
@@ -172,6 +181,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
               hintText: 'http://192.168.1.42:8765',
               border: OutlineInputBorder(),
               prefixIcon: Icon(Icons.dns_outlined),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _downloaderController,
+            keyboardType: TextInputType.url,
+            autocorrect: false,
+            decoration: const InputDecoration(
+              labelText: 'Downloader address (optional)',
+              hintText: 'http://100.x.y.z:8765',
+              helperText:
+                  'Only if your library is on a hub that does not download. '
+                  'Sweeps and "add novel" go here instead; leave blank when '
+                  'one machine does both.',
+              helperMaxLines: 3,
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.download_outlined),
             ),
           ),
           const SizedBox(height: 16),

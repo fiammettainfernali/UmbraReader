@@ -6,6 +6,9 @@ import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../reader/block_view.dart';
+import '../reader/chapter_fade.dart';
+import '../reader/edge_crossing.dart';
+import '../reader/page_fold.dart';
 import '../reader/line_focus_overlay.dart';
 import '../reader/book_search_screen.dart';
 import '../reader/bookmarks_sheet.dart';
@@ -22,6 +25,9 @@ import '../services/bookmark_store.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/dictionary_service.dart';
 import '../services/epub_parser.dart';
+import '../services/opds_client.dart';
+import '../services/page_turn_sound.dart';
+import '../services/remote_epub_source.dart';
 import '../models/series.dart';
 import '../services/glossary_store.dart';
 import '../services/library_cache.dart';
@@ -51,9 +57,31 @@ class ReaderScreen extends StatefulWidget {
     required this.volume,
     this.initialChapterIndex,
     this.initialBlockIndex,
+    this.stream = false,
   });
 
   final Volume volume;
+
+  /// Read from the server instead of from a downloaded file.
+  ///
+  /// Asking for it explicitly is a real choice — streaming and downloading
+  /// fail in different ways. But it is not the only way to end up
+  /// streaming; see [shouldStream].
+  final bool stream;
+
+  /// Whether this open will read from the server.
+  ///
+  /// Requesting it is one route. The other is having no file: Continue
+  /// reading, a search hit, a note, the next volume and a finished volume
+  /// that auto-delete removed all open the reader without the flag, and
+  /// every one of them used to die on "This volume is not downloaded".
+  /// Streaming there is not a preference being inferred — it is the only
+  /// way to honour a request to open a book that is not on the device.
+  @visibleForTesting
+  static bool shouldStream({
+    required bool requested,
+    required bool hasLocalFile,
+  }) => requested || !hasLocalFile;
 
   /// When set, the reader opens at this exact spot (e.g. a library-search
   /// hit) instead of the saved reading position.
@@ -87,6 +115,21 @@ class _ReaderScreenState extends State<ReaderScreen>
   final _pageController = PageController();
 
   EpubParser? _parser;
+
+  /// The streaming source, when reading from the server. Held so it can be
+  /// closed along with the screen.
+  RemoteEpubSource? _remoteSource;
+
+  /// True while waiting on a chapter that has not arrived yet.
+  bool _fetchingChapter = false;
+
+  /// Whether this book is actually being streamed.
+  ///
+  /// Not the same as widget.stream, which says only what was asked
+  /// for. A resume from Continue reading carries no flag and still
+  /// streams, and reading the flag instead of this meant the first
+  /// chapter was never fetched.
+  bool _streaming = false;
   EpubBook? _book;
   int _chapterIndex = 0;
   List<ContentBlock>? _blocks;
@@ -105,9 +148,19 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// now-correct metrics.
   int _fontToken = 0;
 
-  /// Peak distance the drag travelled past a content edge (signed: positive
-  /// past the end, negative past the start) — used to cross chapters.
-  double _edgeOverscroll = 0;
+  /// How far the current gesture has travelled past a content edge, and so
+  /// whether letting go should cross into the next or previous chapter.
+  final _crossing = EdgeCrossDetector();
+
+  /// When the page-turn sound last played, for coalescing.
+  DateTime _lastPageSound = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// True while the pager is being re-anchored after a repagination.
+  ///
+  /// Re-anchoring is not a turn. It keeps the reader on the words they were
+  /// reading when the page they occupied stopped existing, and it arrives at
+  /// the pager as the same jump a real turn does.
+  bool _reseating = false;
 
   /// The brightness being set by the edge-slide gesture; non-null only while
   /// the heads-up readout is showing. Drives the transient pill.
@@ -182,10 +235,10 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// be measured without a MediaQuery lookup (e.g. during dispose).
   double _lastContentWidth = 0;
 
-  /// True when the viewport is tablet-sized and landscape — paged mode then
-  /// renders a two-page spread (an open book) on iPad. Cached each build so
+  /// True when the viewport has the shape for a two-page spread (an open
+  /// book) in paged mode — see [shouldUseSpread]. Cached each build so
   /// [_pageStride] stays safe to read during dispose-time saves.
-  bool _wideLandscape = false;
+  bool _spreadFits = false;
 
   /// Viewport width at the last build/metrics tick — distinguishes a real
   /// rotation (width change) from keyboard/inset churn in didChangeMetrics.
@@ -311,6 +364,10 @@ class _ReaderScreenState extends State<ReaderScreen>
   void dispose() {
     _saveProgress();
     flushReadingSession();
+    // Closes the HTTP client and drops the chapter cache. Leaving the book
+    // means the next open should ask the server what it has now, not read
+    // a copy from a session that may be hours old.
+    _remoteSource?.dispose();
     // Release any reader-imposed orientation lock so the rest of the app
     // (library, settings) follows the device's normal auto-rotate setting.
     _applyOrientation(ReaderOrientation.auto);
@@ -319,6 +376,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     WidgetsBinding.instance.removeObserver(this);
     _autoScrollTimer?.cancel();
     _autoPageTimer?.cancel();
+    // Hand the native player back rather than holding it while the reader is
+    // closed; opening a book warms it again, off the critical path.
+    PageTurnSound.instance.dispose();
     disposeSession();
     _brightnessHudTimer?.cancel();
     disposeTtsSession();
@@ -391,6 +451,9 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   Future<void> _open() async {
     var settings = await ReaderPreferences().load(volume: widget.volume);
+    // Decoding the clip takes long enough to be audible as a late first
+    // sound, and the reader has network and parsing to do anyway.
+    if (settings.pageTurnSound) PageTurnSound.instance.warmUp();
     // Apply this series' remembered narrator, if one was chosen for it.
     final seriesVoice = await ReaderPreferences().seriesVoice(
       widget.volume.seriesOpdsId,
@@ -411,13 +474,41 @@ class _ReaderScreenState extends State<ReaderScreen>
     ).cached(widget.volume.seriesOpdsId);
     ttsCoverPath = cover?.path;
     try {
-      final file = await LibraryStorage().epubFile(widget.volume);
-      if (!file.existsSync()) {
-        _fail('This volume is not downloaded.');
-        return;
-      }
       final parser = EpubParser();
-      final book = await parser.open(file);
+      final EpubBook book;
+      // Streaming is a deliberate choice at the point of opening a book,
+      // but it is also the only way to honour a request to open one that
+      // is not on the device. Resuming from Continue reading, following a
+      // search hit, jumping to a note, moving to the next volume — none of
+      // those carry the flag, and a volume can also have been auto-deleted
+      // after finishing. Refusing them all with "not downloaded" would
+      // strand every book ever read this way.
+      final localFile = await LibraryStorage().epubFile(widget.volume);
+      final streaming = ReaderScreen.shouldStream(
+        requested: widget.stream,
+        hasLocalFile: localFile.existsSync(),
+      );
+      if (streaming) {
+        final settings = await SettingsService().load();
+        if (settings.baseUrl.isEmpty) {
+          _fail('This volume is not downloaded, and no server is set up.');
+          return;
+        }
+        final source = RemoteEpubSource(
+          baseUrl: settings.baseUrl,
+          novelId: widget.volume.seriesOpdsId,
+          fileName: widget.volume.fileName,
+          headers: OpdsClient(settings).authHeaders,
+        );
+        _remoteSource = source;
+        // Three round trips before a word is on screen: container, package
+        // file, contents. Only once per book.
+        await source.warmUp();
+        book = await parser.openSource(source);
+        _streaming = true;
+      } else {
+        book = await parser.open(localFile);
+      }
       if (book.chapters.isEmpty) {
         _fail('No readable chapters were found in this book.');
         return;
@@ -432,6 +523,11 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (widget.initialChapterIndex == null && savedPath != null) {
         final byPath = book.chapters.indexWhere((c) => c.zipPath == savedPath);
         if (byPath >= 0) chapterIndex = byPath;
+      }
+      if (_streaming &&
+          !await parser.prepareChapter(book.chapters[chapterIndex])) {
+        _fail('Could not reach the server to load this chapter.');
+        return;
       }
       final blocks = parser.parseChapter(book.chapters[chapterIndex]);
       if (!mounted) return;
@@ -523,6 +619,66 @@ class _ReaderScreenState extends State<ReaderScreen>
     });
   }
 
+  /// Fetches a streamed chapter, then goes to it.
+  ///
+  /// Only reached on a miss — the read-ahead means most turns find the
+  /// chapter already there. A failure keeps the reader where it is and
+  /// says the server is unreachable, rather than dropping out of the book
+  /// and losing the place: the position is still perfectly good, and the
+  /// network will probably be back in a minute.
+  Future<void> _fetchThenGoToChapter(
+    int index, {
+    bool landOnLastPage = false,
+    bool fromTts = false,
+  }) async {
+    final book = _book;
+    final parser = _parser;
+    if (book == null || parser == null) return;
+    if (_fetchingChapter) return;
+    setState(() => _fetchingChapter = true);
+    final ok = await parser.prepareChapter(book.chapters[index]);
+    if (!mounted) return;
+    setState(() => _fetchingChapter = false);
+    if (!ok) {
+      _showChapterUnreachable();
+      return;
+    }
+    _goToChapter(index, landOnLastPage: landOnLastPage, fromTts: fromTts);
+  }
+
+  void _showChapterUnreachable() {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Couldn't reach the server for the next chapter. "
+            'Your place is saved.',
+          ),
+        ),
+      );
+  }
+
+  /// Pulls the next couple of chapters down in the background.
+  ///
+  /// Two, because that is what makes a page turn feel like a page turn
+  /// rather than a download: one covers the chapter you are about to
+  /// reach, the second covers reading faster than the network. Fetching
+  /// further ahead spends the reader's data on chapters they may never
+  /// open.
+  void _readAhead(int from) {
+    if (!_streaming) return;
+    final book = _book;
+    final parser = _parser;
+    if (book == null || parser == null) return;
+    for (var i = from + 1; i <= from + 2 && i < book.chapters.length; i++) {
+      // Deliberately not awaited and deliberately not reported: this is a
+      // convenience, and a failed read-ahead should be invisible until the
+      // reader actually asks for that chapter.
+      unawaited(parser.prepareChapter(book.chapters[i]));
+    }
+  }
+
   void _goToChapter(
     int index, {
     bool landOnLastPage = false,
@@ -567,11 +723,28 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
     final clamped = index.clamp(0, book.chapters.length - 1);
     if (clamped == _chapterIndex && _blocks != null) return;
+    // A streamed chapter that has not arrived yet cannot be parsed on this
+    // frame. Going asynchronous here would mean every caller — page turns,
+    // TTS advance, contents jumps — awaiting a network round trip it
+    // almost never needs, since the next chapters are fetched ahead. So
+    // the miss is handled out of line and this returns.
+    if (!parser.isChapterReady(book.chapters[clamped])) {
+      _fetchThenGoToChapter(
+        clamped,
+        landOnLastPage: landOnLastPage,
+        fromTts: fromTts,
+      );
+      return;
+    }
     // A manual chapter change stops read-aloud; a TTS-driven advance keeps it.
     if (!fromTts) ttsEngine.stop();
     _lastChapterChange = DateTime.now();
-    _edgeOverscroll = 0;
+    _crossing.reset();
+    // Crossing a chapter is a page turn too — and in scroll mode it is the
+    // only one the pager never hears about.
+    _playPageTurnSound();
     final blocks = parser.parseChapter(book.chapters[clamped]);
+    _readAhead(clamped);
     setState(() {
       _chapterIndex = clamped;
       _lastSavedBlock = -1;
@@ -720,7 +893,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// block-index and page-index go through this.
   int get _pageStride =>
       _settings.tvMode ||
-          (_wideLandscape && _settings.mode == ReadingMode.paged)
+          (_spreadFits && _settings.mode == ReadingMode.paged)
       ? 2
       : 1;
 
@@ -1049,7 +1222,19 @@ class _ReaderScreenState extends State<ReaderScreen>
       return;
     }
     _hapticSelection();
-    DictionaryService().define(word);
+    unawaited(_defineWord(word));
+  }
+
+  /// Looks [word] up, and says so when nothing can. The haptic has already
+  /// fired by this point, so silence would promise a lookup that never came.
+  Future<void> _defineWord(String word) async {
+    if (await DictionaryService().define(word)) return;
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(content: Text('No dictionary app installed')),
+      );
   }
 
   /// Quick thought capture (Phase 6): instantly drops a bookmark at the
@@ -1324,6 +1509,9 @@ class _ReaderScreenState extends State<ReaderScreen>
       _pageJumpTarget = currentPage;
     });
     ReaderPreferences().save(next, volume: widget.volume);
+    // Decode the clip on the way in, so the turn that follows switching the
+    // setting on is the one that demonstrates it.
+    if (next.pageTurnSound) PageTurnSound.instance.warmUp();
     if (engineChanged) syncEngineToSettings();
     if (rateChanged) ttsEngine.setRate(next.speechRate);
     if (voiceChanged) {
@@ -1443,6 +1631,29 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   void _hapticMedium() {
     if (_settings.hapticFeedback) HapticFeedback.mediumImpact();
+  }
+
+  /// Plays the page-turn sound, if it is wanted right now.
+  ///
+  /// Coalesces calls a fraction of a second apart. One turn can legitimately
+  /// be reported twice — crossing a chapter both changes chapter and jumps
+  /// the pager — and two sounds a frame apart read as a stutter rather than
+  /// as two pages.
+  void _playPageTurnSound() {
+    if (!shouldPlayPageTurnSound(
+      enabled: _settings.pageTurnSound,
+      speaking: ttsEngine.state != TtsPlaybackState.stopped,
+      autoTurn: _autoPageTimer != null,
+      reseating: _reseating,
+    )) {
+      return;
+    }
+    final now = DateTime.now();
+    if (now.difference(_lastPageSound) < const Duration(milliseconds: 150)) {
+      return;
+    }
+    _lastPageSound = now;
+    PageTurnSound.instance.play();
   }
 
   /// Scrolls/pages so the block being read stays visible — only when the
@@ -1806,7 +2017,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     final clamped = chapterIndex.clamp(0, book.chapters.length - 1);
     ttsEngine.stop();
     _lastChapterChange = DateTime.now();
-    _edgeOverscroll = 0;
+    _crossing.reset();
     final blocks = (clamped == _chapterIndex && _blocks != null)
         ? _blocks!
         : parser.parseChapter(book.chapters[clamped]);
@@ -1844,6 +2055,9 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   /// Crosses into the adjacent chapter when the reader is swiped/scrolled
   /// firmly past its first or last page.
+  ///
+  /// The measuring is [EdgeCrossDetector]'s; what is left here is deciding
+  /// which notifications belong to this gesture at all.
   bool _onScrollNotification(ScrollNotification notification) {
     // Focus mode advances by tap, not by scrolling past an edge — a long
     // paragraph's own scroll view must never cross chapters.
@@ -1859,38 +2073,34 @@ class _ReaderScreenState extends State<ReaderScreen>
     // scrollable is transiently out of bounds and would otherwise re-trigger.
     if (DateTime.now().difference(_lastChapterChange) <
         const Duration(milliseconds: 600)) {
-      _edgeOverscroll = 0;
+      _crossing.reset();
       return false;
     }
 
     if (notification is ScrollStartNotification) {
-      _edgeOverscroll = 0;
+      _crossing.reset();
       return false;
     }
 
-    // iOS bouncing physics moves the position *past* the extent rather than
-    // emitting OverscrollNotifications, so watch the metrics directly and
-    // record how far past either edge the drag travelled.
+    if (notification is OverscrollNotification) {
+      _crossing.noteRefused(notification.overscroll);
+    }
     final m = notification.metrics;
-    final pastEnd = m.pixels - m.maxScrollExtent;
-    final pastStart = m.pixels - m.minScrollExtent;
-    if (pastEnd > 0 && pastEnd > _edgeOverscroll) {
-      _edgeOverscroll = pastEnd;
-    }
-    if (pastStart < 0 && pastStart < _edgeOverscroll) {
-      _edgeOverscroll = pastStart;
-    }
+    _crossing.noteMetrics(
+      pixels: m.pixels,
+      minExtent: m.minScrollExtent,
+      maxExtent: m.maxScrollExtent,
+    );
 
     if (notification is ScrollEndNotification) {
-      final amount = _edgeOverscroll;
-      _edgeOverscroll = 0;
-      if (amount > 90) {
-        _goToChapter(_chapterIndex + 1);
-      } else if (amount < -90) {
-        _goToChapter(_chapterIndex - 1, landOnLastPage: true);
-      } else {
-        // Settled within the chapter — record the reading position.
-        _saveProgress();
+      switch (_crossing.settle()) {
+        case ChapterCross.next:
+          _goToChapter(_chapterIndex + 1);
+        case ChapterCross.previous:
+          _goToChapter(_chapterIndex - 1, landOnLastPage: true);
+        case ChapterCross.none:
+          // Settled within the chapter — record the reading position.
+          _saveProgress();
       }
     }
     return false;
@@ -2061,8 +2271,15 @@ class _ReaderScreenState extends State<ReaderScreen>
       final pages = _pages ?? const [];
       final current =
           (_pageController.hasClients ? _pageController.page : 0)?.round() ?? 0;
+      // The controller counts *spreads*, not pages. On a two-column spread
+      // there are half as many, and comparing a spread index against a page
+      // count made the last spread of every chapter look like the middle of
+      // one: the tap called nextPage, which had nowhere to go, so the edge
+      // of the screen simply stopped responding until you swiped instead.
+      final lastIndex =
+          (pages.length / _pageStride).ceil().clamp(1, 1 << 30) - 1;
       if (forward) {
-        if (current < pages.length - 1) {
+        if (current < lastIndex) {
           _hapticLight();
           if (_instantPageTurns) {
             _pageController.jumpToPage(current + 1);
@@ -2103,6 +2320,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         _goToChapter(_chapterIndex + 1);
       } else {
         _hapticLight();
+        _playPageTurnSound();
         final next = (pos.pixels + step).clamp(0.0, pos.maxScrollExtent);
         if (_instantPageTurns) {
           _scrollController.jumpTo(next);
@@ -2120,6 +2338,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         _goToChapter(_chapterIndex - 1);
       } else {
         _hapticLight();
+        _playPageTurnSound();
         final prev = (pos.pixels - step).clamp(0.0, pos.maxScrollExtent);
         if (_instantPageTurns) {
           _scrollController.jumpTo(prev);
@@ -2317,10 +2536,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     final preset = _settings.theme;
     if (listenMode) return buildListenView(book, preset);
     final mq = MediaQuery.of(context);
-    // 700dp shortest side = real tablets (iPad mini is 744): big phones in
-    // landscape stay single-page.
-    _wideLandscape =
-        mq.size.shortestSide >= 700 && mq.size.width > mq.size.height;
+    _spreadFits = shouldUseSpread(mq.size);
     _lastViewWidth = mq.size.width;
     // Centred-column mode caps the reading area to a comfortable measure and
     // centres it (wide side gutters); otherwise it spans the screen. Any
@@ -2788,15 +3004,39 @@ class _ReaderScreenState extends State<ReaderScreen>
           }
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted || !_pageController.hasClients) return;
+            // Flagged across the jump, and cleared a frame later rather than
+            // on the next line: onPageChanged can arrive during the jump or
+            // just after it, and both are this re-anchoring rather than a
+            // turn the reader asked for.
+            _reseating = true;
             _pageController.jumpToPage(wanted.clamp(0, spreadCount - 1));
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _reseating = false;
+            });
             _saveProgress();
           });
         }
         final pages = _pages ?? const <List<PageBlock>>[];
         final spreadCount = (pages.length / stride).ceil().clamp(1, 1 << 30);
-        final pager = PageView.builder(
+        final pager = FoldingPager(
           controller: _pageController,
           itemCount: spreadCount,
+          // Deliberately not gated on _instantPageTurns. That governs whether
+          // a *programmatic* turn animates; a drag animates whatever it says,
+          // so gating on it suppressed the fold in the one case where the
+          // page was moving anyway — which is all a reader with reduce-motion
+          // on ever saw. Instant turns exclude themselves without help: they
+          // jump from one whole page to the next, and a fold needs a
+          // fractional position that never arrives.
+          folding: _settings.pageFold,
+          // A page widget paints its text and nothing else; the colour comes
+          // from the screen behind it. A sheet lifted off that screen has to
+          // bring its paper with it or the page underneath shows through.
+          background: preset.background,
+          // Every paged turn lands here — swiped, tapped, keyed or automatic
+          // — which is why the sound hangs off this rather than off the tap
+          // handler that only sees some of them.
+          onPageChanged: (_) => _playPageTurnSound(),
           itemBuilder: (context, spreadIndex) {
             if (stride == 1) {
               return _buildPagedColumn(pages, spreadIndex, preset);
@@ -2818,10 +3058,23 @@ class _ReaderScreenState extends State<ReaderScreen>
             );
           },
         );
-        if (!_settings.tvMode) return pager;
+        // Crossing a chapter is a jump, not a turn, and it used to show its
+        // working: the new chapter is paginated while the pager is still
+        // sitting on the old one's last index, so one frame lands on the
+        // wrong part of the new text before the jump to the start. Held
+        // invisible for that frame and faded in, the arrival reads as a
+        // transition instead of a stutter.
+        final settled = ChapterFade(
+          chapterIndex: _chapterIndex,
+          duration: _reduceMotion
+              ? Duration.zero
+              : const Duration(milliseconds: 160),
+          child: pager,
+        );
+        if (!_settings.tvMode) return settled;
         return Padding(
           padding: EdgeInsets.symmetric(horizontal: tvSafeH, vertical: tvSafeV),
-          child: pager,
+          child: settled,
         );
       },
     );

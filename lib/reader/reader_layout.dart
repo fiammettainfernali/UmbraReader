@@ -14,6 +14,44 @@ const double kTopBarHeight = 56;
 const double kBottomBarHeight = 88;
 const double kParagraphGap = 16;
 
+/// Shortest side at or above which a viewport is a tablet rather than a
+/// large phone. A phone in landscape is wide but short; splitting it gives
+/// two columns with three lines each.
+///
+/// 600 rather than the iPad mini's 744, because the gap this sits in is
+/// wide and the top of it is the wrong end. Measured on the Fold: the inner
+/// panel is 752dp at the default 480dpi — 52dp of headroom — and One UI's
+/// display-size slider moves density in steps that eat that immediately.
+/// At 540dpi the panel reports 668dp and the spread silently stops opening,
+/// with nothing to explain why. The largest phones are around 440dp, so
+/// 600 sits in the middle of the gap instead of at its edge and survives
+/// every display-size setting the device offers.
+const double kSpreadMinShortestSide = 600;
+
+/// Width/height at or above which a tablet-sized viewport opens into a
+/// two-page spread.
+///
+/// The rule this replaced asked "is this landscape?" — an orientation flag
+/// standing in for a geometry question. An unfolded foldable is tablet-sized
+/// and nearly square, so it reports as portrait and never opened the spread
+/// it plainly has room for. Ratio asks what the layout actually cares about:
+/// is there width here to split in two.
+///
+/// PROVISIONAL. 0.8 clears every landscape viewport and leaves an iPad in
+/// portrait (0.66) single-page, so today's iOS behaviour is unchanged. It has
+/// never been checked against a real unfolded panel — measure the device in
+/// both postures and move this to sit below the unfolded ratio.
+const double kSpreadMinAspectRatio = 0.8;
+
+/// Whether paged mode should render a two-page spread at [size].
+///
+/// Independent of orientation on purpose: a square-ish tablet qualifies and a
+/// wide phone does not, which is the distinction a foldable turns on.
+bool shouldUseSpread(Size size) =>
+    size.shortestSide >= kSpreadMinShortestSide &&
+    size.height > 0 &&
+    size.width / size.height >= kSpreadMinAspectRatio;
+
 /// The vertical gap below a paragraph — the fixed base plus the reader's
 /// extra paragraph-spacing setting. Used identically by measurement, page
 /// packing and rendering so the three never disagree.

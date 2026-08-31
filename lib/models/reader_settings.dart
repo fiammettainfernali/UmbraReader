@@ -69,6 +69,8 @@ class ReaderSettings {
     required this.tapZoneWidth,
     required this.edgeBrightnessGesture,
     required this.pageAnimations,
+    required this.pageTurnSound,
+    required this.pageFold,
     required this.doubleTapAction,
     required this.autoPageSeconds,
     required this.ttsEngine,
@@ -219,6 +221,19 @@ class ReaderSettings {
   /// instant). Lets a reader keep other motion but snap pages.
   final bool pageAnimations;
 
+  /// When true, a page turn folds about the spine like a sheet of paper
+  /// instead of sliding sideways. Only applies in paged mode, and only while
+  /// [pageAnimations] is on — an instant turn has nothing to fold.
+  final bool pageFold;
+
+  /// When true, turning a page plays a short paper sound.
+  ///
+  /// Off by default: a noise on every page turn is a strong opinion to hold
+  /// on a reader's behalf, and it is the sort of thing that is delightful for
+  /// a day and grating for a month. It is also silenced while read-aloud is
+  /// speaking, where it would land in the middle of a sentence.
+  final bool pageTurnSound;
+
   /// What a double-tap on the page triggers. [ReaderDoubleTap.none] keeps the
   /// double-tap recogniser off so single taps stay instant.
   final ReaderDoubleTap doubleTapAction;
@@ -286,6 +301,8 @@ class ReaderSettings {
     tapZoneWidth: 0.33,
     edgeBrightnessGesture: true,
     pageAnimations: true,
+    pageTurnSound: false,
+    pageFold: true,
     doubleTapAction: ReaderDoubleTap.none,
     autoPageSeconds: 0,
     ttsEngine: TtsEngineKind.system,
@@ -311,6 +328,11 @@ class ReaderSettings {
     brightness: 0.35,
     reduceAnimations: true,
     pageAnimations: false,
+    // Stated outright rather than left to pageAnimations: a drag turns the
+    // page whatever that setting says, so this is the only thing keeping a
+    // rotating sheet out of a comfort preset.
+    pageFold: false,
+    pageTurnSound: false,
     hapticFeedback: false,
     autoScroll: false,
     autoPageSeconds: 0,
@@ -365,6 +387,8 @@ class ReaderSettings {
     double? tapZoneWidth,
     bool? edgeBrightnessGesture,
     bool? pageAnimations,
+    bool? pageTurnSound,
+    bool? pageFold,
     ReaderDoubleTap? doubleTapAction,
     int? autoPageSeconds,
     TtsEngineKind? ttsEngine,
@@ -411,6 +435,8 @@ class ReaderSettings {
       edgeBrightnessGesture:
           edgeBrightnessGesture ?? this.edgeBrightnessGesture,
       pageAnimations: pageAnimations ?? this.pageAnimations,
+      pageTurnSound: pageTurnSound ?? this.pageTurnSound,
+      pageFold: pageFold ?? this.pageFold,
       doubleTapAction: doubleTapAction ?? this.doubleTapAction,
       autoPageSeconds: autoPageSeconds ?? this.autoPageSeconds,
       ttsEngine: ttsEngine ?? this.ttsEngine,

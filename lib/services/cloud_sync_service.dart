@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 
 import 'bookmark_store.dart';
 import 'collection_store.dart';
@@ -14,10 +13,9 @@ import 'reading_activity_store.dart';
 import 'reading_progress_store.dart';
 import 'recommendation_feedback_store.dart';
 import 'series_status_store.dart';
+import 'sync_backend.dart';
 
-/// Syncs a slice of the user's data across their Apple devices via JSON
-/// files in the app's private iCloud Drive container, bridged in
-/// `ios/Runner/AppDelegate.swift` over the `umbra/icloud_docs` channel.
+/// Syncs a slice of the user's data across their devices.
 ///
 /// Synced: reading progress (per-volume, last-write-wins by `updatedAt`),
 /// collections (whole-set, last-write-wins), bookmarks (union by id),
@@ -26,23 +24,25 @@ import 'series_status_store.dart';
 /// per-series glossaries (union by id; sightings keep the furthest-along
 /// one), and user-defined themes (union by id).
 ///
-/// The previous transport was iCloud *key-value* storage (1 MB total cap —
-/// too small for a large library). Reads fall back to the old KVS keys when
-/// a document doesn't exist yet, so data synced by older builds migrates
-/// seamlessly: the first pull reads KVS, the next push writes documents.
-/// Writes fall back to KVS when the document container is unavailable
-/// (e.g. an older provisioning profile without the container entitlement).
+/// This class owns *what* syncs and how it merges. Where the blobs actually
+/// go is a [SyncBackend] — iCloud documents on iOS, nothing at all on
+/// Android until there is a reason for something else. That split is what
+/// lets Android ship local-only without any of the merge logic below moving:
+/// every store persists locally regardless, so sync is a layer, not a
+/// foundation.
 ///
-/// Every platform-channel call is guarded: on a device without the native
-/// bridge (Android, tests, desktop) or with iCloud unavailable, all methods
-/// become no-ops and the app runs exactly as it did before — local-only.
+/// A backend that cannot reach its cloud is not an error. All methods here
+/// stay safe to call — reads find nothing, writes go nowhere, and the app
+/// runs exactly as it does offline.
 class CloudSyncService {
   CloudSyncService._();
   static final CloudSyncService instance = CloudSyncService._();
   factory CloudSyncService() => instance;
 
-  static const MethodChannel _docs = MethodChannel('umbra/icloud_docs');
-  static const MethodChannel _kv = MethodChannel('umbra/icloud_kv');
+  /// The transport in use. Assign before [initialize] to override the
+  /// platform default — tests do this to exercise a specific backend, and
+  /// it is the seam a future Android backend plugs into.
+  SyncBackend backend = SyncBackend.forPlatform();
 
   static const _kProgress = 'cloud_reading_progress';
   static const _kCollections = 'cloud_collections';
@@ -87,61 +87,27 @@ class CloudSyncService {
   /// The pull runs unawaited so a slow iCloud round-trip never delays app
   /// launch — merged data lands via [onRemoteMerge] when it arrives.
   Future<void> initialize() async {
-    _docs.setMethodCallHandler(_handleNative);
-    _kv.setMethodCallHandler(_handleNative);
+    await backend.initialize(_onRemoteChange);
     unawaited(pullAndMerge());
   }
 
-  Future<void> _handleNative(MethodCall call) async {
-    if (call.method == 'changedExternally') {
-      // The metadata query can fire in bursts as files download; coalesce.
-      _mergeDebounce?.cancel();
-      _mergeDebounce = Timer(const Duration(seconds: 2), pullAndMerge);
-    }
+  /// The backend saw something change upstream.
+  ///
+  /// Coalesced: iCloud's metadata query fires in bursts as files download,
+  /// and merging once per file would read every store eleven times over.
+  void _onRemoteChange() {
+    _mergeDebounce?.cancel();
+    _mergeDebounce = Timer(const Duration(seconds: 2), pullAndMerge);
   }
 
-  // ── low-level channel helpers (all swallow missing-plugin / iCloud errors)
+  // ── transport ──────────────────────────────────────────────────────────
+  // Thin, and deliberately so: these were the only two methods that knew
+  // about iCloud, which is why the whole port comes down to swapping what
+  // sits behind them.
 
-  Future<String?> _get(String key) async {
-    try {
-      final doc = await _docs.invokeMethod<String>('read', {
-        'name': '$key.json',
-      });
-      if (doc != null) return doc;
-    } on Exception {
-      // fall through to the legacy key-value store
-    } on Error {
-      // fall through
-    }
-    try {
-      return await _kv.invokeMethod<String>('get', {'key': key});
-    } on Exception {
-      return null;
-    } on Error {
-      return null;
-    }
-  }
+  Future<String?> _get(String key) => backend.read(key);
 
-  Future<void> _set(String key, String value) async {
-    try {
-      final ok = await _docs.invokeMethod<bool>('write', {
-        'name': '$key.json',
-        'value': value,
-      });
-      if (ok == true) return;
-    } on Exception {
-      // fall through to the legacy key-value store
-    } on Error {
-      // fall through
-    }
-    try {
-      await _kv.invokeMethod<void>('set', {'key': key, 'value': value});
-    } on Exception {
-      // No cloud here — local store already holds the truth.
-    } on Error {
-      // ignore
-    }
-  }
+  Future<void> _set(String key, String value) => backend.write(key, value);
 
   // ── push: local → cloud ────────────────────────────────────────────────
 

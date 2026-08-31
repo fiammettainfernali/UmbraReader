@@ -147,7 +147,18 @@ Future<HttpServer> _startOpdsServer(List<int> epub) async {
         );
         response.add(epub);
       default:
-        response.statusCode = HttpStatus.notFound;
+        // Streaming: one file from inside the book, as the hub serves it.
+        final member = req.uri.queryParameters['member'];
+        if (req.uri.path.startsWith('/epub/') && member != null) {
+          final entry = ZipDecoder().decodeBytes(epub).findFile(member);
+          if (entry == null) {
+            response.statusCode = HttpStatus.notFound;
+          } else {
+            response.add(entry.content as List<int>);
+          }
+        } else {
+          response.statusCode = HttpStatus.notFound;
+        }
     }
     await response.close();
   });
@@ -287,4 +298,17 @@ void main() {
     // so no timer outlives the test body.
     CloudSyncService().cancelPendingTimers();
   });
+
+  // A widget-level test of "an undownloaded book streams instead of
+  // refusing to open" was written here and removed: the reader starts its
+  // HTTP inside the test's fake-async zone, where real network I/O never
+  // progresses however much runAsync time the pump loop is given, so it
+  // hung for ten minutes rather than failing. The file-backed test above
+  // passes because file I/O behaves differently under the same harness.
+  //
+  // The pieces are covered — remote_epub_source_test drives the fetching,
+  // streaming_parse_test drives the parse — and the decision itself is
+  // pinned in reader_stream_decision_test. What no unit test reaches is
+  // the reader actually opening a book over the network, which is checked
+  // on a device.
 }

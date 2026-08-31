@@ -14,6 +14,7 @@ import 'package:umbra_reader/models/volume.dart';
 import 'package:umbra_reader/services/cloud_sync_service.dart';
 import 'package:umbra_reader/services/reading_activity_store.dart';
 import 'package:umbra_reader/services/reading_progress_store.dart';
+import 'package:umbra_reader/services/sync_backend.dart';
 
 import 'helpers/test_db.dart';
 
@@ -48,10 +49,17 @@ void main() {
           if (call.method == 'read') return null;
           return null;
         });
+
+    // Say which transport this is about. Under `flutter test`
+    // defaultTargetPlatform is Android, so the service would otherwise pick
+    // NullSyncBackend and every write below would go nowhere — passing the
+    // mock channel handler and asserting on an empty map.
+    CloudSyncService().backend = const ICloudSyncBackend();
   });
 
   tearDown(() {
     CloudSyncService().cancelPendingTimers();
+    CloudSyncService().backend = SyncBackend.forPlatform();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_docs, null);
   });

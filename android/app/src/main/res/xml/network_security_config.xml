@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Umbra Reader talks to a server the reader runs themselves — on a LAN
+  address, a Tailscale hostname, or localhost — and those are almost always
+  plain HTTP. Android has refused cleartext by default since API 28, which
+  makes that the normal case rather than the exceptional one.
+
+  This surfaced as a puzzle worth recording: browsing the library worked and
+  downloading a volume did not. Dart's HttpClient opens its own sockets and
+  never consults this policy, so every request the Dart side makes went
+  through. background_downloader hands the transfer to Android's own HTTP
+  stack, which does consult it — so the catalogue loaded and the books would
+  not come down.
+
+  Permitted broadly rather than by host: the address belongs to the reader,
+  is typed in at runtime, and can be an IP literal, a MagicDNS name, or a
+  hostname on their own network. Android's config matches exact domains and
+  cannot express "any private range", so an allow-list here would be a list
+  of guesses that breaks the first time someone moves their server.
+
+  If you would rather not send credentials in the clear at all, the fix is at
+  the server end rather than here: Tailscale Serve can put HTTPS in front of
+  Novel Grabber, after which this policy stops mattering.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

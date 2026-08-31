@@ -1,0 +1,125 @@
+name: Android build
+
+# Android's counterpart to ios-build.yml, and deliberately NOT manual-only
+# like that one. ios-build.yml avoids a `push:` trigger because private repos
+# bill macOS minutes at 10x, leaving ~200 effective minutes a month. Linux
+# bills at 1x, so the same budget goes ten times further and these checks can
+# simply run. If minutes ever get tight, drop the `push:` block and trigger
+# from the Actions tab instead — nothing else here depends on it.
+#
+# The APK is debug-signed, which needs no keystore and no repository secrets:
+# download it from the run's artifacts and sideload it straight onto the
+# phone. Release signing (upload keystore, Play Console service account) is a
+# separate concern for whenever the Play listing happens.
+
+on:
+  push:
+    branches: [main, android-port]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # A newer push supersedes an older one: there is no point finishing a build
+  # for a commit nobody is going to install.
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Analyze, test, and build the APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # Matches compileOptions in android/app/build.gradle.kts. A mismatch
+          # here surfaces as a Kotlin jvmTarget error, not a version warning.
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: umbra-reader-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
+          # The phone is the whole point of this artifact. A fortnight is long
+          # enough to get it installed and short enough not to hoard builds.
+          retention-days: 14
+
+  # Both on-device jobs share one emulator boot — spinning a second one up
+  # costs more than the tests take to run.
+  device:
+    name: On-device checks (real fonts, real SQLite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Enable KVM
+        # The emulator needs hardware acceleration to be usable, and the
+        # runner's kvm node is not world-writable by default.
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Boot the app and run the guards
+        # The checks that cannot be done on the host at all.
+        #
+        # Pagination: `flutter test` renders with a stub font whose glyphs are
+        # all one width, so measure and render can agree there and still
+        # disagree under real fonts. An emulator has Android's actual font
+        # stack — the half of that risk not needing the physical device. Panel
+        # geometry is the other half, and only hardware answers it.
+        #
+        # Boot: the host suite replaces every platform binding with a fake, so
+        # nothing there proves the app starts. This runs the real main() —
+        # drift against a native SQLite file, path_provider, the Keystore.
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          profile: pixel_6
+          # The boot test runs first: if the app cannot start on Android,
+          # a pagination result is not the thing worth reading.
+          script: flutter test integration_test/

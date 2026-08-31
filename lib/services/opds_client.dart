@@ -35,6 +35,23 @@ class OpdsClient {
     return {'Authorization': 'Basic $token'};
   }
 
+  /// What a status code usually means here, in a sentence.
+  ///
+  /// Only for the ones with a specific cause worth naming; anything else
+  /// gets nothing rather than a guess dressed as advice.
+  static String _hint(int status) => switch (status) {
+    502 || 503 || 504 =>
+      'A gateway error comes from the reverse proxy in front of the '
+          'library, not the library itself — the request never reached it. '
+          'If the server is up, check the proxy (Tailscale Serve, Caddy, '
+          'nginx) on that machine.',
+    403 => 'The server understood but refused. A hub in serve-only mode '
+        'answers this way for downloads and update checks.',
+    404 => 'Nothing at that address. Check the server address has no '
+        'trailing path.',
+    _ => '',
+  };
+
   /// Fetches every series in the library (the OPDS "All Books" feed).
   Future<List<Series>> fetchLibrary() async {
     final uri = Uri.parse('${settings.baseUrl}/opds/all');
@@ -57,7 +74,17 @@ class OpdsClient {
       );
     }
     if (response.statusCode != 200) {
-      throw OpdsException('Server returned HTTP ${response.statusCode}.');
+      // Naming the address it asked is not decoration. A bare "HTTP 502"
+      // cost an afternoon: the same request answered 401 from a shell on
+      // the same phone, the server's own log showed the request never
+      // arriving, and nothing in the message said which host had answered
+      // — so there was no way to tell a hub in trouble from a request that
+      // never reached one.
+      throw OpdsException(
+        'Server returned HTTP ${response.statusCode}.\n\n'
+        'Asked: $uri\n'
+        '${_hint(response.statusCode)}',
+      );
     }
 
     return parseLibraryFeed(_decodeUtf8(response));
