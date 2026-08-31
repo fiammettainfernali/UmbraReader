@@ -112,6 +112,29 @@ void main() {
       );
     });
 
+    test('is started inside a long opening paragraph', () {
+      // Only blockChar moves in a chapter that opens with a wall of text,
+      // so several screens of reading could still count as never begun —
+      // which kept the book off Continue Reading and, later, stopped its
+      // chapter count being refreshed, since that only looks at started
+      // books.
+      expect(
+        const ReadingProgress(chapterIndex: 0, blockIndex: 0, blockChar: 900)
+            .isStarted,
+        isTrue,
+      );
+    });
+
+    test('a position at the very top is still unstarted', () {
+      // The other half of the rule: opening a book must not, by itself,
+      // put it on the shelf.
+      expect(
+        const ReadingProgress(chapterIndex: 0, blockIndex: 0, blockChar: 0)
+            .isStarted,
+        isFalse,
+      );
+    });
+
     test('is finished only when the end of the last chapter was reached', () {
       // On the last chapter but NOT at its end → not finished (you can stop
       // mid-final-chapter; it must stay on the Continue Reading shelf).

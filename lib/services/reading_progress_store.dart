@@ -45,7 +45,14 @@ class ReadingProgress {
   final bool endReached;
 
   /// True once the book has been opened past its very first paragraph.
-  bool get isStarted => chapterIndex > 0 || blockIndex > 0;
+  /// True once there is a place worth returning to.
+  ///
+  /// [blockChar] counts: in a chapter that opens with a long paragraph, an
+  /// offset inside the first block is the only thing that moves, so reading
+  /// several screens could still register as never having begun. That kept
+  /// the book off Continue Reading, and later kept its chapter count from
+  /// being refreshed, since the refresh only looks at started books.
+  bool get isStarted => chapterIndex > 0 || blockIndex > 0 || blockChar > 0;
 
   /// True only when the reader has read through to the end of the last
   /// chapter. (Just being on the last chapter no longer counts — that

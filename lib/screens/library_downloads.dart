@@ -165,6 +165,11 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
   bool _bulkDownloading = false;
   bool _bulkCancel = false;
   int _bulkDone = 0;
+
+  /// Volumes that actually arrived, as against [_bulkDone], which counts
+  /// every volume tried. The bar advances on attempts; only this may be
+  /// called saved.
+  int _bulkSaved = 0;
   int _bulkTotal = 0;
   String? _bulkCurrent;
 
@@ -366,6 +371,7 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
       _bulkDownloading = true;
       _bulkCancel = false;
       _bulkDone = 0;
+      _bulkSaved = 0;
       _bulkTotal = 0;
       _bulkCurrent = null;
     });
@@ -432,13 +438,20 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
     await forEachPooled<Volume>(
       pending,
       (volume) async {
+        var saved = true;
         try {
           await service.download(volume, onProgress: (_) {});
         } on DownloadException {
           failures++;
+          saved = false;
         }
         if (!mounted) return;
         setState(() {
+          // Only a volume that actually arrived counts as saved. This
+          // incremented either way, and the same number is reported as
+          // "saved" at the end — so twelve volumes with three failures
+          // finished by claiming twelve saved and three failed.
+          if (saved) _bulkSaved++;
           _bulkDone++;
           _bulkCurrent = volume.title;
         });
@@ -449,7 +462,7 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
 
     if (!mounted) return;
     final cancelled = _bulkCancel;
-    final done = _bulkDone;
+    final saved = _bulkSaved;
     final total = _bulkTotal;
     setState(() {
       _bulkDownloading = false;
@@ -460,15 +473,15 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
 
     final String message;
     if (cancelled) {
-      message = 'Download stopped — $done of $total volumes saved.';
+      message = 'Download stopped — $saved of $total volumes saved.';
     } else if (total == 0) {
       message = failures > 0
           ? 'Nothing new to download ($failures series unreachable).'
           : 'Your whole library is already downloaded.';
     } else if (failures > 0) {
-      message = 'Library download finished — $done saved, $failures failed.';
+      message = 'Library download finished — $saved saved, $failures failed.';
     } else {
-      message = 'Library downloaded — $done volumes saved for offline reading.';
+      message = 'Library downloaded — $saved volumes saved for offline reading.';
     }
     showSnack(message);
   }
