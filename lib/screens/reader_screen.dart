@@ -123,6 +123,13 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// True while waiting on a chapter that has not arrived yet.
   bool _fetchingChapter = false;
 
+  /// Where the reader last asked to go, while a fetch is in flight.
+  ///
+  /// Replaced rather than queued: only the newest destination matters, so
+  /// three quick taps forward settle on the third chapter, not a backlog
+  /// of three fetches to sit through.
+  _ChapterRequest? _wantedChapter;
+
   /// Whether this book is actually being streamed.
   ///
   /// Not the same as widget.stream, which says only what was asked
@@ -252,6 +259,14 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   /// Periodic timer driving the hands-free auto-scroll, when enabled.
   Timer? _autoScrollTimer;
+
+  /// The pause between finishing a chapter and rolling into the next one.
+  ///
+  /// Held rather than fired and forgotten. It used to be an anonymous
+  /// `Timer` guarded only by `mounted`, so switching auto-scroll off inside
+  /// that 600 ms window — or navigating by hand — still advanced a chapter
+  /// and turned auto-scroll back on afterwards.
+  Timer? _autoScrollHandoffTimer;
 
   /// Periodic timer driving timed auto page-turns in paged mode, when enabled.
   Timer? _autoPageTimer;
@@ -634,16 +649,46 @@ class _ReaderScreenState extends State<ReaderScreen>
     final book = _book;
     final parser = _parser;
     if (book == null || parser == null) return;
+
+    // Remember the newest destination rather than dropping it. One boolean
+    // used to guard this: a second tap while a chapter was loading was
+    // discarded in silence, including a change of direction, so tapping
+    // back after tapping forward did nothing at all. Over a slow link that
+    // window is seconds long.
+    final want = _ChapterRequest(index, landOnLastPage, fromTts);
+    _wantedChapter = want;
     if (_fetchingChapter) return;
     setState(() => _fetchingChapter = true);
-    final ok = await parser.prepareChapter(book.chapters[index]);
-    if (!mounted) return;
-    setState(() => _fetchingChapter = false);
-    if (!ok) {
-      _showChapterUnreachable();
-      return;
+    try {
+      while (true) {
+        final target = _wantedChapter;
+        if (target == null) return;
+        if (target.index < 0 || target.index >= book.chapters.length) {
+          _wantedChapter = null;
+          return;
+        }
+        final ok = await parser.prepareChapter(book.chapters[target.index]);
+        if (!mounted) return;
+        // Compared by identity, which is the question being asked: is this
+        // still the request we set out to serve? A newer tap replaced the
+        // object, so this result is stale — drop it and chase the new one.
+        if (!identical(_wantedChapter, target)) continue;
+        _wantedChapter = null;
+        if (!ok) {
+          _showChapterUnreachable();
+          return;
+        }
+        _goToChapter(target.index,
+            landOnLastPage: target.landOnLastPage, fromTts: target.fromTts);
+        return;
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _fetchingChapter = false);
+      } else {
+        _fetchingChapter = false;
+      }
     }
-    _goToChapter(index, landOnLastPage: landOnLastPage, fromTts: fromTts);
   }
 
   void _showChapterUnreachable() {
@@ -688,6 +733,10 @@ class _ReaderScreenState extends State<ReaderScreen>
     final book = _book;
     final parser = _parser;
     if (book == null || parser == null) return;
+    // Any move supersedes a pending auto-scroll handoff. The handoff clears
+    // the field before calling this, so it does not cancel itself.
+    _autoScrollHandoffTimer?.cancel();
+    _autoScrollHandoffTimer = null;
     // Capture the current spot before a deliberate jump so it's reversible.
     if (recordReturn) _recordReturnPoint();
     // Advancing past the final chapter is the natural "I finished this volume"
@@ -758,11 +807,19 @@ class _ReaderScreenState extends State<ReaderScreen>
       _focusBlock = landOnLastPage && blocks.isNotEmpty ? blocks.length - 1 : 0;
     });
     _noteGlossarySightings(book.chapters[clamped], blocks);
+    // Save where we are actually going, not where the chapter starts.
+    //
+    // This wrote blockIndex 0 unconditionally, including when paging back
+    // into a chapter to land on its final page. Pagination settles a frame
+    // later, so a background or a kill inside that window resumed at the
+    // top of a chapter the reader had just stepped backwards out of.
     _progressStore.save(
       widget.volume,
       ReadingProgress(
         chapterIndex: clamped,
-        blockIndex: 0,
+        blockIndex: landOnLastPage && blocks.isNotEmpty
+            ? blocks.length - 1
+            : 0,
         chapterPath: book.chapters[clamped].zipPath,
         chapterCount: book.chapters.length,
       ),
@@ -1727,6 +1784,10 @@ class _ReaderScreenState extends State<ReaderScreen>
   void _stopAutoScroll() {
     _autoScrollTimer?.cancel();
     _autoScrollTimer = null;
+    // Also drop a pending chapter handoff: stopping means stopping, and a
+    // pause that survives it comes back as a chapter turn nobody asked for.
+    _autoScrollHandoffTimer?.cancel();
+    _autoScrollHandoffTimer = null;
   }
 
   /// Timed auto page-turn for paged mode (the paged analogue of auto-scroll) —
@@ -1780,11 +1841,23 @@ class _ReaderScreenState extends State<ReaderScreen>
       _stopAutoScroll();
       final book = _book;
       if (book != null && _chapterIndex < book.chapters.length - 1) {
-        Timer(const Duration(milliseconds: 600), () {
-          if (!mounted) return;
-          _goToChapter(_chapterIndex + 1);
-          _startAutoScroll();
-        });
+        _autoScrollHandoffTimer = Timer(
+          const Duration(milliseconds: 600),
+          () {
+            _autoScrollHandoffTimer = null;
+            // Re-read rather than assumed. 600 ms is long enough to switch
+            // auto-scroll off or change reading mode, and resuming on a
+            // setting the reader has just cleared is how it came back from
+            // the dead.
+            if (!mounted ||
+                !_settings.autoScroll ||
+                _settings.mode != ReadingMode.scroll) {
+              return;
+            }
+            _goToChapter(_chapterIndex + 1);
+            _startAutoScroll();
+          },
+        );
       }
       return;
     }
@@ -2246,7 +2319,12 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
     if (!forward && pos.pixels <= 4) {
       _hapticMedium();
-      _goToChapter(_chapterIndex - 1);
+      // Land at the end of the previous chapter, the same as every other
+      // way of going back across a boundary. Backward means "the content
+      // immediately before this" whichever mode you are reading in; this
+      // path used to drop you at the chapter's start instead, so one step
+      // back skipped the whole chapter you were stepping into.
+      _goToChapter(_chapterIndex - 1, landOnLastPage: true);
       return;
     }
     _hapticSelection();
@@ -2335,7 +2413,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     } else {
       if (pos.pixels <= 4) {
         _hapticMedium();
-        _goToChapter(_chapterIndex - 1);
+        // As in [_advanceRulerScroll]: one page back across a boundary
+        // lands at the previous chapter's end, not its beginning.
+        _goToChapter(_chapterIndex - 1, landOnLastPage: true);
       } else {
         _hapticLight();
         _playPageTurnSound();
@@ -3176,4 +3256,18 @@ class _NoteInputSheetState extends State<_NoteInputSheet> {
       ),
     );
   }
+}
+
+/// One request to open a chapter, kept while the fetch that serves it runs.
+///
+/// A plain record would compare equal to an identical later request, and
+/// "is this still the request I set out to serve?" is a question about
+/// identity, not about the values. Two taps on the same chapter are two
+/// requests.
+class _ChapterRequest {
+  const _ChapterRequest(this.index, this.landOnLastPage, this.fromTts);
+
+  final int index;
+  final bool landOnLastPage;
+  final bool fromTts;
 }
