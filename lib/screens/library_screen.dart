@@ -13,6 +13,7 @@ import '../services/opds_client.dart';
 import '../services/bookmark_store.dart';
 import '../services/collection_store.dart';
 import '../services/reading_progress_store.dart';
+import '../services/streamed_count_refresh.dart';
 import '../services/rec_outcome_store.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/control_client.dart';
@@ -328,6 +329,19 @@ class _LibraryScreenState extends State<LibraryScreen>
         }
       }
       if (any) revived = await ReadingProgressStore().allEntries();
+    }
+
+    // A streamed book never learns its own new size: only downloading
+    // re-reads an EPUB, and a streamed one is never downloaded. So the
+    // shelf went on saying "Chapter 12 of 76" after the book had grown to
+    // 82, until it was opened. Re-measured here, for the few books whose
+    // EPUB is newer than the position saved in them.
+    if (_settings != null && rebuilt.isNotEmpty) {
+      final refreshed = await StreamedCountRefresh(
+        settings: _settings!,
+        downloads: _downloads,
+      ).run(revived, _library ?? const <Series>[]);
+      if (refreshed > 0) revived = await ReadingProgressStore().allEntries();
     }
 
     // The Continue shelf excludes volumes the user hid; the filter chips
