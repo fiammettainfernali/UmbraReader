@@ -105,9 +105,19 @@ class ContinueCard extends StatelessWidget {
     required this.imageHeaders,
     required this.onTap,
     required this.onLongPress,
+    this.hasUpdate = false,
   });
 
   final ReadingEntry entry;
+
+  /// True when the library holds something newer than the copy on this
+  /// device -- new chapters compiled since the volume here was downloaded.
+  ///
+  /// A flag rather than a number on purpose. The progress line counts the
+  /// spine of one volume; the library counts chapters across the whole
+  /// series. Those are different scales, so any arithmetic between them is
+  /// wrong by a different amount for every book.
+  final bool hasUpdate;
 
   /// The owning series, if it's in the loaded library — for the cover art.
   final Series? series;
@@ -125,7 +135,8 @@ class ContinueCard extends StatelessWidget {
         : 'Chapter ${progress.chapterIndex + 1}';
     return Semantics(
       button: true,
-      label: 'Continue reading $title, $chapterLabel',
+      label: 'Continue reading $title, $chapterLabel'
+          '${hasUpdate ? ', new chapters available' : ''}',
       excludeSemantics: true,
       child: GestureDetector(
         onTap: onTap,
@@ -139,23 +150,64 @@ class ContinueCard extends StatelessWidget {
               SizedBox(
                 width: 124,
                 height: 165,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(8),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.4),
-                        blurRadius: 6,
-                        offset: const Offset(0, 3),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.4),
+                              blurRadius: 6,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: series != null
+                              ? CoverImage(series: series!,
+                                  headers: imageHeaders)
+                              : TitleCover(title: entry.volume.title),
+                        ),
                       ),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: series != null
-                        ? CoverImage(series: series!, headers: imageHeaders)
-                        : TitleCover(title: entry.volume.title),
-                  ),
+                    ),
+                    // On the cover rather than beside the progress line, so
+                    // it says "there is more of this book" without competing
+                    // with "where you are in it".
+                    if (hasUpdate)
+                      Positioned(
+                        top: 6,
+                        right: 6,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.primary,
+                            borderRadius: BorderRadius.circular(10),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.35),
+                                blurRadius: 4,
+                                offset: const Offset(0, 1),
+                              ),
+                            ],
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 7, vertical: 2),
+                            child: Text(
+                              'New',
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: theme.colorScheme.onPrimary,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 10,
+                                height: 1.2,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(height: 8),

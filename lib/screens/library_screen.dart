@@ -1405,9 +1405,17 @@ class _LibraryScreenState extends State<LibraryScreen>
             separatorBuilder: (_, _) => const SizedBox(width: 14),
             itemBuilder: (context, index) {
               final entry = rest[index];
+              final series = seriesById[entry.volume.seriesOpdsId];
               return ContinueCard(
                 entry: entry,
-                series: seriesById[entry.volume.seriesOpdsId],
+                series: series,
+                // Whether the library holds something newer than the copy
+                // on this device. Deliberately a yes/no and not a count:
+                // the card's "of 76" is the spine of one volume, while the
+                // library's number is chapters across the whole series, so
+                // subtracting them produces a figure that is wrong in a
+                // different way for every book.
+                hasUpdate: series != null && _seriesHasUpdate(series),
                 imageHeaders: headers,
                 onTap: () => _openVolume(entry.volume),
                 onLongPress: () => _continueCardMenu(entry),
