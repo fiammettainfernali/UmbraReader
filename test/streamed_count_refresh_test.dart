@@ -14,6 +14,7 @@
 // display is a different bug, not a fix.
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -21,6 +22,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:umbra_reader/db/app_database.dart';
 import 'package:umbra_reader/models/series.dart';
 import 'package:umbra_reader/models/volume.dart';
+import 'package:umbra_reader/services/library_storage.dart';
 import 'package:umbra_reader/services/reading_progress_store.dart';
 import 'package:umbra_reader/services/settings_service.dart';
 import 'package:umbra_reader/services/streamed_count_refresh.dart';
@@ -86,6 +88,15 @@ class _Hub extends http.BaseClient {
     return http.StreamedResponse(
       Stream.value(utf8.encode(body)), 200, request: request);
   }
+}
+
+/// A device that already holds every volume — the state a downloaded
+/// library is in, and the one where reaching for the server costs most.
+class _AllDownloaded extends DownloadStore {
+  _AllDownloaded() : super(LibraryStorage());
+
+  @override
+  bool isDownloaded(Volume volume) => true;
 }
 
 /// A hub that is not there.
@@ -233,5 +244,67 @@ void main() {
     // before the shelf will draw.
     expect(StreamedCountRefresh.maxPerPass, lessThanOrEqualTo(10));
     expect(StreamedCountRefresh.maxPerPass, greaterThan(0));
+  });
+
+  group('it must never be on the critical path for the shelf', () {
+    // The Continue shelf is built entirely from local stores. It went
+    // missing off the home network because the library screen awaited this
+    // refresher before drawing it: two requests per book, and away from
+    // home they do not fail fast -- a connect timeout plus two retries
+    // apiece, up to maxPerPass books. The shelf is now drawn first and this
+    // runs after, so these guard the properties that make that safe.
+
+    test('a downloaded book is never reached for over the network', () async {
+      // The common case once a library is downloaded. If this asks the
+      // server anything, an offline start pays for it.
+      final entry = await seed(count: 76, savedAt: DateTime.now());
+      final hub = _Hub(82);
+      await StreamedCountRefresh(
+        settings: _settings,
+        downloads: _AllDownloaded(),
+        client: hub,
+      ).run(
+        [entry],
+        [_series(updatedAt: DateTime.now().add(const Duration(hours: 1)))],
+      );
+      expect(hub.calls, 0, reason: 'it touched the network for a local book');
+    });
+
+    test('an unreachable server costs nothing and changes nothing', () async {
+      final entry = await seed(count: 76, savedAt: DateTime.now());
+      final updated = await StreamedCountRefresh(
+        settings: _settings,
+        client: _Dead(),
+      ).run(
+        [entry],
+        [_series(updatedAt: DateTime.now().add(const Duration(hours: 1)))],
+      );
+      expect(updated, 0);
+      expect((await ReadingProgressStore().load(_volume())).chapterCount, 76);
+    });
+
+    test('the library screen draws the shelf before calling this', () async {
+      // Checked against the source: the ordering is the whole fix, and
+      // nothing else in the file expresses it.
+      final source =
+          File('lib/screens/library_screen.dart').readAsStringSync();
+      final drawn = source.indexOf('_reading = shelf(revived)');
+      final refreshed = source.indexOf('StreamedCountRefresh(');
+      expect(drawn, greaterThan(-1), reason: 'shelf assignment moved');
+      expect(refreshed, greaterThan(-1), reason: 'refresher call moved');
+      expect(drawn, lessThan(refreshed),
+          reason: 'the shelf must be on screen before the network is asked');
+    });
+
+    test('downloads are loaded before the reading shelf', () async {
+      // With no download store the refresher assumes nothing is local and
+      // reaches for the network on behalf of books already on the device.
+      final source =
+          File('lib/screens/library_screen.dart').readAsStringSync();
+      final init = source.substring(source.indexOf('Future<void> _initialize'));
+      expect(init.indexOf('_loadDownloads()'),
+          lessThan(init.indexOf('_loadReading()')),
+          reason: 'downloads must be known before the shelf is built');
+    });
   });
 }
