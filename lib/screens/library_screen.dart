@@ -266,8 +266,12 @@ class _LibraryScreenState extends State<LibraryScreen>
       // Show the cached library straight away — instant, and works offline.
       if (cache.series.isNotEmpty) _library = cache.series;
     });
-    await _loadReading();
+    // Downloads first. The reading shelf asks which volumes are already on
+    // the device before deciding whether any need re-measuring from the
+    // server, and with no answer it assumes none are — so a cold start used
+    // to reach for the network on behalf of books sitting in local storage.
     await _loadDownloads();
+    await _loadReading();
     if (settings.isConfigured) {
       await _sync();
     }
@@ -331,22 +335,9 @@ class _LibraryScreenState extends State<LibraryScreen>
       if (any) revived = await ReadingProgressStore().allEntries();
     }
 
-    // A streamed book never learns its own new size: only downloading
-    // re-reads an EPUB, and a streamed one is never downloaded. So the
-    // shelf went on saying "Chapter 12 of 76" after the book had grown to
-    // 82, until it was opened. Re-measured here, for the few books whose
-    // EPUB is newer than the position saved in them.
-    if (_settings != null && rebuilt.isNotEmpty) {
-      final refreshed = await StreamedCountRefresh(
-        settings: _settings!,
-        downloads: _downloads,
-      ).run(revived, _library ?? const <Series>[]);
-      if (refreshed > 0) revived = await ReadingProgressStore().allEntries();
-    }
-
     // The Continue shelf excludes volumes the user hid; the filter chips
     // (which use _allReadingEntries) still count them as in-progress.
-    final inProgress = revived
+    List<ReadingEntry> shelf(List<ReadingEntry> from) => from
         .where(
           (e) =>
               e.progress.isStarted &&
@@ -355,6 +346,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         )
         .take(12)
         .toList();
+
     if (!mounted) return;
     setState(() {
       _allReadingEntries = revived;
@@ -362,7 +354,34 @@ class _LibraryScreenState extends State<LibraryScreen>
       _collections = collections;
       _dailyGoalMinutes = dailyGoal;
       _seriesStatus = status;
-      _reading = inProgress;
+      _reading = shelf(revived);
+    });
+
+    // Only now, with the shelf already on screen, re-measure streamed books.
+    //
+    // A streamed book never learns its own new size: only downloading
+    // re-reads an EPUB, and a streamed one is never downloaded, so the shelf
+    // went on saying "Chapter 12 of 76" after the book had grown to 82.
+    // Worth doing — but not worth waiting for, which is what this used to
+    // do. Every one of these is two requests to the server, and away from
+    // home they do not fail fast: they sit through a connect timeout and two
+    // retries apiece. Awaiting that before the first setState meant the
+    // Continue shelf simply did not appear on a cold start off the home
+    // network, which read as the reading list having been lost.
+    //
+    // Skipped outright when the library fetch already failed. There is
+    // nothing to learn from a server that just refused to answer.
+    if (_settings == null || rebuilt.isEmpty || _offline) return;
+    final refreshed = await StreamedCountRefresh(
+      settings: _settings!,
+      downloads: _downloads,
+    ).run(revived, _library ?? const <Series>[]);
+    if (refreshed == 0 || !mounted) return;
+    final remeasured = await ReadingProgressStore().allEntries();
+    if (!mounted) return;
+    setState(() {
+      _allReadingEntries = remeasured;
+      _reading = shelf(remeasured);
     });
   }
 
@@ -1386,9 +1405,17 @@ class _LibraryScreenState extends State<LibraryScreen>
             separatorBuilder: (_, _) => const SizedBox(width: 14),
             itemBuilder: (context, index) {
               final entry = rest[index];
+              final series = seriesById[entry.volume.seriesOpdsId];
               return ContinueCard(
                 entry: entry,
-                series: seriesById[entry.volume.seriesOpdsId],
+                series: series,
+                // Whether the library holds something newer than the copy
+                // on this device. Deliberately a yes/no and not a count:
+                // the card's "of 76" is the spine of one volume, while the
+                // library's number is chapters across the whole series, so
+                // subtracting them produces a figure that is wrong in a
+                // different way for every book.
+                hasUpdate: series != null && _seriesHasUpdate(series),
                 imageHeaders: headers,
                 onTap: () => _openVolume(entry.volume),
                 onLongPress: () => _continueCardMenu(entry),
