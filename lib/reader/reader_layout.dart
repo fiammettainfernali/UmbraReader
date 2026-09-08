@@ -77,6 +77,23 @@ TextStyle paragraphStyle(ReaderSettings s, Color color) {
   // letterSpacing 0.3. Rendered lines then run ~0.3px/char wider than the
   // TextPainter measurement, re-wrapping onto extra lines and making paged
   // mode spill past the bottom of the page.
+  //
+  // fontWeight/fontStyle are pinned for the same reason, and the weight is
+  // not hypothetical. [Text.rich] merges FontWeight.bold into the root span
+  // it wraps these runs in whenever MediaQuery.boldText is set — the
+  // platform "Bold text" accessibility setting, which Android reports as
+  // font_weight_adjustment=300 — and a run whose own fontWeight is null
+  // inherits it. Pagination measures with a bare TextPainter that has no
+  // such root, so a phone with that setting on rendered Literata 7.3% wider
+  // than it was measured: 44 of 46 pages on one chapter overflowed, by up
+  // to 42px, and the reader had to scroll each page to reach its last
+  // lines.
+  //
+  // Pinning means the platform setting no longer reaches the reader's body
+  // text. That is the same bargain [TextScaler.noScaling] already strikes
+  // with the platform font *scale*: the reader carries its own bold and
+  // font-size controls, and typography it does not measure is typography it
+  // cannot paginate.
   final base = TextStyle(
     inherit: false,
     letterSpacing: s.letterSpacing,
@@ -84,8 +101,8 @@ TextStyle paragraphStyle(ReaderSettings s, Color color) {
     fontSize: s.fontSize,
     height: s.lineHeight,
     color: color,
-    fontWeight: s.boldText ? FontWeight.bold : null,
-    fontStyle: s.italicText ? FontStyle.italic : null,
+    fontWeight: s.boldText ? FontWeight.bold : FontWeight.normal,
+    fontStyle: s.italicText ? FontStyle.italic : FontStyle.normal,
   );
   // Reading fonts are bundled app assets — a plain fontFamily reference,
   // no network fetch, identical metrics for measurement and render.
@@ -106,7 +123,9 @@ TextStyle headingStyle(ReaderSettings s, int level, Color color) {
     fontSize: s.fontSize * scale,
     height: 1.3,
     fontWeight: FontWeight.w700,
-    fontStyle: s.italicText ? FontStyle.italic : null,
+    // Explicit for the reason [paragraphStyle] gives: a null here inherits
+    // the root span's style at the engine level.
+    fontStyle: s.italicText ? FontStyle.italic : FontStyle.normal,
     color: color,
   );
   return s.fontFamily.isEmpty ? base : base.copyWith(fontFamily: s.fontFamily);

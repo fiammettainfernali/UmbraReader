@@ -101,6 +101,9 @@ class BlockView extends StatelessWidget {
               '✶  ✶  ✶',
               // inherit: false + fixed height so the divider renders exactly
               // the kDividerHeight the pagination budgeted (40 + 16*1.25).
+              // The weight is pinned for the reason paragraphStyle gives —
+              // a null one inherits whatever the root span carries, which
+              // the platform "Bold text" setting turns bold.
               style: TextStyle(
                 inherit: false,
                 letterSpacing: 0,
@@ -108,6 +111,7 @@ class BlockView extends StatelessWidget {
                 color: preset.secondary,
                 fontSize: 16,
                 height: 1.25,
+                fontWeight: FontWeight.normal,
               ),
             ),
           ),
@@ -215,6 +219,21 @@ class BlockView extends StatelessWidget {
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
             baseline: TextBaseline.alphabetic,
+            // A marker makes its line ~2px taller than the TextPainter
+            // pagination measures with predicts, because a WidgetSpan is
+            // sized by its child and takes no part in the text measurement
+            // at all. Measuring it faithfully means putting the placeholder
+            // into the measuring span too — and a placeholder counts as one
+            // character where the marker's text counts as three, which
+            // would shift every character offset paged splitting and
+            // highlighting are built on. Pinning the child's height instead
+            // does not help: middle alignment grows the line by an amount
+            // that follows the font's own ascent and descent, and forcing
+            // the box to a full line box measured 4px rather than 2px.
+            //
+            // So this is left as it is and the drift is bounded rather than
+            // removed: page_overflow_render_test allows exactly this much
+            // per marker on a page and fails if it grows.
             child: GestureDetector(
               onTap: () => _showFootnote(context, run.text, footnote),
               behavior: HitTestBehavior.opaque,
