@@ -205,6 +205,38 @@ void main() {
     });
   });
 
+  group('the shelf is told when the followed set changes', () {
+    // Following happens in the browser and shows in the library, and the
+    // shell keeps both tabs alive — so nothing about switching back rebuilds
+    // the library. Without this signal a comic followed in one simply did
+    // not appear in the other until the app restarted.
+
+    test('following and unfollowing both announce themselves', () async {
+      final before = WebSeriesStore.revision.value;
+      await store.follow(url: _url, title: 'A Story');
+      expect(WebSeriesStore.revision.value, greaterThan(before));
+
+      final followed = WebSeriesStore.revision.value;
+      await store.unfollow(_url);
+      expect(WebSeriesStore.revision.value, greaterThan(followed));
+    });
+
+    test('reading does not', () async {
+      // Positions move every few seconds while a comic is open. A shelf
+      // that redrew on each one would be rebuilding the library screen
+      // continuously behind the reader.
+      await store.follow(url: _url, title: 'A Story');
+      final quiet = WebSeriesStore.revision.value;
+      await store.notePosition(
+        seriesUrl: _url,
+        chapterUrl: '$_url/chapter-3',
+        panel: 4,
+      );
+      await store.noteCheck(_url, _info(latest: 99));
+      expect(WebSeriesStore.revision.value, quiet);
+    });
+  });
+
   test('unfollowing forgets it', () async {
     await store.follow(url: _url, title: 'A Story');
     expect(await store.isFollowed(_url), isTrue);

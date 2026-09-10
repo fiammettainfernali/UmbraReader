@@ -89,10 +89,55 @@ class WebSeriesMetadata {
     }
     return WebSeriesInfo(
       title: _meta(body, 'og:title') ?? _titleTag(body),
-      coverUrl: _meta(body, 'og:image'),
+      coverUrl: _cover(body, seriesUrl) ?? _meta(body, 'og:image'),
       latestChapterUrl: bestUrl?.toString(),
       latestChapterNumber: bestNumber,
     );
+  }
+
+  /// The series' own cover art, when the page labels one.
+  ///
+  /// Tried before `og:image`, because `og:image` is often not a cover at
+  /// all. The site this was built against generates a link-preview card at
+  /// `/api/og-image/...` — a wide banner with the description written
+  /// across it — and on a portrait shelf card that renders as a dark
+  /// letterbox with a strip of text where the artwork should be.
+  ///
+  /// The signal is the accessible one rather than a guess at layout: the
+  /// cover is the image whose alt text says it is a cover ("Cover of
+  /// Ranker's Return"). Sites that label their images get the right
+  /// picture; sites that do not fall back to `og:image`, which is still
+  /// better than an empty card.
+  static String? _cover(String body, Uri seriesUrl) {
+    for (final match in RegExp(
+      r'<img[^>]*>',
+      caseSensitive: false,
+    ).allMatches(body)) {
+      final tag = match.group(0)!;
+      final alt = _attribute(tag, 'alt');
+      if (alt == null || !alt.trimLeft().toLowerCase().startsWith('cover')) {
+        continue;
+      }
+      final src = _attribute(tag, 'src');
+      if (src == null || src.isEmpty) continue;
+      final resolved = _resolve(src, seriesUrl);
+      if (resolved != null) return resolved.toString();
+    }
+    return null;
+  }
+
+  /// One attribute of a tag, unescaped.
+  ///
+  /// The leading boundary matters: without it, asking for `src` also
+  /// matches the `data-src` of a lazily loaded image, which is a different
+  /// attribute holding a different URL.
+  static String? _attribute(String tag, String name) {
+    final match = RegExp(
+      '(?:^|\\s)$name="([^"]*)"',
+      caseSensitive: false,
+    ).firstMatch(tag);
+    final value = match?.group(1);
+    return value == null ? null : unescape(value);
   }
 
   // ── parsing ──────────────────────────────────────────────────────────

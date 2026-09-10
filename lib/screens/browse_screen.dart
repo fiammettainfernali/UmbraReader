@@ -270,13 +270,22 @@ class _BrowseScreenState extends State<BrowseScreen> {
     final site = _current == null ? null : siteFor(_current!);
 
     final have = _alreadyHave;
+    // Short enough to be a button. The long form of the unsupported case
+    // used to be the label itself, which wrapped to two lines on a phone
+    // and shouted the wrong action while it did — it is a caption now.
     final (String label, IconData icon) = have != null
-        ? ('Already in your library', Icons.library_add_check)
+        ? ('In library', Icons.library_add_check)
         : switch (kind) {
-            PageKind.novel => ('Add this novel', Icons.library_add),
-            PageKind.supportedSite => ('Add this page', Icons.add_link),
+            PageKind.novel => ('Add novel', Icons.library_add),
+            PageKind.supportedSite => ('Add page', Icons.add_link),
             PageKind.unsupported => ('Send anyway', Icons.help_outline),
           };
+
+    // Which action leads. On a site the scraper does not know — every comic
+    // site — sending it to Novel Grabber is the trap and following is the
+    // thing worth doing, so the emphasis follows the page instead of always
+    // sitting on Add.
+    final followLeads = have == null && kind == PageKind.unsupported;
 
     return Scaffold(
       appBar: AppBar(
@@ -362,42 +371,61 @@ class _BrowseScreenState extends State<BrowseScreen> {
       ),
       bottomNavigationBar: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Row(
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Expanded(child: _buildAddButton(theme, label, icon, have, kind)),
-              const SizedBox(width: 8),
-              // The other thing you can do with a page you like: keep
-              // reading it where it is. Nothing is scraped, downloaded or
-              // compiled — the library just remembers the series, your
-              // place in it, and when it grows.
-              Tooltip(
-                message: _followed
-                    ? 'Stop following this series'
-                    : 'Follow and read it on the site',
-                child: OutlinedButton(
-                  onPressed: _following
-                      ? null
-                      : (_followed ? _unfollowCurrent : _followCurrent),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(56, 48),
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    foregroundColor: _followed
-                        ? theme.colorScheme.tertiary
-                        : null,
+              // The caveat, said once, as a caption. It was the Add
+              // button's own label until a phone showed what that looks
+              // like: a sentence wrapped over two lines, in the loudest
+              // colour on screen, recommending the one action the page did
+              // not want.
+              if (followLeads)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+                  child: Text(
+                    "Novel Grabber can't scrape this site — follow it to "
+                    'read it here instead.',
+                    textAlign: TextAlign.center,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                    ),
                   ),
-                  child: _following
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : Icon(
-                          _followed
-                              ? Icons.bookmark_added
-                              : Icons.bookmark_add_outlined,
-                        ),
                 ),
+              Row(
+                children: [
+                  Expanded(
+                    child: _action(
+                      theme: theme,
+                      filled: !followLeads,
+                      icon: icon,
+                      label: label,
+                      busy: _sending,
+                      muted: have != null,
+                      onPressed: _sending ? null : _addCurrent,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // The other thing you can do with a page you like: keep
+                  // reading it where it is. Nothing is scraped, downloaded
+                  // or compiled — the library just remembers the series,
+                  // your place in it, and when it grows.
+                  Expanded(
+                    child: _action(
+                      theme: theme,
+                      filled: followLeads,
+                      icon: _followed
+                          ? Icons.bookmark_added
+                          : Icons.bookmark_add_outlined,
+                      label: _followed ? 'Following' : 'Follow',
+                      busy: _following,
+                      tint: _followed ? theme.colorScheme.tertiary : null,
+                      onPressed: _following
+                          ? null
+                          : (_followed ? _unfollowCurrent : _followCurrent),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -406,35 +434,52 @@ class _BrowseScreenState extends State<BrowseScreen> {
     );
   }
 
-  Widget _buildAddButton(
-    ThemeData theme,
-    String label,
-    IconData icon,
-    DuplicateMatch? have,
-    PageKind kind,
-  ) {
-    return FilledButton.icon(
-      onPressed: _sending ? null : _addCurrent,
-      icon: _sending
-          ? const SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : Icon(icon),
-      label: Text(
-        have != null
-            ? label
-            : kind == PageKind.unsupported
-            ? '$label — this site may not be supported'
-            : label,
+  /// One of the two bottom actions.
+  ///
+  /// Both are the same size and both carry a word, so which one is meant is
+  /// a question of emphasis rather than of guessing what an icon does.
+  Widget _action({
+    required ThemeData theme,
+    required bool filled,
+    required IconData icon,
+    required String label,
+    required bool busy,
+    required VoidCallback? onPressed,
+    bool muted = false,
+    Color? tint,
+  }) {
+    final child = busy
+        ? const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        : Icon(icon, size: 18);
+    final text = Text(label, maxLines: 1, overflow: TextOverflow.ellipsis);
+    if (filled) {
+      return FilledButton.icon(
+        onPressed: onPressed,
+        icon: child,
+        label: text,
+        style: FilledButton.styleFrom(
+          minimumSize: const Size(0, 46),
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          backgroundColor: muted
+              ? theme.colorScheme.surfaceContainerHighest
+              : null,
+          foregroundColor: muted ? theme.colorScheme.onSurfaceVariant : null,
+        ),
+      );
+    }
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: child,
+      label: text,
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(0, 46),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        foregroundColor: tint ?? (muted ? theme.colorScheme.outline : null),
       ),
-      style: have == null
-          ? null
-          : FilledButton.styleFrom(
-              backgroundColor: theme.colorScheme.surfaceContainerHighest,
-              foregroundColor: theme.colorScheme.onSurfaceVariant,
-            ),
     );
   }
 }

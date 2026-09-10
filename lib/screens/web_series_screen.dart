@@ -58,6 +58,12 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
   /// identical snackbars is worse than the redirect was.
   DateTime? _lastBlockNotice;
 
+  /// Whether the bar is on screen. It leaves while you read downward and
+  /// comes back when you read up — a panel is the full width of a phone
+  /// and as tall as it likes, so a bar that sits there permanently is
+  /// simply less comic.
+  bool _chromeVisible = true;
+
   @override
   void initState() {
     super.initState();
@@ -69,6 +75,14 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
     }
     _web = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..addJavaScriptChannel(
+        _chromeChannel,
+        onMessageReceived: (message) {
+          final wanted = message.message == 'show';
+          if (wanted == _chromeVisible || !mounted) return;
+          setState(() => _chromeVisible = wanted);
+        },
+      )
       ..setNavigationDelegate(
         NavigationDelegate(
           onPageStarted: (_) {
@@ -77,6 +91,7 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
           onPageFinished: (_) {
             if (mounted) setState(() => _loading = false);
             _restoreIfWanted();
+            _hookChrome();
           },
           // Only the top frame is gated. An ad in an iframe navigating
           // itself is contained already; an ad throwing the *page* at a
@@ -188,6 +203,44 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
       })();
     })()''';
 
+  /// The channel the page reports scrolling on.
+  static const String _chromeChannel = 'UmbraChrome';
+
+  /// Teaches the page to say which way it is being read.
+  ///
+  /// A scroll listener in the page rather than a poll from here: reading a
+  /// comic is one long scroll, and asking every few hundred milliseconds
+  /// whether it has moved would be both later and more expensive than being
+  /// told. Guarded so a re-run on the same page does not stack listeners,
+  /// and given a threshold so the bar does not flicker on the small
+  /// corrections a finger makes while it settles.
+  Future<void> _hookChrome() async {
+    try {
+      await _web.runJavaScript('''
+        (function () {
+          if (window.__umbraChromeHooked) return;
+          window.__umbraChromeHooked = 1;
+          var last = window.scrollY, ticking = false;
+          window.addEventListener('scroll', function () {
+            if (ticking) return;
+            ticking = true;
+            requestAnimationFrame(function () {
+              var y = window.scrollY, dy = y - last;
+              if (Math.abs(dy) > 12) {
+                // Reading downward hides it; reading back up, or being near
+                // the top at all, brings it back.
+                $_chromeChannel.postMessage(dy > 0 && y > 80 ? 'hide' : 'show');
+                last = y;
+              }
+              ticking = false;
+            });
+          }, { passive: true });
+        })()''');
+    } on Exception {
+      // A page that will not run it simply keeps the bar.
+    }
+  }
+
   /// Says once, quietly, that a redirect was refused.
   ///
   /// Worth saying at all rather than silently swallowing: a link that does
@@ -278,27 +331,79 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
         if (mounted) navigator.pop();
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: Text(
-            widget.series.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+        // Laid over the page rather than above it. An AppBar that comes and
+        // goes changes the height the page is given, and a comic re-flowed
+        // mid-read jumps under the eye — which is the thing the saved panel
+        // exists to prevent, undone by the chrome that was meant to get out
+        // of its way.
+        body: SafeArea(
+          child: Stack(
+            children: [
+              Positioned.fill(child: WebViewWidget(controller: _web)),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: IgnorePointer(
+                  ignoring: !_chromeVisible,
+                  child: AnimatedSlide(
+                    offset: _chromeVisible ? Offset.zero : const Offset(0, -1),
+                    duration: const Duration(milliseconds: 180),
+                    curve: Curves.easeOut,
+                    child: AnimatedOpacity(
+                      opacity: _chromeVisible ? 1 : 0,
+                      duration: const Duration(milliseconds: 180),
+                      child: _bar(Theme.of(context)),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-          bottom: _loading
-              ? const PreferredSize(
-                  preferredSize: Size.fromHeight(2),
-                  child: LinearProgressIndicator(minHeight: 2),
-                )
-              : null,
-          actions: [
-            IconButton(
-              tooltip: 'All chapters',
-              icon: const Icon(Icons.list),
-              onPressed: _goToSeriesPage,
-            ),
-          ],
         ),
-        body: SafeArea(child: WebViewWidget(controller: _web)),
+      ),
+    );
+  }
+
+  /// The comic's own bar: back, what you are reading, and the chapter list.
+  ///
+  /// Everything else a reader needs here — the next and previous chapter,
+  /// the comments — the site already puts on the page, and duplicating them
+  /// would spend the little height a phone has saying things twice.
+  Widget _bar(ThemeData theme) {
+    return Material(
+      color: theme.colorScheme.surface.withValues(alpha: 0.94),
+      elevation: 2,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            height: 48,
+            child: Row(
+              children: [
+                IconButton(
+                  tooltip: 'Back',
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
+                Expanded(
+                  child: Text(
+                    widget.series.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'All chapters',
+                  icon: const Icon(Icons.list),
+                  onPressed: _goToSeriesPage,
+                ),
+              ],
+            ),
+          ),
+          if (_loading) const LinearProgressIndicator(minHeight: 2),
+        ],
       ),
     );
   }

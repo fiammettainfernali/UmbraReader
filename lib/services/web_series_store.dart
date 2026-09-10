@@ -6,6 +6,7 @@
 // the highest chapter the series page was offering last time anyone looked.
 
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart';
 
 import '../db/app_database.dart';
 import 'web_series_metadata.dart';
@@ -72,6 +73,25 @@ class WebSeriesStore {
 
   final AppDatabase _db;
 
+  /// Bumped whenever the followed set changes.
+  ///
+  /// Following happens in the browser and is shown in the library, and the
+  /// two are separate tabs of an IndexedStack — both alive, neither
+  /// rebuilt when the other is used. So a comic followed in one simply did
+  /// not appear in the other until the app was restarted, which reads as
+  /// the follow not having worked.
+  ///
+  /// A counter rather than a callback because more than one thing may want
+  /// to know, and none of them should have to be wired to whoever did the
+  /// writing.
+  ///
+  /// Only membership bumps this. Positions move every few seconds while a
+  /// comic is being read, and nothing showing the shelf needs to hear about
+  /// each one.
+  static final ValueNotifier<int> revision = ValueNotifier<int>(0);
+
+  static void _changed() => revision.value++;
+
   /// Newest activity first: what you are actually reading rises, which is
   /// the order a shelf wants.
   Future<List<WebSeries>> all() async {
@@ -132,10 +152,12 @@ class WebSeriesStore {
             openedAt: Value(existing?.openedAt?.toIso8601String()),
           ),
         );
+    if (existing == null) _changed();
   }
 
   Future<void> unfollow(String url) async {
     await (_db.delete(_db.webSeriesRows)..where((t) => t.url.equals(url))).go();
+    _changed();
   }
 
   /// Records where reading stopped.

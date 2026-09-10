@@ -36,6 +36,75 @@ void main() {
     expect(info.coverUrl, 'https://cdn.example.org/cover.webp');
   });
 
+  group('the cover', () {
+    // og:image is a link-preview card on at least one of these sites — a
+    // wide banner with the description written across it, which on a
+    // portrait shelf card is a dark letterbox with a strip of text where
+    // the artwork should be.
+    const labelled =
+        '<img alt="Cover of A Story" src="https://cdn.example.org/art.webp">';
+
+    test('a labelled cover beats the link-preview image', () {
+      final info = WebSeriesMetadata.read(
+        _page(
+          cover: 'https://example.org/api/og-image/a-story.webp',
+          extra: labelled,
+        ),
+        _series,
+      );
+      expect(info.coverUrl, 'https://cdn.example.org/art.webp');
+    });
+
+    test('og:image is still used when nothing is labelled', () {
+      final info = WebSeriesMetadata.read(_page(), _series);
+      expect(info.coverUrl, 'https://cdn.example.org/cover.webp');
+    });
+
+    test('a relative cover is resolved against the series', () {
+      final info = WebSeriesMetadata.read(
+        _page(extra: '<img alt="Cover of A Story" src="/art/a.webp">'),
+        _series,
+      );
+      expect(info.coverUrl, 'https://example.org/art/a.webp');
+    });
+
+    test('entities in the URL are decoded', () {
+      // These come proxied, with query strings: ?w=400&amp;quality=100
+      final info = WebSeriesMetadata.read(
+        _page(
+          extra:
+              '<img alt="Cover of A Story" '
+              'src="https://cdn.example.org/a.webp?w=400&amp;ssl=1">',
+        ),
+        _series,
+      );
+      expect(info.coverUrl, 'https://cdn.example.org/a.webp?w=400&ssl=1');
+    });
+
+    test('a lazily loaded image does not donate its data-src', () {
+      // Asking for `src` without a boundary also matches `data-src`, which
+      // is a different attribute holding a different URL.
+      final info = WebSeriesMetadata.read(
+        _page(
+          extra:
+              '<img alt="Cover of A Story" '
+              'data-src="https://cdn.example.org/WRONG.webp" '
+              'src="https://cdn.example.org/right.webp">',
+        ),
+        _series,
+      );
+      expect(info.coverUrl, 'https://cdn.example.org/right.webp');
+    });
+
+    test('an image that is not a cover is not taken for one', () {
+      final info = WebSeriesMetadata.read(
+        _page(extra: '<img alt="Vortex Scans logo" src="https://x/logo.webp">'),
+        _series,
+      );
+      expect(info.coverUrl, 'https://cdn.example.org/cover.webp');
+    });
+  });
+
   test('it decodes entities in the title', () {
     // The real one is "Ranker&#x27;s Return", and an apostrophe in a title
     // is common enough that leaving it raw would be visible on the shelf.

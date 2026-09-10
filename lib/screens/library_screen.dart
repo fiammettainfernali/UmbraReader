@@ -169,6 +169,12 @@ class _LibraryScreenState extends State<LibraryScreen>
     CloudSyncService().onRemoteMerge = () {
       if (mounted) _remoteMergePending = true;
     };
+    // Following happens on the Discover tab and shows up here, and the
+    // shell keeps both alive in an IndexedStack — so nothing about
+    // switching back rebuilds this screen. Without this, a comic followed
+    // in the browser did not appear in the library until the app was
+    // restarted, which reads as the follow having silently failed.
+    WebSeriesStore.revision.addListener(_onFollowedChanged);
     loadSavedView();
     _refreshSavedViewCount();
     _initialize();
@@ -236,6 +242,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   @override
   void dispose() {
     _serverEvents?.cancel();
+    WebSeriesStore.revision.removeListener(_onFollowedChanged);
     WidgetsBinding.instance.removeObserver(this);
     if (CloudSyncService().onRemoteMerge != null) {
       CloudSyncService().onRemoteMerge = null;
@@ -290,6 +297,14 @@ class _LibraryScreenState extends State<LibraryScreen>
     // Last, and never awaited by anything that draws: this is one request
     // per followed site, and off a good connection those do not fail fast.
     unawaited(_refreshWebSeries());
+  }
+
+  /// Something was followed or unfollowed, wherever the app that happened
+  /// in. Safe to redraw on: this only fires on a change the reader made
+  /// deliberately, never on a background check, so it cannot reorder the
+  /// shelf under their finger.
+  void _onFollowedChanged() {
+    if (mounted) _loadWebSeries();
   }
 
   /// Reads the followed comics off the device.
