@@ -10,6 +10,7 @@
 // each test runs the real fetch and the real parse as well as the refresh.
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -218,5 +219,56 @@ void main() {
     final dead = _Dead();
     expect(await refresher(dead).run(const []), 0);
     expect(dead.calls, 0);
+  });
+
+  group('it must never be on the critical path for the library', () {
+    // Checked against the source, for the same reason the equivalent
+    // StreamedCountRefresh tests are: the ordering IS the safeguard, and
+    // nothing else in that file expresses it. A later edit could move these
+    // two calls and every behavioural test here would still pass.
+    //
+    // The stakes are the novels, not the comics. Adding comics must not
+    // make a downloaded, offline-readable library wait on a comic site
+    // answering — which is exactly the shape of the bug that made the
+    // Continue shelf vanish off the home network.
+    final source = File('lib/screens/library_screen.dart').readAsStringSync();
+
+    test(
+      'followed comics are read off the device before any site is asked',
+      () {
+        final loaded = source.indexOf('_loadWebSeries()');
+        final refreshed = source.indexOf('_refreshWebSeries()');
+        expect(loaded, greaterThan(-1), reason: 'the local load moved');
+        expect(refreshed, greaterThan(-1), reason: 'the refresh call moved');
+        expect(
+          loaded,
+          lessThan(refreshed),
+          reason:
+              'the shelf must be built from the device before the '
+              'network is asked anything',
+        );
+      },
+    );
+
+    test('the refresh is never awaited', () {
+      // Awaiting it would put every followed comic site between a cold
+      // start and a finished library load. unawaited() is the difference
+      // between a background check and a blocking one.
+      expect(
+        source.contains('unawaited(_refreshWebSeries())'),
+        isTrue,
+        reason: 'the comic refresh must not be awaited during startup',
+      );
+    });
+
+    test('the novels are loaded before any of it', () {
+      // Comics are additive. Whatever they do, the books must reach the
+      // screen exactly as early as they did before comics existed.
+      final downloads = source.indexOf('_loadDownloads()');
+      final reading = source.indexOf('_loadReading()');
+      final comics = source.indexOf('_loadWebSeries()');
+      expect(downloads, lessThan(reading));
+      expect(reading, lessThan(comics));
+    });
   });
 }
