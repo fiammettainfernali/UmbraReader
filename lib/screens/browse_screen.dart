@@ -5,6 +5,8 @@ import '../services/control_client.dart';
 import '../services/settings_service.dart';
 import '../services/pending_add_store.dart';
 import '../services/site_patterns.dart';
+import '../services/web_series_metadata.dart';
+import '../services/web_series_store.dart';
 import '../widgets/duplicate_sheet.dart';
 
 /// An in-app browser for finding novels on the source sites and sending
@@ -47,6 +49,15 @@ class _BrowseScreenState extends State<BrowseScreen> {
   /// overwriting the answer for the page you are actually on.
   int _lookupToken = 0;
 
+  final WebSeriesStore _webSeries = WebSeriesStore();
+
+  /// Whether the series this page belongs to is already followed. Kept
+  /// alongside [_alreadyHave] because the two answer different questions:
+  /// one is "has the server scraped this", the other "am I reading this
+  /// here". A comic can only ever be the second.
+  bool _followed = false;
+  bool _following = false;
+
   @override
   void initState() {
     super.initState();
@@ -72,6 +83,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
               _alreadyHave = null;
             });
             _checkAlreadyHave();
+            _checkFollowed();
           },
         ),
       )
@@ -79,7 +91,73 @@ class _BrowseScreenState extends State<BrowseScreen> {
     _current = start;
     _urlField.text = start.toString();
     _checkAlreadyHave();
+    _checkFollowed();
   }
+
+  /// The series the current page belongs to — a chapter resolves to the
+  /// series it is a chapter of, so Follow can be tapped without first
+  /// navigating back out to the series page.
+  Uri? get _followTarget {
+    final page = _current;
+    return page == null ? null : WebSeriesMetadata.seriesPageFor(page);
+  }
+
+  Future<void> _checkFollowed() async {
+    final target = _followTarget;
+    if (target == null) return;
+    final followed = await _webSeries.isFollowed(target.toString());
+    if (!mounted) return;
+    setState(() => _followed = followed);
+  }
+
+  /// Follows the current series: keeps the URL, and asks its page for a
+  /// cover, a title and how many chapters there are.
+  ///
+  /// The fetch is allowed to fail. Everything it provides is a nicety —
+  /// what makes the follow work is the URL, which is already known — so a
+  /// site that is slow or unreachable costs a cover and not the follow.
+  Future<void> _followCurrent() async {
+    final target = _followTarget;
+    if (target == null) return;
+    setState(() => _following = true);
+    try {
+      final info = await WebSeriesMetadata().fetch(target);
+      await _webSeries.follow(
+        url: target.toString(),
+        title: await _pageTitle() ?? target.toString(),
+        info: info,
+      );
+      if (!mounted) return;
+      setState(() => _followed = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            info?.latestChapterNumber == null
+                ? 'Following — it will show in your library.'
+                : 'Following — latest is chapter '
+                      '${_plain(info!.latestChapterNumber!)}.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _following = false);
+    }
+  }
+
+  Future<void> _unfollowCurrent() async {
+    final target = _followTarget;
+    if (target == null) return;
+    await _webSeries.unfollow(target.toString());
+    if (!mounted) return;
+    setState(() => _followed = false);
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Unfollowed.')));
+  }
+
+  /// 260.0 is a chapter number nobody writes down that way.
+  static String _plain(double n) =>
+      n == n.roundToDouble() ? '${n.round()}' : '$n';
 
   /// Asks the server whether the current page is already in the library.
   /// Silent on failure: an older server without the endpoint, or no
@@ -285,31 +363,78 @@ class _BrowseScreenState extends State<BrowseScreen> {
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: FilledButton.icon(
-            onPressed: _sending ? null : _addCurrent,
-            icon: _sending
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Icon(icon),
-            label: Text(
-              have != null
-                  ? label
-                  : kind == PageKind.unsupported
-                  ? '$label — this site may not be supported'
-                  : label,
-            ),
-            style: have == null
-                ? null
-                : FilledButton.styleFrom(
-                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                    foregroundColor: theme.colorScheme.onSurfaceVariant,
+          child: Row(
+            children: [
+              Expanded(child: _buildAddButton(theme, label, icon, have, kind)),
+              const SizedBox(width: 8),
+              // The other thing you can do with a page you like: keep
+              // reading it where it is. Nothing is scraped, downloaded or
+              // compiled — the library just remembers the series, your
+              // place in it, and when it grows.
+              Tooltip(
+                message: _followed
+                    ? 'Stop following this series'
+                    : 'Follow and read it on the site',
+                child: OutlinedButton(
+                  onPressed: _following
+                      ? null
+                      : (_followed ? _unfollowCurrent : _followCurrent),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(56, 48),
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    foregroundColor: _followed
+                        ? theme.colorScheme.tertiary
+                        : null,
                   ),
+                  child: _following
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          _followed
+                              ? Icons.bookmark_added
+                              : Icons.bookmark_add_outlined,
+                        ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildAddButton(
+    ThemeData theme,
+    String label,
+    IconData icon,
+    DuplicateMatch? have,
+    PageKind kind,
+  ) {
+    return FilledButton.icon(
+      onPressed: _sending ? null : _addCurrent,
+      icon: _sending
+          ? const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(icon),
+      label: Text(
+        have != null
+            ? label
+            : kind == PageKind.unsupported
+            ? '$label — this site may not be supported'
+            : label,
+      ),
+      style: have == null
+          ? null
+          : FilledButton.styleFrom(
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              foregroundColor: theme.colorScheme.onSurfaceVariant,
+            ),
     );
   }
 }

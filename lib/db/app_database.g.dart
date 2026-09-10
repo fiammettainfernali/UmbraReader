@@ -2776,6 +2776,657 @@ class RecOutcomeRowsCompanion extends UpdateCompanion<RecOutcomeRow> {
   }
 }
 
+class $WebSeriesRowsTable extends WebSeriesRows
+    with TableInfo<$WebSeriesRowsTable, WebSeriesRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $WebSeriesRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _urlMeta = const VerificationMeta('url');
+  @override
+  late final GeneratedColumn<String> url = GeneratedColumn<String>(
+    'url',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _titleMeta = const VerificationMeta('title');
+  @override
+  late final GeneratedColumn<String> title = GeneratedColumn<String>(
+    'title',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _coverUrlMeta = const VerificationMeta(
+    'coverUrl',
+  );
+  @override
+  late final GeneratedColumn<String> coverUrl = GeneratedColumn<String>(
+    'cover_url',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _lastChapterUrlMeta = const VerificationMeta(
+    'lastChapterUrl',
+  );
+  @override
+  late final GeneratedColumn<String> lastChapterUrl = GeneratedColumn<String>(
+    'last_chapter_url',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _lastPanelMeta = const VerificationMeta(
+    'lastPanel',
+  );
+  @override
+  late final GeneratedColumn<int> lastPanel = GeneratedColumn<int>(
+    'last_panel',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _latestChapterMeta = const VerificationMeta(
+    'latestChapter',
+  );
+  @override
+  late final GeneratedColumn<double> latestChapter = GeneratedColumn<double>(
+    'latest_chapter',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _readChapterMeta = const VerificationMeta(
+    'readChapter',
+  );
+  @override
+  late final GeneratedColumn<double> readChapter = GeneratedColumn<double>(
+    'read_chapter',
+    aliasedName,
+    true,
+    type: DriftSqlType.double,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _checkedAtMeta = const VerificationMeta(
+    'checkedAt',
+  );
+  @override
+  late final GeneratedColumn<String> checkedAt = GeneratedColumn<String>(
+    'checked_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _openedAtMeta = const VerificationMeta(
+    'openedAt',
+  );
+  @override
+  late final GeneratedColumn<String> openedAt = GeneratedColumn<String>(
+    'opened_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _addedAtMeta = const VerificationMeta(
+    'addedAt',
+  );
+  @override
+  late final GeneratedColumn<String> addedAt = GeneratedColumn<String>(
+    'added_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    url,
+    title,
+    coverUrl,
+    lastChapterUrl,
+    lastPanel,
+    latestChapter,
+    readChapter,
+    checkedAt,
+    openedAt,
+    addedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'web_series_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<WebSeriesRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('url')) {
+      context.handle(
+        _urlMeta,
+        url.isAcceptableOrUnknown(data['url']!, _urlMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_urlMeta);
+    }
+    if (data.containsKey('title')) {
+      context.handle(
+        _titleMeta,
+        title.isAcceptableOrUnknown(data['title']!, _titleMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_titleMeta);
+    }
+    if (data.containsKey('cover_url')) {
+      context.handle(
+        _coverUrlMeta,
+        coverUrl.isAcceptableOrUnknown(data['cover_url']!, _coverUrlMeta),
+      );
+    }
+    if (data.containsKey('last_chapter_url')) {
+      context.handle(
+        _lastChapterUrlMeta,
+        lastChapterUrl.isAcceptableOrUnknown(
+          data['last_chapter_url']!,
+          _lastChapterUrlMeta,
+        ),
+      );
+    }
+    if (data.containsKey('last_panel')) {
+      context.handle(
+        _lastPanelMeta,
+        lastPanel.isAcceptableOrUnknown(data['last_panel']!, _lastPanelMeta),
+      );
+    }
+    if (data.containsKey('latest_chapter')) {
+      context.handle(
+        _latestChapterMeta,
+        latestChapter.isAcceptableOrUnknown(
+          data['latest_chapter']!,
+          _latestChapterMeta,
+        ),
+      );
+    }
+    if (data.containsKey('read_chapter')) {
+      context.handle(
+        _readChapterMeta,
+        readChapter.isAcceptableOrUnknown(
+          data['read_chapter']!,
+          _readChapterMeta,
+        ),
+      );
+    }
+    if (data.containsKey('checked_at')) {
+      context.handle(
+        _checkedAtMeta,
+        checkedAt.isAcceptableOrUnknown(data['checked_at']!, _checkedAtMeta),
+      );
+    }
+    if (data.containsKey('opened_at')) {
+      context.handle(
+        _openedAtMeta,
+        openedAt.isAcceptableOrUnknown(data['opened_at']!, _openedAtMeta),
+      );
+    }
+    if (data.containsKey('added_at')) {
+      context.handle(
+        _addedAtMeta,
+        addedAt.isAcceptableOrUnknown(data['added_at']!, _addedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_addedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {url};
+  @override
+  WebSeriesRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return WebSeriesRow(
+      url: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}url'],
+      )!,
+      title: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}title'],
+      )!,
+      coverUrl: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}cover_url'],
+      ),
+      lastChapterUrl: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_chapter_url'],
+      ),
+      lastPanel: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}last_panel'],
+      )!,
+      latestChapter: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}latest_chapter'],
+      ),
+      readChapter: attachedDatabase.typeMapping.read(
+        DriftSqlType.double,
+        data['${effectivePrefix}read_chapter'],
+      ),
+      checkedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}checked_at'],
+      ),
+      openedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}opened_at'],
+      ),
+      addedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}added_at'],
+      )!,
+    );
+  }
+
+  @override
+  $WebSeriesRowsTable createAlias(String alias) {
+    return $WebSeriesRowsTable(attachedDatabase, alias);
+  }
+}
+
+class WebSeriesRow extends DataClass implements Insertable<WebSeriesRow> {
+  /// The series page's URL, which is also its identity. Not a slug: these
+  /// sites hash their slugs (`rankers-return-c6f3k3os`), so the URL is the
+  /// only stable name there is.
+  final String url;
+  final String title;
+  final String? coverUrl;
+
+  /// The chapter page last open, so tapping the series returns to it
+  /// rather than to the series' front page.
+  final String? lastChapterUrl;
+
+  /// Whereabouts in that chapter, as an index into its images.
+  ///
+  /// Deliberately not a scroll offset. A chapter is dozens of lazily
+  /// loaded panels, so when the page is reopened it is briefly short and
+  /// a saved pixel position lands somewhere arbitrary. A panel is a thing
+  /// that still exists once the page has settled.
+  final int lastPanel;
+
+  /// Highest chapter number the series page offered at the last check, and
+  /// the highest actually opened. The pair is what makes a "new chapters"
+  /// badge possible without downloading anything.
+  final double? latestChapter;
+  final double? readChapter;
+
+  /// ISO-8601, like every other timestamp in this file.
+  final String? checkedAt;
+  final String? openedAt;
+  final String addedAt;
+  const WebSeriesRow({
+    required this.url,
+    required this.title,
+    this.coverUrl,
+    this.lastChapterUrl,
+    required this.lastPanel,
+    this.latestChapter,
+    this.readChapter,
+    this.checkedAt,
+    this.openedAt,
+    required this.addedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['url'] = Variable<String>(url);
+    map['title'] = Variable<String>(title);
+    if (!nullToAbsent || coverUrl != null) {
+      map['cover_url'] = Variable<String>(coverUrl);
+    }
+    if (!nullToAbsent || lastChapterUrl != null) {
+      map['last_chapter_url'] = Variable<String>(lastChapterUrl);
+    }
+    map['last_panel'] = Variable<int>(lastPanel);
+    if (!nullToAbsent || latestChapter != null) {
+      map['latest_chapter'] = Variable<double>(latestChapter);
+    }
+    if (!nullToAbsent || readChapter != null) {
+      map['read_chapter'] = Variable<double>(readChapter);
+    }
+    if (!nullToAbsent || checkedAt != null) {
+      map['checked_at'] = Variable<String>(checkedAt);
+    }
+    if (!nullToAbsent || openedAt != null) {
+      map['opened_at'] = Variable<String>(openedAt);
+    }
+    map['added_at'] = Variable<String>(addedAt);
+    return map;
+  }
+
+  WebSeriesRowsCompanion toCompanion(bool nullToAbsent) {
+    return WebSeriesRowsCompanion(
+      url: Value(url),
+      title: Value(title),
+      coverUrl: coverUrl == null && nullToAbsent
+          ? const Value.absent()
+          : Value(coverUrl),
+      lastChapterUrl: lastChapterUrl == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastChapterUrl),
+      lastPanel: Value(lastPanel),
+      latestChapter: latestChapter == null && nullToAbsent
+          ? const Value.absent()
+          : Value(latestChapter),
+      readChapter: readChapter == null && nullToAbsent
+          ? const Value.absent()
+          : Value(readChapter),
+      checkedAt: checkedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(checkedAt),
+      openedAt: openedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(openedAt),
+      addedAt: Value(addedAt),
+    );
+  }
+
+  factory WebSeriesRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return WebSeriesRow(
+      url: serializer.fromJson<String>(json['url']),
+      title: serializer.fromJson<String>(json['title']),
+      coverUrl: serializer.fromJson<String?>(json['coverUrl']),
+      lastChapterUrl: serializer.fromJson<String?>(json['lastChapterUrl']),
+      lastPanel: serializer.fromJson<int>(json['lastPanel']),
+      latestChapter: serializer.fromJson<double?>(json['latestChapter']),
+      readChapter: serializer.fromJson<double?>(json['readChapter']),
+      checkedAt: serializer.fromJson<String?>(json['checkedAt']),
+      openedAt: serializer.fromJson<String?>(json['openedAt']),
+      addedAt: serializer.fromJson<String>(json['addedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'url': serializer.toJson<String>(url),
+      'title': serializer.toJson<String>(title),
+      'coverUrl': serializer.toJson<String?>(coverUrl),
+      'lastChapterUrl': serializer.toJson<String?>(lastChapterUrl),
+      'lastPanel': serializer.toJson<int>(lastPanel),
+      'latestChapter': serializer.toJson<double?>(latestChapter),
+      'readChapter': serializer.toJson<double?>(readChapter),
+      'checkedAt': serializer.toJson<String?>(checkedAt),
+      'openedAt': serializer.toJson<String?>(openedAt),
+      'addedAt': serializer.toJson<String>(addedAt),
+    };
+  }
+
+  WebSeriesRow copyWith({
+    String? url,
+    String? title,
+    Value<String?> coverUrl = const Value.absent(),
+    Value<String?> lastChapterUrl = const Value.absent(),
+    int? lastPanel,
+    Value<double?> latestChapter = const Value.absent(),
+    Value<double?> readChapter = const Value.absent(),
+    Value<String?> checkedAt = const Value.absent(),
+    Value<String?> openedAt = const Value.absent(),
+    String? addedAt,
+  }) => WebSeriesRow(
+    url: url ?? this.url,
+    title: title ?? this.title,
+    coverUrl: coverUrl.present ? coverUrl.value : this.coverUrl,
+    lastChapterUrl: lastChapterUrl.present
+        ? lastChapterUrl.value
+        : this.lastChapterUrl,
+    lastPanel: lastPanel ?? this.lastPanel,
+    latestChapter: latestChapter.present
+        ? latestChapter.value
+        : this.latestChapter,
+    readChapter: readChapter.present ? readChapter.value : this.readChapter,
+    checkedAt: checkedAt.present ? checkedAt.value : this.checkedAt,
+    openedAt: openedAt.present ? openedAt.value : this.openedAt,
+    addedAt: addedAt ?? this.addedAt,
+  );
+  WebSeriesRow copyWithCompanion(WebSeriesRowsCompanion data) {
+    return WebSeriesRow(
+      url: data.url.present ? data.url.value : this.url,
+      title: data.title.present ? data.title.value : this.title,
+      coverUrl: data.coverUrl.present ? data.coverUrl.value : this.coverUrl,
+      lastChapterUrl: data.lastChapterUrl.present
+          ? data.lastChapterUrl.value
+          : this.lastChapterUrl,
+      lastPanel: data.lastPanel.present ? data.lastPanel.value : this.lastPanel,
+      latestChapter: data.latestChapter.present
+          ? data.latestChapter.value
+          : this.latestChapter,
+      readChapter: data.readChapter.present
+          ? data.readChapter.value
+          : this.readChapter,
+      checkedAt: data.checkedAt.present ? data.checkedAt.value : this.checkedAt,
+      openedAt: data.openedAt.present ? data.openedAt.value : this.openedAt,
+      addedAt: data.addedAt.present ? data.addedAt.value : this.addedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('WebSeriesRow(')
+          ..write('url: $url, ')
+          ..write('title: $title, ')
+          ..write('coverUrl: $coverUrl, ')
+          ..write('lastChapterUrl: $lastChapterUrl, ')
+          ..write('lastPanel: $lastPanel, ')
+          ..write('latestChapter: $latestChapter, ')
+          ..write('readChapter: $readChapter, ')
+          ..write('checkedAt: $checkedAt, ')
+          ..write('openedAt: $openedAt, ')
+          ..write('addedAt: $addedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    url,
+    title,
+    coverUrl,
+    lastChapterUrl,
+    lastPanel,
+    latestChapter,
+    readChapter,
+    checkedAt,
+    openedAt,
+    addedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is WebSeriesRow &&
+          other.url == this.url &&
+          other.title == this.title &&
+          other.coverUrl == this.coverUrl &&
+          other.lastChapterUrl == this.lastChapterUrl &&
+          other.lastPanel == this.lastPanel &&
+          other.latestChapter == this.latestChapter &&
+          other.readChapter == this.readChapter &&
+          other.checkedAt == this.checkedAt &&
+          other.openedAt == this.openedAt &&
+          other.addedAt == this.addedAt);
+}
+
+class WebSeriesRowsCompanion extends UpdateCompanion<WebSeriesRow> {
+  final Value<String> url;
+  final Value<String> title;
+  final Value<String?> coverUrl;
+  final Value<String?> lastChapterUrl;
+  final Value<int> lastPanel;
+  final Value<double?> latestChapter;
+  final Value<double?> readChapter;
+  final Value<String?> checkedAt;
+  final Value<String?> openedAt;
+  final Value<String> addedAt;
+  final Value<int> rowid;
+  const WebSeriesRowsCompanion({
+    this.url = const Value.absent(),
+    this.title = const Value.absent(),
+    this.coverUrl = const Value.absent(),
+    this.lastChapterUrl = const Value.absent(),
+    this.lastPanel = const Value.absent(),
+    this.latestChapter = const Value.absent(),
+    this.readChapter = const Value.absent(),
+    this.checkedAt = const Value.absent(),
+    this.openedAt = const Value.absent(),
+    this.addedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  WebSeriesRowsCompanion.insert({
+    required String url,
+    required String title,
+    this.coverUrl = const Value.absent(),
+    this.lastChapterUrl = const Value.absent(),
+    this.lastPanel = const Value.absent(),
+    this.latestChapter = const Value.absent(),
+    this.readChapter = const Value.absent(),
+    this.checkedAt = const Value.absent(),
+    this.openedAt = const Value.absent(),
+    required String addedAt,
+    this.rowid = const Value.absent(),
+  }) : url = Value(url),
+       title = Value(title),
+       addedAt = Value(addedAt);
+  static Insertable<WebSeriesRow> custom({
+    Expression<String>? url,
+    Expression<String>? title,
+    Expression<String>? coverUrl,
+    Expression<String>? lastChapterUrl,
+    Expression<int>? lastPanel,
+    Expression<double>? latestChapter,
+    Expression<double>? readChapter,
+    Expression<String>? checkedAt,
+    Expression<String>? openedAt,
+    Expression<String>? addedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (url != null) 'url': url,
+      if (title != null) 'title': title,
+      if (coverUrl != null) 'cover_url': coverUrl,
+      if (lastChapterUrl != null) 'last_chapter_url': lastChapterUrl,
+      if (lastPanel != null) 'last_panel': lastPanel,
+      if (latestChapter != null) 'latest_chapter': latestChapter,
+      if (readChapter != null) 'read_chapter': readChapter,
+      if (checkedAt != null) 'checked_at': checkedAt,
+      if (openedAt != null) 'opened_at': openedAt,
+      if (addedAt != null) 'added_at': addedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  WebSeriesRowsCompanion copyWith({
+    Value<String>? url,
+    Value<String>? title,
+    Value<String?>? coverUrl,
+    Value<String?>? lastChapterUrl,
+    Value<int>? lastPanel,
+    Value<double?>? latestChapter,
+    Value<double?>? readChapter,
+    Value<String?>? checkedAt,
+    Value<String?>? openedAt,
+    Value<String>? addedAt,
+    Value<int>? rowid,
+  }) {
+    return WebSeriesRowsCompanion(
+      url: url ?? this.url,
+      title: title ?? this.title,
+      coverUrl: coverUrl ?? this.coverUrl,
+      lastChapterUrl: lastChapterUrl ?? this.lastChapterUrl,
+      lastPanel: lastPanel ?? this.lastPanel,
+      latestChapter: latestChapter ?? this.latestChapter,
+      readChapter: readChapter ?? this.readChapter,
+      checkedAt: checkedAt ?? this.checkedAt,
+      openedAt: openedAt ?? this.openedAt,
+      addedAt: addedAt ?? this.addedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (url.present) {
+      map['url'] = Variable<String>(url.value);
+    }
+    if (title.present) {
+      map['title'] = Variable<String>(title.value);
+    }
+    if (coverUrl.present) {
+      map['cover_url'] = Variable<String>(coverUrl.value);
+    }
+    if (lastChapterUrl.present) {
+      map['last_chapter_url'] = Variable<String>(lastChapterUrl.value);
+    }
+    if (lastPanel.present) {
+      map['last_panel'] = Variable<int>(lastPanel.value);
+    }
+    if (latestChapter.present) {
+      map['latest_chapter'] = Variable<double>(latestChapter.value);
+    }
+    if (readChapter.present) {
+      map['read_chapter'] = Variable<double>(readChapter.value);
+    }
+    if (checkedAt.present) {
+      map['checked_at'] = Variable<String>(checkedAt.value);
+    }
+    if (openedAt.present) {
+      map['opened_at'] = Variable<String>(openedAt.value);
+    }
+    if (addedAt.present) {
+      map['added_at'] = Variable<String>(addedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('WebSeriesRowsCompanion(')
+          ..write('url: $url, ')
+          ..write('title: $title, ')
+          ..write('coverUrl: $coverUrl, ')
+          ..write('lastChapterUrl: $lastChapterUrl, ')
+          ..write('lastPanel: $lastPanel, ')
+          ..write('latestChapter: $latestChapter, ')
+          ..write('readChapter: $readChapter, ')
+          ..write('checkedAt: $checkedAt, ')
+          ..write('openedAt: $openedAt, ')
+          ..write('addedAt: $addedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $KvRowsTable extends KvRows with TableInfo<$KvRowsTable, KvRow> {
   @override
   final GeneratedDatabase attachedDatabase;
@@ -2993,6 +3644,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $VolumeActivityRowsTable volumeActivityRows =
       $VolumeActivityRowsTable(this);
   late final $RecOutcomeRowsTable recOutcomeRows = $RecOutcomeRowsTable(this);
+  late final $WebSeriesRowsTable webSeriesRows = $WebSeriesRowsTable(this);
   late final $KvRowsTable kvRows = $KvRowsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
@@ -3005,6 +3657,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     dailyActivityRows,
     volumeActivityRows,
     recOutcomeRows,
+    webSeriesRows,
     kvRows,
   ];
 }
@@ -4490,6 +5143,307 @@ typedef $$RecOutcomeRowsTableProcessedTableManager =
       RecOutcomeRow,
       PrefetchHooks Function()
     >;
+typedef $$WebSeriesRowsTableCreateCompanionBuilder =
+    WebSeriesRowsCompanion Function({
+      required String url,
+      required String title,
+      Value<String?> coverUrl,
+      Value<String?> lastChapterUrl,
+      Value<int> lastPanel,
+      Value<double?> latestChapter,
+      Value<double?> readChapter,
+      Value<String?> checkedAt,
+      Value<String?> openedAt,
+      required String addedAt,
+      Value<int> rowid,
+    });
+typedef $$WebSeriesRowsTableUpdateCompanionBuilder =
+    WebSeriesRowsCompanion Function({
+      Value<String> url,
+      Value<String> title,
+      Value<String?> coverUrl,
+      Value<String?> lastChapterUrl,
+      Value<int> lastPanel,
+      Value<double?> latestChapter,
+      Value<double?> readChapter,
+      Value<String?> checkedAt,
+      Value<String?> openedAt,
+      Value<String> addedAt,
+      Value<int> rowid,
+    });
+
+class $$WebSeriesRowsTableFilterComposer
+    extends Composer<_$AppDatabase, $WebSeriesRowsTable> {
+  $$WebSeriesRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get url => $composableBuilder(
+    column: $table.url,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get coverUrl => $composableBuilder(
+    column: $table.coverUrl,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastChapterUrl => $composableBuilder(
+    column: $table.lastChapterUrl,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get lastPanel => $composableBuilder(
+    column: $table.lastPanel,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get latestChapter => $composableBuilder(
+    column: $table.latestChapter,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<double> get readChapter => $composableBuilder(
+    column: $table.readChapter,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get checkedAt => $composableBuilder(
+    column: $table.checkedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get openedAt => $composableBuilder(
+    column: $table.openedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get addedAt => $composableBuilder(
+    column: $table.addedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$WebSeriesRowsTableOrderingComposer
+    extends Composer<_$AppDatabase, $WebSeriesRowsTable> {
+  $$WebSeriesRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get url => $composableBuilder(
+    column: $table.url,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get title => $composableBuilder(
+    column: $table.title,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get coverUrl => $composableBuilder(
+    column: $table.coverUrl,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastChapterUrl => $composableBuilder(
+    column: $table.lastChapterUrl,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get lastPanel => $composableBuilder(
+    column: $table.lastPanel,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get latestChapter => $composableBuilder(
+    column: $table.latestChapter,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<double> get readChapter => $composableBuilder(
+    column: $table.readChapter,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get checkedAt => $composableBuilder(
+    column: $table.checkedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get openedAt => $composableBuilder(
+    column: $table.openedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get addedAt => $composableBuilder(
+    column: $table.addedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$WebSeriesRowsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $WebSeriesRowsTable> {
+  $$WebSeriesRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get url =>
+      $composableBuilder(column: $table.url, builder: (column) => column);
+
+  GeneratedColumn<String> get title =>
+      $composableBuilder(column: $table.title, builder: (column) => column);
+
+  GeneratedColumn<String> get coverUrl =>
+      $composableBuilder(column: $table.coverUrl, builder: (column) => column);
+
+  GeneratedColumn<String> get lastChapterUrl => $composableBuilder(
+    column: $table.lastChapterUrl,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get lastPanel =>
+      $composableBuilder(column: $table.lastPanel, builder: (column) => column);
+
+  GeneratedColumn<double> get latestChapter => $composableBuilder(
+    column: $table.latestChapter,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<double> get readChapter => $composableBuilder(
+    column: $table.readChapter,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get checkedAt =>
+      $composableBuilder(column: $table.checkedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get openedAt =>
+      $composableBuilder(column: $table.openedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get addedAt =>
+      $composableBuilder(column: $table.addedAt, builder: (column) => column);
+}
+
+class $$WebSeriesRowsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $WebSeriesRowsTable,
+          WebSeriesRow,
+          $$WebSeriesRowsTableFilterComposer,
+          $$WebSeriesRowsTableOrderingComposer,
+          $$WebSeriesRowsTableAnnotationComposer,
+          $$WebSeriesRowsTableCreateCompanionBuilder,
+          $$WebSeriesRowsTableUpdateCompanionBuilder,
+          (
+            WebSeriesRow,
+            BaseReferences<_$AppDatabase, $WebSeriesRowsTable, WebSeriesRow>,
+          ),
+          WebSeriesRow,
+          PrefetchHooks Function()
+        > {
+  $$WebSeriesRowsTableTableManager(_$AppDatabase db, $WebSeriesRowsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$WebSeriesRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$WebSeriesRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$WebSeriesRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> url = const Value.absent(),
+                Value<String> title = const Value.absent(),
+                Value<String?> coverUrl = const Value.absent(),
+                Value<String?> lastChapterUrl = const Value.absent(),
+                Value<int> lastPanel = const Value.absent(),
+                Value<double?> latestChapter = const Value.absent(),
+                Value<double?> readChapter = const Value.absent(),
+                Value<String?> checkedAt = const Value.absent(),
+                Value<String?> openedAt = const Value.absent(),
+                Value<String> addedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => WebSeriesRowsCompanion(
+                url: url,
+                title: title,
+                coverUrl: coverUrl,
+                lastChapterUrl: lastChapterUrl,
+                lastPanel: lastPanel,
+                latestChapter: latestChapter,
+                readChapter: readChapter,
+                checkedAt: checkedAt,
+                openedAt: openedAt,
+                addedAt: addedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String url,
+                required String title,
+                Value<String?> coverUrl = const Value.absent(),
+                Value<String?> lastChapterUrl = const Value.absent(),
+                Value<int> lastPanel = const Value.absent(),
+                Value<double?> latestChapter = const Value.absent(),
+                Value<double?> readChapter = const Value.absent(),
+                Value<String?> checkedAt = const Value.absent(),
+                Value<String?> openedAt = const Value.absent(),
+                required String addedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => WebSeriesRowsCompanion.insert(
+                url: url,
+                title: title,
+                coverUrl: coverUrl,
+                lastChapterUrl: lastChapterUrl,
+                lastPanel: lastPanel,
+                latestChapter: latestChapter,
+                readChapter: readChapter,
+                checkedAt: checkedAt,
+                openedAt: openedAt,
+                addedAt: addedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$WebSeriesRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $WebSeriesRowsTable,
+      WebSeriesRow,
+      $$WebSeriesRowsTableFilterComposer,
+      $$WebSeriesRowsTableOrderingComposer,
+      $$WebSeriesRowsTableAnnotationComposer,
+      $$WebSeriesRowsTableCreateCompanionBuilder,
+      $$WebSeriesRowsTableUpdateCompanionBuilder,
+      (
+        WebSeriesRow,
+        BaseReferences<_$AppDatabase, $WebSeriesRowsTable, WebSeriesRow>,
+      ),
+      WebSeriesRow,
+      PrefetchHooks Function()
+    >;
 typedef $$KvRowsTableCreateCompanionBuilder =
     KvRowsCompanion Function({
       required String key,
@@ -4636,6 +5590,8 @@ class $AppDatabaseManager {
       $$VolumeActivityRowsTableTableManager(_db, _db.volumeActivityRows);
   $$RecOutcomeRowsTableTableManager get recOutcomeRows =>
       $$RecOutcomeRowsTableTableManager(_db, _db.recOutcomeRows);
+  $$WebSeriesRowsTableTableManager get webSeriesRows =>
+      $$WebSeriesRowsTableTableManager(_db, _db.webSeriesRows);
   $$KvRowsTableTableManager get kvRows =>
       $$KvRowsTableTableManager(_db, _db.kvRows);
 }

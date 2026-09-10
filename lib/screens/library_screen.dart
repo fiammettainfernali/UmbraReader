@@ -33,8 +33,12 @@ import 'library_cards.dart';
 import 'library_downloads.dart';
 import 'library_filters.dart';
 import 'library_search_screen.dart';
+import '../services/web_series_refresh.dart';
+import '../services/web_series_store.dart';
 import '../widgets/pro_sheet.dart';
+import '../widgets/web_series_card.dart';
 import 'reader_screen.dart';
+import 'web_series_screen.dart';
 import 'saved_views_screen.dart';
 import 'series_detail_screen.dart';
 import 'settings_screen.dart';
@@ -92,6 +96,11 @@ class _LibraryScreenState extends State<LibraryScreen>
 
   /// Books that have been started but not finished, newest first.
   List<ReadingEntry> _reading = const [];
+
+  /// Comics followed on their own sites. Local rows, unrelated to the OPDS
+  /// library, so they are on the shelf whether or not a server answers.
+  List<WebSeries> _webSeries = const [];
+  final WebSeriesStore _webSeriesStore = WebSeriesStore();
 
   /// Reading-time activity + daily goal for the home streak chip. Its
   /// per-volume seconds also drive the library's "Time spent" sort.
@@ -272,9 +281,96 @@ class _LibraryScreenState extends State<LibraryScreen>
     // to reach for the network on behalf of books sitting in local storage.
     await _loadDownloads();
     await _loadReading();
+    // Local rows, so the shelf has them before anything is asked of a
+    // network — and, unlike the books, it keeps them when nothing answers.
+    await _loadWebSeries();
     if (settings.isConfigured) {
       await _sync();
     }
+    // Last, and never awaited by anything that draws: this is one request
+    // per followed site, and off a good connection those do not fail fast.
+    unawaited(_refreshWebSeries());
+  }
+
+  /// Reads the followed comics off the device.
+  Future<void> _loadWebSeries() async {
+    final followed = await _webSeriesStore.all();
+    if (!mounted) return;
+    setState(() => _webSeries = followed);
+  }
+
+  /// Asks the followed sites whether anything new has appeared, then
+  /// redraws only if something actually had. Silent throughout — a site
+  /// that has gone away is not news the library should report.
+  Future<void> _refreshWebSeries() async {
+    if (_webSeries.isEmpty) return;
+    final learned = await WebSeriesRefresh(
+      store: _webSeriesStore,
+    ).run(_webSeries);
+    if (learned > 0 && mounted) await _loadWebSeries();
+  }
+
+  Future<void> _openWebSeries(WebSeries series) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: (_) => WebSeriesScreen(series: series)),
+    );
+    // The position moved while that screen was up.
+    await _loadWebSeries();
+  }
+
+  Future<void> _webSeriesMenu(WebSeries series) async {
+    final unfollow = await showModalBottomSheet<bool>(
+      context: context,
+      builder: (sheetCtx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              title: Text(series.title),
+              subtitle: Text(Uri.parse(series.url).host),
+            ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.bookmark_remove_outlined),
+              title: const Text('Unfollow'),
+              subtitle: const Text(
+                'Forgets your place. Nothing is deleted '
+                'from the site.',
+              ),
+              onTap: () => Navigator.of(sheetCtx).pop(true),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (unfollow == true) {
+      await _webSeriesStore.unfollow(series.url);
+      await _loadWebSeries();
+    }
+  }
+
+  Widget _buildWebSeriesShelf() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionHeader('Following'),
+        SizedBox(
+          height: 236,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: _webSeries.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 14),
+            itemBuilder: (context, index) => WebSeriesCard(
+              series: _webSeries[index],
+              onTap: () => _openWebSeries(_webSeries[index]),
+              onLongPress: () => _webSeriesMenu(_webSeries[index]),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+      ],
+    );
   }
 
   /// Refreshes the "Continue reading" shelf and the recommendation engine
@@ -327,8 +423,10 @@ class _LibraryScreenState extends State<LibraryScreen>
     if (rebuilt.isNotEmpty) {
       var any = false;
       for (final e in entries.where((e) => e.progress.isFinished)) {
-        if (await ReadingProgressStore()
-            .unfinishIfRebuilt(e.volume, rebuilt[e.volume.seriesOpdsId])) {
+        if (await ReadingProgressStore().unfinishIfRebuilt(
+          e.volume,
+          rebuilt[e.volume.seriesOpdsId],
+        )) {
           any = true;
         }
       }
@@ -1025,6 +1123,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       final hasHomeContent =
           showHome &&
           (_reading.isNotEmpty ||
+              _webSeries.isNotEmpty ||
               _activity.currentStreak() > 0 ||
               _dailyGoalMinutes > 0);
       return [
@@ -1038,6 +1137,10 @@ class _LibraryScreenState extends State<LibraryScreen>
           SliverToBoxAdapter(child: _buildContinueHero()),
         if (showHome && _reading.length > 1)
           SliverToBoxAdapter(child: _buildContinueShelf()),
+        // Above "All books" because it is not one: these are read on their
+        // own sites, and nothing about them is in the grid below.
+        if (showHome && _webSeries.isNotEmpty)
+          SliverToBoxAdapter(child: _buildWebSeriesShelf()),
         // Only worth a heading when something sits above it. With nothing
         // in progress the grid starts right under the controls, and
         // "All books" would just be a label on the only thing there is.
@@ -1230,8 +1333,9 @@ class _LibraryScreenState extends State<LibraryScreen>
                     child: Text(
                       _offlineReason!,
                       style: theme.textTheme.labelSmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant
-                            .withValues(alpha: 0.75),
+                        color: theme.colorScheme.onSurfaceVariant.withValues(
+                          alpha: 0.75,
+                        ),
                       ),
                     ),
                   ),

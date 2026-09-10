@@ -139,6 +139,54 @@ class RecOutcomeRows extends Table {
   Set<Column<Object>> get primaryKey => {seriesId};
 }
 
+/// One followed web series — something read on its own site rather than
+/// compiled into a book.
+///
+/// Comics are the reason this exists. A chapter of one is forty-odd images
+/// and no prose, so there is nothing for the scraper, the EPUB builder or
+/// the search index to do with it. What there *is* to keep is the part a
+/// browser forgets: which chapter you reached, whereabouts in it, and
+/// whether the series has grown since. The pages themselves stay on the
+/// site.
+///
+/// Everything here comes from the series page's own OpenGraph tags and
+/// links — see [WebSeriesMetadata] — so following a new site needs no code.
+class WebSeriesRows extends Table {
+  /// The series page's URL, which is also its identity. Not a slug: these
+  /// sites hash their slugs (`rankers-return-c6f3k3os`), so the URL is the
+  /// only stable name there is.
+  TextColumn get url => text()();
+
+  TextColumn get title => text()();
+  TextColumn get coverUrl => text().nullable()();
+
+  /// The chapter page last open, so tapping the series returns to it
+  /// rather than to the series' front page.
+  TextColumn get lastChapterUrl => text().nullable()();
+
+  /// Whereabouts in that chapter, as an index into its images.
+  ///
+  /// Deliberately not a scroll offset. A chapter is dozens of lazily
+  /// loaded panels, so when the page is reopened it is briefly short and
+  /// a saved pixel position lands somewhere arbitrary. A panel is a thing
+  /// that still exists once the page has settled.
+  IntColumn get lastPanel => integer().withDefault(const Constant(0))();
+
+  /// Highest chapter number the series page offered at the last check, and
+  /// the highest actually opened. The pair is what makes a "new chapters"
+  /// badge possible without downloading anything.
+  RealColumn get latestChapter => real().nullable()();
+  RealColumn get readChapter => real().nullable()();
+
+  /// ISO-8601, like every other timestamp in this file.
+  TextColumn get checkedAt => text().nullable()();
+  TextColumn get openedAt => text().nullable()();
+  TextColumn get addedAt => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {url};
+}
+
 /// Small scalars owned by database-backed stores (e.g. the collections
 /// last-modified timestamp that drives whole-set sync).
 class KvRows extends Table {
@@ -162,6 +210,7 @@ class KvRows extends Table {
     DailyActivityRows,
     VolumeActivityRows,
     RecOutcomeRows,
+    WebSeriesRows,
     KvRows,
   ],
 )
@@ -193,7 +242,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -235,12 +284,21 @@ class AppDatabase extends _$AppDatabase {
         // merge on.
         await m.addColumn(readingProgressRows, readingProgressRows.hiddenAt);
       }
+      if (from < 8) {
+        // v8: web series — comics followed on their own site.
+        await m.createTable(webSeriesRows);
+      }
     },
   );
 
-  /// Empties every store table. Used by backup restore: the restored
-  /// legacy-format SharedPreferences become the source of truth again and
-  /// each store re-imports from them on next use.
+  /// Empties every store table that a restore will refill. Used by backup
+  /// restore: the restored legacy-format SharedPreferences become the
+  /// source of truth again and each store re-imports from them on next use.
+  ///
+  /// [webSeriesRows] is deliberately not among them. Every table here is
+  /// cleared because something is about to put it back; web series were
+  /// never in SharedPreferences, so nothing would, and clearing them would
+  /// turn a restore into a silent unfollowing of every comic.
   Future<void> clearStoreData() async {
     await batch((b) {
       b.deleteAll(readingProgressRows);
