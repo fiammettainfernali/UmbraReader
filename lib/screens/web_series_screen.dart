@@ -8,11 +8,24 @@
 // the site renders them itself, which is also why no anti-bot machinery is
 // needed here: it is a real browser.
 //
-// Position is kept as a panel index rather than a scroll offset. These
-// chapters lazy-load their images, so a page reopened is briefly a fraction
-// of its full height and a saved pixel position lands somewhere arbitrary.
-// Panels survive that, and the restore below waits for the one it wants to
-// exist rather than assuming it already does.
+// Position is kept as a panel index rather than a scroll offset, because a
+// chapter's height is not stable: it settles as images decode, so a saved
+// pixel offset means something different by the time it is used. A panel is
+// the same panel either way.
+//
+// The restore is stubborn for a reason worth writing down, because it cost
+// three wrong attempts to find. This page finishes loading TWICE, seconds
+// apart, and the second finish puts the scroll back at the top. A restore
+// that lands on the first finish and considers itself done is undone
+// shortly afterwards — and, since the position is saved on a timer, the
+// top of the page is then written over the place the reader had actually
+// reached. Each attempt destroyed the evidence for the next one.
+//
+// So it does not trust a single landing. It re-asserts until the panel has
+// held for three consecutive checks, treats a bounce back to the top as
+// the second load rather than as a decision, and stops the moment the page
+// is somewhere else entirely — which is the reader scrolling, and must
+// never be fought.
 
 import 'dart:async';
 
@@ -64,6 +77,17 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
   /// simply less comic.
   bool _chromeVisible = true;
 
+  /// Whether a page has finished loading yet. Until one has, an address
+  /// change is the first load settling rather than the reader going
+  /// somewhere.
+  bool _settled = false;
+
+  /// Stops the restore holding on forever. It waits through a second page
+  /// load on purpose, so it cannot simply give up on the first finish —
+  /// but a page that never reports back must not leave a target armed to
+  /// yank the reader somewhere minutes later.
+  Timer? _restoreGiveUp;
+
   @override
   void initState() {
     super.initState();
@@ -72,12 +96,23 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
     if (widget.series.lastChapterUrl == _currentUrl &&
         widget.series.lastPanel > 0) {
       _restoreTo = widget.series.lastPanel;
+      _restoreGiveUp = Timer(
+        const Duration(seconds: 30),
+        () => _restoreTo = null,
+      );
     }
     _web = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..addJavaScriptChannel(
         _chromeChannel,
         onMessageReceived: (message) {
+          // The position stuck, or the reader moved on. Either way there is
+          // nothing left to restore, and holding the target would fight the
+          // next thing they do.
+          if (message.message == 'done') {
+            _restoreTo = null;
+            return;
+          }
           final wanted = message.message == 'show';
           if (wanted == _chromeVisible || !mounted) return;
           setState(() => _chromeVisible = wanted);
@@ -92,6 +127,7 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
             if (mounted) setState(() => _loading = false);
             _restoreIfWanted();
             _hookChrome();
+            _settled = true;
           },
           // Only the top frame is gated. An ad in an iframe navigating
           // itself is contained already; an ad throwing the *page* at a
@@ -115,8 +151,12 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
           onUrlChange: (change) {
             final url = change.url;
             if (url == null || url == _currentUrl) return;
-            // Leaving the page the saved position described.
-            _restoreTo = null;
+            // Leaving the page the saved position described — but only
+            // once one has actually been shown. The address settles during
+            // the first load (a redirect, a trailing slash, the site
+            // normalising its own URL), and treating that as navigation
+            // cancelled the restore before it had a chance to run.
+            if (_settled) _restoreTo = null;
             _currentUrl = url;
             _save();
           },
@@ -134,6 +174,7 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
   @override
   void dispose() {
     _ticker?.cancel();
+    _restoreGiveUp?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     // Not awaited: dispose cannot, and the write is a single row.
     unawaited(_save());
@@ -169,10 +210,18 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
       $_panelsJs
       if (window.__umbraRestoring) return -1;
       var p = __panels();
+      // The panel filling most of the screen, not the first one still
+      // technically on it. A panel is taller than the viewport, so at the
+      // moment you stop reading there is usually a sliver of the previous
+      // one left at the top — and taking that as the answer put every
+      // restore one panel further back than where the reader had been.
+      var best = 0, most = -1;
       for (var n = 0; n < p.length; n++) {
-        if (p[n].getBoundingClientRect().bottom > 0) return n;
+        var r = p[n].getBoundingClientRect();
+        var seen = Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0);
+        if (seen > most) { most = seen; best = n; }
       }
-      return p.length ? p.length - 1 : 0;
+      return best;
     })()''';
 
   /// Scrolls the wanted panel into view once it exists.
@@ -185,21 +234,56 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
   static String _restoreJs(int target) =>
       '''
     (function () {
+      // Already working. The page finishing twice re-runs this, and two
+      // loops chasing the same panel is waste at best.
+      if (window.__umbraRestoring) return;
       $_panelsJs
       var target = $target, tries = 0;
       // Held up for the duration so a save cannot land mid-restore and
       // record the top of a half-loaded page as the place you stopped.
       window.__umbraRestoring = 1;
+      var settled = 0;
+      function done() {
+        window.__umbraRestoring = 0;
+        try { $_chromeChannel.postMessage('done'); } catch (e) {}
+      }
       (function tick() {
         var p = __panels();
         if (p.length > target) {
-          p[target].scrollIntoView();
-          window.__umbraRestoring = 0;
+          var box = p[target].getBoundingClientRect();
+          if (Math.abs(box.top) < 40) {
+            // Arrived. Watched for a moment rather than trusted: the page
+            // finishes loading twice, and the second one puts the scroll
+            // back at the top after the first restore has already landed.
+            if (++settled >= 3) return done();
+          } else if (window.scrollY < 200) {
+            // Back at the top without the reader having done anything —
+            // that is the second load, not a decision. Land again.
+            p[target].scrollIntoView();
+            settled = 0;
+          } else {
+            // Somewhere else entirely: the reader has moved on, and this
+            // must not drag them back.
+            return done();
+          }
+        } else if (p.length) {
+          // The panel is not in the list yet. Walking down to the last one
+          // that is pulls in the next few, which gets there sooner than
+          // waiting on a page that only loads what is approached.
+          p[p.length - 1].scrollIntoView(false);
+        } else {
+          window.scrollBy(0, window.innerHeight);
+        }
+        // Long enough to outlast the second load. The page finishes twice,
+        // several seconds apart, and giving up before the second one is
+        // what let it end at the top with the position already spent.
+        if (++tries < 90) {
+          setTimeout(tick, 200);
           return;
         }
-        if (++tries < 40) { setTimeout(tick, 250); return; }
-        // Given up: this chapter is shorter than the one stopped in.
-        window.__umbraRestoring = 0;
+        // Given up: this chapter is shorter than the one stopped in, or it
+        // never loaded. Wherever the walk reached is closer than the top.
+        done();
       })();
     })()''';
 
@@ -266,7 +350,11 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
   Future<void> _restoreIfWanted() async {
     final target = _restoreTo;
     if (target == null || target <= 0) return;
-    _restoreTo = null;
+    // Deliberately NOT cleared here. The page finishes loading twice, and
+    // the second one puts the scroll back at the top — so a restore that
+    // spends its target on the first finish lands correctly, is undone
+    // seconds later, and has nothing left to land with. It is cleared when
+    // the page says the position stuck, or by [_restoreGiveUp].
     try {
       await _web.runJavaScript(_restoreJs(target));
     } on Exception {
@@ -294,10 +382,11 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
   /// The chapter is always recorded; the panel only when it is known.
   Future<void> _save() async {
     if (_currentUrl.isEmpty) return;
+    final panel = await _currentPanel();
     await _store.notePosition(
       seriesUrl: widget.series.url,
       chapterUrl: _currentUrl,
-      panel: await _currentPanel(),
+      panel: panel,
     );
   }
 
@@ -308,12 +397,31 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
     await _web.loadRequest(Uri.parse(widget.series.url));
   }
 
+  /// Steps back a page, or reports that there is nowhere left to go.
+  ///
+  /// Only the system back gesture uses this. Walking the page history is
+  /// what that gesture means everywhere else on the phone, so it means it
+  /// here too.
   Future<bool> _back() async {
     if (await _web.canGoBack()) {
       await _web.goBack();
       return false;
     }
     return true;
+  }
+
+  /// Leaves the comic and returns to the library.
+  ///
+  /// Deliberately not [Navigator.maybePop]: that consults the [PopScope]
+  /// below, which spends the page history first. An arrow in the reader's
+  /// own bar does not mean "the page before this one" — after four chapters
+  /// that made it a button which visibly did something and yet never
+  /// arrived anywhere, and the way out was to press it once per page you
+  /// had read.
+  Future<void> _leave() async {
+    final navigator = Navigator.of(context);
+    await _save();
+    if (mounted) navigator.pop();
   }
 
   @override
@@ -382,9 +490,9 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
             child: Row(
               children: [
                 IconButton(
-                  tooltip: 'Back',
+                  tooltip: 'Back to library',
                   icon: const Icon(Icons.arrow_back),
-                  onPressed: () => Navigator.of(context).maybePop(),
+                  onPressed: _leave,
                 ),
                 Expanded(
                   child: Text(
