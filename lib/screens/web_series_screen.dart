@@ -20,6 +20,7 @@ import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../services/web_series_store.dart';
+import '../services/web_view_guard.dart';
 
 class WebSeriesScreen extends StatefulWidget {
   const WebSeriesScreen({super.key, required this.series, this.store});
@@ -48,6 +49,15 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
   /// reader has navigated somewhere the saved position does not describe.
   int? _restoreTo;
 
+  /// The site this comic was opened for. Navigations anywhere else are
+  /// refused — see [sameSite].
+  late final Uri _origin = Uri.parse(widget.series.url);
+
+  /// When the reader was last told something was blocked. An ad script that
+  /// is being refused tends to try again immediately, and a queue of
+  /// identical snackbars is worse than the redirect was.
+  DateTime? _lastBlockNotice;
+
   @override
   void initState() {
     super.initState();
@@ -67,6 +77,22 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
           onPageFinished: (_) {
             if (mounted) setState(() => _loading = false);
             _restoreIfWanted();
+          },
+          // Only the top frame is gated. An ad in an iframe navigating
+          // itself is contained already; an ad throwing the *page* at a
+          // store listing is the thing worth refusing, and that arrives
+          // here as a main-frame request. Subresources — every panel in the
+          // chapter, served from a different host on this site — never pass
+          // through this callback at all, which is what makes it safe to be
+          // this strict.
+          onNavigationRequest: (request) {
+            if (!request.isMainFrame) return NavigationDecision.navigate;
+            final target = Uri.tryParse(request.url);
+            if (target != null && sameSite(_origin, target)) {
+              return NavigationDecision.navigate;
+            }
+            _reportBlocked(target?.host ?? request.url);
+            return NavigationDecision.prevent;
           },
           // Chapter pagers on these sites are often pushState navigations
           // that never reload, so the address has to be tracked here rather
@@ -161,6 +187,28 @@ class _WebSeriesScreenState extends State<WebSeriesScreen>
         window.__umbraRestoring = 0;
       })();
     })()''';
+
+  /// Says once, quietly, that a redirect was refused.
+  ///
+  /// Worth saying at all rather than silently swallowing: a link that does
+  /// nothing looks like a broken app, and if a site turns out to route its
+  /// own chapters through another domain this is the only way that would
+  /// ever be noticed.
+  void _reportBlocked(String where) {
+    if (!mounted) return;
+    final now = DateTime.now();
+    final last = _lastBlockNotice;
+    if (last != null && now.difference(last) < const Duration(seconds: 5)) {
+      return;
+    }
+    _lastBlockNotice = now;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Stayed on ${_origin.host} — blocked $where'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
 
   Future<void> _restoreIfWanted() async {
     final target = _restoreTo;
