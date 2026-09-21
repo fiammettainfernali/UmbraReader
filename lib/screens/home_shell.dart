@@ -84,10 +84,17 @@ class _HomeShellState extends State<HomeShell> {
               // Both of these need the server address, so they wait on the
               // same settings load rather than each guessing at it.
               if (settings == null) ...[
-                const Scaffold(body: Center(child: CircularProgressIndicator())),
-                const Scaffold(body: Center(child: CircularProgressIndicator())),
+                const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                ),
+                const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                ),
               ] else ...[
-                DiscoverScreen(settings: settings),
+                // Discover is told whether it is the tab on show. Alive in
+                // this stack is not the same as seen, and its shelf counts
+                // what the reader has been shown.
+                DiscoverScreen(settings: settings, isSelected: _index == 1),
                 ManageScreen(settings: settings),
               ],
               const StatsScreen(),

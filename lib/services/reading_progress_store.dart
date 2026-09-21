@@ -332,9 +332,9 @@ class ReadingProgressStore {
     // control of their own shelf.
     if (finishedAt != null && !rebuiltAt.isAfter(finishedAt)) return false;
     final db = AppDatabase.instance;
-    await (db.update(db.readingProgressRows)
-          ..where((t) => t.volumeKey.equals(_key(volume))))
-        .write(
+    await (db.update(
+      db.readingProgressRows,
+    )..where((t) => t.volumeKey.equals(_key(volume)))).write(
       ReadingProgressRowsCompanion(
         endReached: const Value(false),
         // Stamped now so the comparison above settles, and so the change
@@ -343,6 +343,31 @@ class ReadingProgressStore {
       ),
     );
     return true;
+  }
+
+  /// When anything was last read, across every volume.
+  ///
+  /// The Discover shelf asks this on every redraw to decide whether reading
+  /// has moved since it last fitted — a question [allEntries] can answer
+  /// too, but only by decoding the stored volume JSON of every row and
+  /// sorting the result, which is a lot of work to throw away one timestamp
+  /// later. Reads the one column and parses rather than taking a SQL
+  /// `max()`: the stored strings are not guaranteed to share a timezone
+  /// suffix, so lexicographic order is not reliably chronological, and a
+  /// newer read that sorted below an older one would leave the shelf
+  /// convinced nothing had changed.
+  Future<DateTime?> newestUpdatedAt() async {
+    await _ensureMigrated();
+    final column = _table.updatedAt;
+    final rows = await (_db.selectOnly(_table)..addColumns([column])).get();
+    DateTime? newest;
+    for (final row in rows) {
+      final raw = row.read(column);
+      if (raw == null) continue;
+      final at = DateTime.tryParse(raw);
+      if (at != null && (newest == null || at.isAfter(newest))) newest = at;
+    }
+    return newest;
   }
 
   Future<List<ReadingEntry>> allEntries() async {

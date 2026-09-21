@@ -54,12 +54,15 @@ void main() {
     final recs = engine.recommend(
       allSeries: [
         _series(
-          id: 1, title: 'Older', genres: ['Action'],
+          id: 1,
+          title: 'Older',
+          genres: ['Action'],
           updatedAt: today.subtract(const Duration(days: 10)),
         ),
         _series(id: 2, title: 'Newest', updatedAt: today),
         _series(
-          id: 3, title: 'Oldest',
+          id: 3,
+          title: 'Oldest',
           updatedAt: today.subtract(const Duration(days: 100)),
         ),
       ],
@@ -215,10 +218,17 @@ void main() {
     final library = [
       for (var i = 1; i <= 30; i++)
         _series(
-          id: i, title: 'S$i', genres: ['Action'],
+          id: i,
+          title: 'S$i',
+          genres: ['Action'],
           author: 'Author $i', // unique authors so diversity guard doesn't trim
         ),
-      _series(id: 99, title: 'Liked', genres: ['Action'], author: 'Read Author'),
+      _series(
+        id: 99,
+        title: 'Liked',
+        genres: ['Action'],
+        author: 'Read Author',
+      ),
     ];
     final recs = const RecommendationEngine(maxResults: 5).recommend(
       allSeries: library,
@@ -242,8 +252,50 @@ void main() {
   test('a dropped series pulls candidates with its genres downward', () {
     final library = [
       _series(id: 1, title: 'Loved', genres: ['Action'], author: 'A'),
+      _series(id: 2, title: 'Hated', genres: ['Mecha'], author: 'B'),
+      _series(id: 3, title: 'Pure Action', genres: ['Action'], author: 'C'),
+      _series(id: 4, title: 'Pure Mecha', genres: ['Mecha'], author: 'D'),
+    ];
+    final recs = engine.recommend(
+      allSeries: library,
+      readingEntries: [
+        _entry(
+          seriesId: 1,
+          progress: ReadingProgress(
+            chapterIndex: 99,
+            blockIndex: 0,
+            chapterCount: 100,
+            updatedAt: today,
+          ),
+        ),
+      ],
+      // The drop comes from the in-app picker here. It used to be set on
+      // Series.readingStatus, but that field is the server's and is now only
+      // conditionally trusted, so the test says which channel it means; the
+      // server-side 'dropped' channel has its own test below.
+      signals: const RecSignals(statusOverrides: {2: 'dropped'}),
+      now: today,
+    );
+    expect(recs.any((r) => r.series.opdsId == 2), isFalse);
+    expect(
+      recs.any((r) => r.series.opdsId == 4),
+      isFalse,
+      reason: 'Mecha is poisoned by the dropped series',
+    );
+    expect(recs.first.series.opdsId, 3);
+  });
+
+  test("a server-side 'dropped' is still a real user verdict", () {
+    // Novel Grabber writes 'dropped' into the feed straight from its own
+    // status picker, so unlike its 'completed' this IS the user speaking.
+    // Neutralising the unread 'completed' must not take this channel too.
+    final library = [
+      _series(id: 1, title: 'Loved', genres: ['Action'], author: 'A'),
       _series(
-        id: 2, title: 'Hated', genres: ['Mecha'], author: 'B',
+        id: 2,
+        title: 'Hated',
+        genres: ['Mecha'],
+        author: 'B',
         readingStatus: 'dropped',
       ),
       _series(id: 3, title: 'Pure Action', genres: ['Action'], author: 'C'),
@@ -265,17 +317,17 @@ void main() {
       now: today,
     );
     expect(recs.any((r) => r.series.opdsId == 2), isFalse);
-    expect(recs.any((r) => r.series.opdsId == 4), isFalse,
-        reason: 'Mecha is poisoned by the dropped series');
+    expect(
+      recs.any((r) => r.series.opdsId == 4),
+      isFalse,
+      reason: 'Mecha is poisoned even with no in-app reading to back it',
+    );
     expect(recs.first.series.opdsId, 3);
   });
 
   test('user-marked "completed" still counts as a like', () {
     final library = [
-      _series(
-        id: 1, title: 'Done', genres: ['Wuxia'], author: 'X',
-        readingStatus: 'completed',
-      ),
+      _series(id: 1, title: 'Done', genres: ['Wuxia'], author: 'X'),
       _series(id: 2, title: 'Other Wuxia', genres: ['Wuxia'], author: 'Y'),
       _series(id: 3, title: 'Sci-Fi', genres: ['Sci-Fi'], author: 'Z'),
     ];
@@ -294,9 +346,175 @@ void main() {
           ),
         ),
       ],
+      // The mark has to come from the user's own picker: the server's
+      // Series.readingStatus 'completed' means "this novel finished
+      // publishing", which is nobody's verdict on the book.
+      signals: const RecSignals(statusOverrides: {1: 'completed'}),
       now: today,
     );
     expect(recs.first.series.opdsId, 2);
+  });
+
+  test(
+    "an unread server 'completed' seeds nothing and stays recommendable",
+    () {
+      // 57 of this library's novels carry the server's 'completed'; 55 were
+      // never opened. Read as "the user finished this" they each contributed
+      // a permanent, never-decaying +1.0 — louder than a real finished read,
+      // which decays to a 0.15 floor — and were banned as already-engaged.
+      final library = [
+        _series(id: 1, title: 'Real Read', genres: ['Mecha'], author: 'A'),
+        _series(
+          id: 2,
+          title: 'Never Opened Mecha',
+          genres: ['Mecha'],
+          author: 'B',
+          readingStatus: 'completed',
+        ),
+        _series(id: 3, title: 'Other Mecha', genres: ['Mecha'], author: 'C'),
+        _series(
+          id: 4,
+          title: 'Never Opened Xianxia',
+          genres: ['Xianxia'],
+          author: 'D',
+          readingStatus: 'completed',
+        ),
+        _series(
+          id: 5,
+          title: 'Other Xianxia',
+          genres: ['Xianxia'],
+          author: 'E',
+        ),
+      ];
+      final entries = [
+        _entry(
+          seriesId: 1,
+          progress: ReadingProgress(
+            chapterIndex: 99,
+            blockIndex: 0,
+            chapterCount: 100,
+            updatedAt: today,
+          ),
+        ),
+      ];
+      final profile = engine.buildProfile(
+        allSeries: library,
+        readingEntries: entries,
+        now: today,
+      );
+      expect(profile.engagedIds, isNot(contains(2)));
+      expect(profile.engagedIds, isNot(contains(4)));
+      expect(profile.engagedIds, contains(1));
+
+      final ids = [
+        for (final r in engine.recommend(
+          allSeries: library,
+          readingEntries: entries,
+          now: today,
+        ))
+          r.series.opdsId,
+      ];
+      expect(
+        ids,
+        contains(2),
+        reason: 'an unread book must stay in the candidate pool',
+      );
+      expect(ids, contains(3));
+      expect(
+        ids,
+        isNot(contains(5)),
+        reason: 'the never-opened Xianxia contributed no Xianxia affinity',
+      );
+    },
+  );
+
+  test("a user override rescues a server 'completed' the engine ignores", () {
+    // Same shape, but this time the user marked the never-opened series
+    // caught-up themselves — the external-reader binge. Their own verdict is
+    // unconditional, so its genre seeds taste and the series leaves the pool.
+    final library = [
+      _series(id: 1, title: 'Real Read', genres: ['Mecha'], author: 'A'),
+      _series(
+        id: 4,
+        title: 'Binged Elsewhere',
+        genres: ['Xianxia'],
+        author: 'D',
+        readingStatus: 'completed',
+      ),
+      _series(id: 5, title: 'Other Xianxia', genres: ['Xianxia'], author: 'E'),
+    ];
+    final ids = [
+      for (final r in engine.recommend(
+        allSeries: library,
+        readingEntries: [
+          _entry(
+            seriesId: 1,
+            progress: ReadingProgress(
+              chapterIndex: 99,
+              blockIndex: 0,
+              chapterCount: 100,
+              updatedAt: today,
+            ),
+          ),
+        ],
+        signals: const RecSignals(statusOverrides: {4: 'completed'}),
+        now: today,
+      ))
+        r.series.opdsId,
+    ];
+    expect(ids, contains(5), reason: 'the user-marked series seeds Xianxia');
+    expect(ids, isNot(contains(4)), reason: 'and is itself engaged');
+  });
+
+  test('opening a book and bouncing off it does not ban it forever', () {
+    // The reader saves a progress row the moment a book is opened, so
+    // building engagedIds from the existence of a row meant one peek —
+    // chapter 0, block 0, nothing read — removed the series from
+    // recommendations permanently while contributing no taste at all.
+    final library = [
+      _series(id: 1, title: 'Real Read', genres: ['Action'], author: 'A'),
+      _series(id: 2, title: 'Peeked', genres: ['Action'], author: 'B'),
+      _series(id: 3, title: 'Other Action', genres: ['Action'], author: 'C'),
+    ];
+    final entries = [
+      _entry(
+        seriesId: 1,
+        progress: ReadingProgress(
+          chapterIndex: 99,
+          blockIndex: 0,
+          chapterCount: 100,
+          updatedAt: today,
+        ),
+      ),
+      // Opened and closed again: the row exists, at the very first block.
+      _entry(
+        seriesId: 2,
+        progress: ReadingProgress(
+          chapterIndex: 0,
+          blockIndex: 0,
+          chapterCount: 400,
+          updatedAt: today,
+        ),
+      ),
+    ];
+    final profile = engine.buildProfile(
+      allSeries: library,
+      readingEntries: entries,
+      now: today,
+    );
+    expect(profile.engagedIds, contains(1));
+    expect(profile.engagedIds, isNot(contains(2)));
+
+    final ids = [
+      for (final r in engine.recommend(
+        allSeries: library,
+        readingEntries: entries,
+        now: today,
+      ))
+        r.series.opdsId,
+    ];
+    expect(ids, contains(2));
+    expect(ids, contains(3));
   });
 
   test('diversity guard caps picks per author', () {
@@ -304,7 +522,10 @@ void main() {
       for (var i = 1; i <= 6; i++)
         _series(id: i, title: 'S$i', genres: ['Action'], author: 'Solo'),
       _series(
-        id: 99, title: 'Loved', genres: ['Action'], author: 'Other Author',
+        id: 99,
+        title: 'Loved',
+        genres: ['Action'],
+        author: 'Other Author',
       ),
     ];
     final recs = const RecommendationEngine(maxPerAuthor: 2).recommend(
@@ -331,16 +552,25 @@ void main() {
   test('length bucket affinity favours similarly-sized novels', () {
     final library = [
       _series(
-        id: 1, title: 'Liked Long', genres: ['Action'],
-        author: 'A', totalChapters: 1500,
+        id: 1,
+        title: 'Liked Long',
+        genres: ['Action'],
+        author: 'A',
+        totalChapters: 1500,
       ),
       _series(
-        id: 2, title: 'Short Candidate', genres: ['Action'],
-        author: 'B', totalChapters: 50,
+        id: 2,
+        title: 'Short Candidate',
+        genres: ['Action'],
+        author: 'B',
+        totalChapters: 50,
       ),
       _series(
-        id: 3, title: 'Long Candidate', genres: ['Action'],
-        author: 'C', totalChapters: 1800,
+        id: 3,
+        title: 'Long Candidate',
+        genres: ['Action'],
+        author: 'C',
+        totalChapters: 1800,
       ),
     ];
     final recs = engine.recommend(
@@ -391,8 +621,12 @@ void main() {
 
   test('a reset series overrides a positive reading-history signal', () {
     final library = [
-      _series(id: 1, title: 'Finished Then Reset', genres: ['Mecha'],
-          author: 'A'),
+      _series(
+        id: 1,
+        title: 'Finished Then Reset',
+        genres: ['Mecha'],
+        author: 'A',
+      ),
       _series(id: 2, title: 'Other Mecha', genres: ['Mecha'], author: 'B'),
     ];
     final recs = engine.recommend(
@@ -418,17 +652,26 @@ void main() {
 
   test('similarTo finds picks resembling the given series', () {
     final source = _series(
-      id: 1, title: 'Source', author: 'A', genres: ['Cultivation', 'Action'],
+      id: 1,
+      title: 'Source',
+      author: 'A',
+      genres: ['Cultivation', 'Action'],
       totalChapters: 1500,
     );
     final library = [
       source,
       _series(
-        id: 2, title: 'Cultivation Match', author: 'B',
-        genres: ['Cultivation', 'Action'], totalChapters: 1400,
+        id: 2,
+        title: 'Cultivation Match',
+        author: 'B',
+        genres: ['Cultivation', 'Action'],
+        totalChapters: 1400,
       ),
       _series(
-        id: 3, title: 'Unrelated', author: 'C', genres: ['Romance'],
+        id: 3,
+        title: 'Unrelated',
+        author: 'C',
+        genres: ['Romance'],
         totalChapters: 200,
       ),
     ];
@@ -478,37 +721,97 @@ void main() {
     expect(recs.any((r) => r.series.opdsId == 2), isTrue);
   });
 
-  test('barely-started book contributes little, finished book contributes a lot', () {
+  test('untouched volumes do not dilute the one volume actually read', () {
+    // A 20-volume series with one volume read was divided by all twenty:
+    // √20/20 turned a full like into ~0.22, so the series the user is
+    // genuinely reading steered taste less than a one-volume skim. Only
+    // volumes that earned something may count towards the damping.
     final library = [
-      _series(id: 1, title: 'Barely Started', genres: ['A']),
-      _series(id: 2, title: 'Finished', genres: ['B']),
-      _series(id: 3, title: 'Candidate A', genres: ['A']),
-      _series(id: 4, title: 'Candidate B', genres: ['B']),
+      _series(id: 1, title: 'Twenty Volumes', genres: ['Wuxia'], author: 'A'),
+      _series(id: 2, title: 'Other Wuxia', genres: ['Wuxia'], author: 'B'),
+      _series(id: 3, title: 'One Volume', genres: ['Xianxia'], author: 'C'),
+      _series(id: 4, title: 'Other Xianxia', genres: ['Xianxia'], author: 'D'),
     ];
+    final read = ReadingProgress(
+      chapterIndex: 99,
+      blockIndex: 0,
+      chapterCount: 100,
+      updatedAt: today,
+    );
     final recs = engine.recommend(
       allSeries: library,
       readingEntries: [
-        _entry(
-          seriesId: 1,
-          progress: ReadingProgress(
-            chapterIndex: 0,
-            blockIndex: 1, // started but barely
-            chapterCount: 100,
-            updatedAt: today,
+        // Series 1: twenty volumes downloaded, only the first one opened.
+        for (var v = 1; v <= 20; v++)
+          ReadingEntry(
+            volume: Volume(
+              seriesOpdsId: 1,
+              title: 'Vol $v',
+              fileName: 'v$v.epub',
+              downloadUrl: '',
+              fileSizeBytes: 0,
+              updatedAt: null,
+            ),
+            progress: v == 1
+                ? read
+                : ReadingProgress(
+                    chapterIndex: 0,
+                    blockIndex: 0,
+                    chapterCount: 100,
+                    updatedAt: today,
+                  ),
           ),
-        ),
-        _entry(
-          seriesId: 2,
-          progress: ReadingProgress(
-            chapterIndex: 99,
-            blockIndex: 0,
-            chapterCount: 100,
-            updatedAt: today,
-          ),
-        ),
+        // Series 3: the same single read, in a one-volume series.
+        _entry(seriesId: 3, progress: read),
       ],
       now: today,
     );
-    expect(recs.first.series.opdsId, 4);
+    final byId = {for (final r in recs) r.series.opdsId: r};
+    expect(byId[2], isNotNull);
+    expect(byId[4], isNotNull);
+    expect(
+      byId[2]!.score,
+      closeTo(byId[4]!.score, 0.0001),
+      reason:
+          'one volume read is one volume read, whether the series has '
+          'one volume or twenty',
+    );
   });
+
+  test(
+    'barely-started book contributes little, finished book contributes a lot',
+    () {
+      final library = [
+        _series(id: 1, title: 'Barely Started', genres: ['A']),
+        _series(id: 2, title: 'Finished', genres: ['B']),
+        _series(id: 3, title: 'Candidate A', genres: ['A']),
+        _series(id: 4, title: 'Candidate B', genres: ['B']),
+      ];
+      final recs = engine.recommend(
+        allSeries: library,
+        readingEntries: [
+          _entry(
+            seriesId: 1,
+            progress: ReadingProgress(
+              chapterIndex: 0,
+              blockIndex: 1, // started but barely
+              chapterCount: 100,
+              updatedAt: today,
+            ),
+          ),
+          _entry(
+            seriesId: 2,
+            progress: ReadingProgress(
+              chapterIndex: 99,
+              blockIndex: 0,
+              chapterCount: 100,
+              updatedAt: today,
+            ),
+          ),
+        ],
+        now: today,
+      );
+      expect(recs.first.series.opdsId, 4);
+    },
+  );
 }

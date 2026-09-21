@@ -25,6 +25,30 @@ Future<ByteData> _bytes(String name) async {
   return ByteData.view(Uint8List.fromList(data).buffer);
 }
 
+/// The family a UI test should set on its theme — see [loadUiFont].
+const String kTestUiFont = 'Lora';
+
+/// Registers a real font for tests that lay out actual screens.
+///
+/// `flutter test` resolves every unregistered family to a placeholder font
+/// whose glyphs are each a full em square, so text measures far wider than
+/// any real font: "Recommended for you" comes out at 307px where real Lora
+/// is around 160. A section header then overflows its row at phone width
+/// and the test fails on the font rather than on the layout — which both
+/// wastes the failure and hides the real overflows it was meant to catch.
+///
+/// Pair this with `ThemeData(fontFamily: kTestUiFont)` on the test's
+/// MaterialApp: registering a family changes nothing unless something asks
+/// for it. Lora because it is already bundled for the reader.
+///
+/// Call from `setUpAll` after `TestWidgetsFlutterBinding.ensureInitialized`.
+Future<void> loadUiFont() async {
+  final loader = FontLoader(kTestUiFont)
+    ..addFont(_bytes('Lora-Regular.ttf'))
+    ..addFont(_bytes('Lora-Bold.ttf'));
+  await loader.load();
+}
+
 /// Registers [kTestReaderFont] with its real regular and bold faces.
 /// Call from `setUpAll` after `TestWidgetsFlutterBinding.ensureInitialized`.
 Future<void> loadReaderFonts() async {

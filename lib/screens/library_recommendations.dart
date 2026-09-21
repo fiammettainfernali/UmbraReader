@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 
 import '../models/series.dart';
@@ -22,8 +24,20 @@ mixin LibraryRecommendations<T extends StatefulWidget> on State<T> {
 
   OpdsSettings? get opdsSettings;
 
-  /// Re-reads reading state after feedback changes what should be suggested.
-  Future<void> reloadReading();
+  /// Re-reads the library and re-runs the ranking after feedback.
+  ///
+  /// Unconditional by contract. The host skips the refit when the library
+  /// looks unchanged, and feedback never changes the library — so a dismiss,
+  /// a like or a snooze left the shelf byte-identical, which read as the
+  /// buttons doing nothing at all.
+  Future<void> reloadRecommendations();
+
+  /// True while the shelf is the tab being looked at.
+  ///
+  /// The shell keeps Discover alive inside an IndexedStack, so "built" and
+  /// "on screen" are different questions — and an impression is only worth
+  /// recording when the answer to the second one is yes.
+  bool get shelfIsOnScreen;
 
   Future<void> openSeries(Series series);
 
@@ -43,25 +57,42 @@ mixin LibraryRecommendations<T extends StatefulWidget> on State<T> {
       _recommendations = next;
       _recommendOffset = 0;
     });
-    recordShelfImpressions();
+    // Only if they are being looked at. Fresh picks arrive on launch, while
+    // the app is sitting on Library with this tab alive but off screen.
+    if (shelfIsOnScreen) recordShelfImpressions();
   }
 
   /// Number of recommendations on screen at one time.
   static const int _recommendWindow = 10;
 
+  /// One card's horizontal footprint — [RecommendCard] is 124 wide and the
+  /// shelf separates them by 14 (see library_cards.dart) — and the shelf's
+  /// leading gutter. Used to work out how much of the window a given screen
+  /// actually shows.
+  static const double _cardStride = 124.0 + 14;
+  static const double _shelfGutter = 16;
+
+  /// What to assume when there is no size to measure (a shelf recorded from
+  /// outside a laid-out frame). A folded Fold fits about this many.
+  static const int _assumedOnScreenCards = 3;
+
   Future<void> _dismissRecommendation(Series series) async {
     await RecommendationFeedbackStore().recordDismiss(series.opdsId);
-    await reloadReading();
+    await reloadRecommendations();
   }
 
   /// Records a 👍 "more like this" and refreshes so the shelf leans into it.
   Future<void> _likeRecommendation(Series series) async {
     final messenger = ScaffoldMessenger.of(context);
     await RecommendationFeedbackStore().recordLike(series.opdsId);
+    // The old wording promised picks that were "coming up", and none ever
+    // were: the reload was skipped, so the shelf stayed exactly as it was.
+    // It refits now — and a liked series joins the engaged set, so the card
+    // that was just praised is also the one that leaves. Say what happens.
     messenger.showSnackBar(
-      SnackBar(content: Text('More picks like “${series.title}” coming up.')),
+      SnackBar(content: Text('More like “${series.title}” — shelf updated.')),
     );
-    await reloadReading();
+    await reloadRecommendations();
   }
 
   /// Records a "not now" (30-day snooze) and refreshes the shelf.
@@ -71,7 +102,7 @@ mixin LibraryRecommendations<T extends StatefulWidget> on State<T> {
     messenger.showSnackBar(
       SnackBar(content: Text('“${series.title}” hidden for 30 days.')),
     );
-    await reloadReading();
+    await reloadRecommendations();
   }
 
   /// Long-press options for a recommendation card: the full feedback set.
@@ -114,15 +145,19 @@ mixin LibraryRecommendations<T extends StatefulWidget> on State<T> {
     }
   }
 
+  /// Everything the window rotates through: the wildcard is pinned rather
+  /// than rotated, so it is not part of the pool being sliced.
+  List<Recommendation> _rotatingPool() => [
+    for (final r in _recommendations)
+      if (!r.isWildcard) r,
+  ];
+
   /// The recommendations currently visible in the shelf window. The
   /// exploration wildcard (if any) is pinned as the last visible card in
   /// every window so it always gets its one slot.
   List<Recommendation> _visibleRecommendations() {
     final wildcard = _recommendations.where((r) => r.isWildcard).toList();
-    final pool = [
-      for (final r in _recommendations)
-        if (!r.isWildcard) r,
-    ];
+    final pool = _rotatingPool();
     final List<Recommendation> window;
     if (pool.length <= _recommendWindow) {
       window = pool;
@@ -137,14 +172,36 @@ mixin LibraryRecommendations<T extends StatefulWidget> on State<T> {
     return [...window, ...wildcard];
   }
 
-  /// Counts an impression (once per series per day) for the recs on screen —
-  /// the outcome data that lets repeatedly-ignored picks fade and, later,
-  /// trains the per-user weights.
+  /// How many cards of the window this screen actually puts in front of the
+  /// reader. The shelf holds ten; a folded Fold shows about three of them,
+  /// and the rest are off the right edge until someone scrolls.
+  int _onScreenCardCount() {
+    final width = MediaQuery.maybeOf(context)?.size.width ?? 0;
+    if (width <= 0) return _assumedOnScreenCards;
+    // Ceil, not floor: a card half over the edge has still been seen.
+    return max(1, ((width - _shelfGutter) / _cardStride).ceil());
+  }
+
+  /// Counts an impression (once per series per day) for the cards that were
+  /// really on screen — the outcome data that lets repeatedly-ignored picks
+  /// fade and, later, trains the per-user weights.
+  ///
+  /// Callers must only reach here while the shelf is being looked at. This
+  /// used to run from [setRecommendations], which fires from Discover's
+  /// initState inside the shell's IndexedStack while the app opens on
+  /// Library: every launch stamped a screenful of series "shown and ignored"
+  /// that had never been rendered, and the only thing that ever takes a
+  /// tally back is [RecOutcomeStore.pruneStale], sixty days later.
   void recordShelfImpressions() {
     final visible = _visibleRecommendations();
     if (visible.isEmpty) return;
+    // The wildcard is pinned *last*, so on a full window it sits off the
+    // right edge and has not been seen either. Slicing the visible list
+    // gives it its impression only when the pool is short enough to bring
+    // it into view, which is exactly when it is on screen.
+    final onScreen = visible.take(_onScreenCardCount());
     RecOutcomeStore().recordImpressions([
-      for (final rec in visible) rec.series.opdsId,
+      for (final rec in onScreen) rec.series.opdsId,
     ]);
   }
 
@@ -156,11 +213,16 @@ mixin LibraryRecommendations<T extends StatefulWidget> on State<T> {
 
   /// Advances the visible recommendation window so "Show me different" gives
   /// you the next batch; wraps to the start when the pool runs out.
+  ///
+  /// Both the guard and the wrap count the pool, not the whole list: the
+  /// offset indexes the pool, while the list also holds the pinned wildcard.
+  /// Counting it meant eleven picks offered a shuffle that redrew the same
+  /// ten, and past that the wrap landed a card short and repeated one.
   void _rotateRecommendations() {
-    if (_recommendations.length <= _recommendWindow) return;
+    final pool = _rotatingPool();
+    if (pool.length <= _recommendWindow) return;
     setState(() {
-      _recommendOffset =
-          (_recommendOffset + _recommendWindow) % _recommendations.length;
+      _recommendOffset = (_recommendOffset + _recommendWindow) % pool.length;
     });
     recordShelfImpressions();
   }
@@ -172,7 +234,7 @@ mixin LibraryRecommendations<T extends StatefulWidget> on State<T> {
     // Slice the pool into a visible window; wrap past the end so the shuffle
     // button can cycle.
     final visible = _visibleRecommendations();
-    final canRotate = _recommendations.length > _recommendWindow;
+    final canRotate = _rotatingPool().length > _recommendWindow;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

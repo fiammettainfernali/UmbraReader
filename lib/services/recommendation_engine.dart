@@ -61,11 +61,18 @@ class RecSignals {
   /// and ignored get softened so the shelf doesn't go stale.
   final Map<int, RecOutcome> outcomes;
 
-  /// The user's own in-app reading status per series, overriding the
-  /// server-side `Series.readingStatus`. Engine vocabulary: 'completed'
-  /// (a full like, even with zero in-app reading — e.g. a series listened
-  /// to entirely in an external reader and marked caught-up), 'dropped'
-  /// (strong negative), 'ongoing' (neutral).
+  /// The user's own in-app reading status per series — the one status the
+  /// engine trusts unconditionally. Vocabulary: 'completed' (a full like,
+  /// even with zero in-app reading — e.g. a series listened to entirely in
+  /// an external reader and marked caught-up), 'dropped' (strong negative),
+  /// 'ongoing' (neutral).
+  ///
+  /// `Series.readingStatus` is the *server's* field and does not mean the
+  /// same thing. Its 'completed' says the novel has finished PUBLISHING,
+  /// and a one-time Novel Grabber migration stamped it on shelves of books
+  /// that were never opened anywhere — so the engine honours a server
+  /// 'completed' only when an in-app read backs it up. Its 'dropped' does
+  /// come from a real user-facing picker, and is taken at face value.
   final Map<int, String> statusOverrides;
 
   static const none = RecSignals();
@@ -291,22 +298,32 @@ String? lengthBucket(int chapters) {
 ///
 /// Strategy: every series the user has engaged with contributes a *signed*
 /// affinity to its content tags — finished/long-read books push positive,
-/// dropped books push negative. Time decay (30-day half-life) makes recent
-/// reads dominate so the shelf naturally drifts with current taste. The
-/// final ranking applies a diversity guard so a single author or genre can't
-/// monopolise the shelf, and falls back to recently-updated series when
-/// there's no history yet.
+/// dropped books push negative. That history is decayed on TWO timescales
+/// at once — a settled "core" lane and a week-long "fast" lane — and the
+/// two are blended by how far apart they have actually drifted, so a real
+/// change of heart moves the shelf within days while a quiet week leaves it
+/// alone. The final ranking applies a diversity guard so a single author or
+/// genre can't monopolise the shelf, and falls back to recently-updated
+/// series when there's no history yet.
 class RecommendationEngine {
   const RecommendationEngine({
-    this.halfLifeDays = 30,
+    this.halfLifeDays = 60,
+    this.fastHalfLifeDays = 7,
     this.maxResults = 12,
     this.maxPerAuthor = 2,
     this.maxPerGenre = 3,
     this.keywordsPerSeries = 12,
   });
 
-  /// Days for a like's weight to halve.
+  /// Days for a like's weight to halve in the settled "core" lane. The
+  /// finished-favourite floor lives in this lane, so the canon keeps
+  /// steering taste for as long as it is the canon.
   final int halfLifeDays;
+
+  /// Days for a like's weight to halve in the "fast" lane — about a week,
+  /// so this lane is essentially "what are they reading right now". It
+  /// carries no floor; see [_blendLanes] for why that matters.
+  final int fastHalfLifeDays;
 
   /// Cap on the number of recommendations returned.
   final int maxResults;
@@ -319,6 +336,50 @@ class RecommendationEngine {
 
   /// Top-K TF-IDF keywords pulled from each series description.
   final int keywordsPerSeries;
+
+  /// Chapters at which the depth term in [_likeWeight] reaches half its
+  /// ceiling.
+  ///
+  /// Public because the learner has to agree with the engine about what
+  /// counts as having read something: two copies of this number would drift
+  /// apart, and the symptom would be a book the ranking treats as read and
+  /// the learner treats as untouched.
+  static const depthHalfChapters = 60;
+
+  /// The band the fast lane's share of the blended taste vector moves in.
+  /// Never below the floor — some recency always counts — and never above
+  /// the ceiling, so a strange fortnight can reorder the shelf but can
+  /// never erase years of reading.
+  ///
+  /// Derived at SERIES granularity, the only granularity that means
+  /// anything here: a series' volumes are summed and then divided by
+  /// √(contributing volumes), so a twelve-volume favourite is worth about
+  /// √12 ≈ 3.5 single-volume reads rather than twelve of them — and this
+  /// reader's webnovels are multi-volume as a rule, so counting volumes
+  /// would overstate the settled side by up to √n.
+  ///
+  /// The worked case: twelve fantasy series finished ~200 days ago all sit
+  /// on the core lane's 0.15 floor, so g:fantasy = 12 × 0.15 = 1.80 in the
+  /// core lane and ≈0 in the fast one. Four sci-fi series opened this week
+  /// at a dozen chapters each contribute 4 × 0.167 × 0.97 ≈ 0.64 to the
+  /// core lane and 4 × 0.167 × 0.74 ≈ 0.50 to the fast one. With the fast
+  /// lane rescaled onto the core's magnitude (×4.3 for that split), sci-fi
+  /// passes fantasy at α ≈ 0.35 before IDF and sooner after it. The drift
+  /// measured for that split is ≈0.66, which lands α ≈ 0.51 — comfortably
+  /// past the crossing, and still a minority share.
+  static const _driftAlphaMin = 0.15;
+  static const _driftAlphaMax = 0.70;
+
+  /// A fast-lane value at least this big still means "read lately" — about
+  /// three weeks of a solid read, or one week of a skim, at a 7-day
+  /// half-life.
+  static const _recentLaneFloor = 0.05;
+
+  /// Distinct recent series needed before the measured drift is allowed to
+  /// scale the blend. Below this the fast lane is one or two books and its
+  /// direction is noise, so the blend is pinned to [_driftAlphaMin]: one
+  /// odd night must not repaint the whole shelf.
+  static const _minRecentSeries = 3;
 
   /// Returns the top-scored series the user hasn't engaged with, best first.
   /// [feedback] folds in explicit "no thanks" signals (dismissed cards, reset
@@ -349,15 +410,22 @@ class RecommendationEngine {
     // Cold start: nothing engaged → recommend recently-updated series so the
     // shelf isn't blank on a fresh install.
     if (!profile.hasHistory) {
-      final fallback = allSeries.toList()
-        ..sort((a, b) {
-          final at = a.updatedAt;
-          final bt = b.updatedAt;
-          if (at == null && bt == null) return 0;
-          if (at == null) return 1;
-          if (bt == null) return -1;
-          return bt.compareTo(at);
-        });
+      // Dismissed, snoozed and reset cards are in [engagedIds] even with
+      // nothing read yet, and the fallback is the one path that never
+      // consulted it — so on a fresh library the card you just sent away
+      // came straight back at the top of the shelf.
+      final fallback =
+          [
+            for (final s in allSeries)
+              if (!profile.engagedIds.contains(s.opdsId)) s,
+          ]..sort((a, b) {
+            final at = a.updatedAt;
+            final bt = b.updatedAt;
+            if (at == null && bt == null) return 0;
+            if (at == null) return 1;
+            if (bt == null) return -1;
+            return bt.compareTo(at);
+          });
       return [for (final s in fallback.take(maxResults)) Recommendation(s, 0)];
     }
 
@@ -485,60 +553,144 @@ class RecommendationEngine {
     final medianSeconds = _medianOver(readingEntries, signals.volumeSeconds);
     final medianWords = _medianOver(readingEntries, signals.volumeWords);
 
-    final engagedIds = <int>{...entriesBySeries.keys};
-    final signedSeries = <int, double>{};
+    // Engaged means STARTED, not merely touched. The reader writes a
+    // progress row the instant a book is opened, so building this from the
+    // existence of a row banned a series from recommendations for good
+    // because it was opened once and closed on the first page — a peek that
+    // contributed no taste at all bought a permanent exclusion.
+    final startedIds = <int>{
+      for (final e in entriesBySeries.entries)
+        if (e.value.any((entry) => entry.progress.isStarted)) e.key,
+    };
+    final engagedIds = <int>{...startedIds};
+
+    // The same history decayed on two timescales at once. `core` is the
+    // settled taste (see [halfLifeDays], finished favourites floored);
+    // `fast` is this week's ([fastHalfLifeDays], no floor). Everything that
+    // is not a decay — statuses, highlights, collections, card feedback —
+    // is applied identically to both, so the only thing the lanes can
+    // disagree about is age, which is exactly what the drift measure below
+    // is supposed to read.
+    final signedCore = <int, double>{};
+    final signedFast = <int, double>{};
+    // The fast lane's READ component alone, per series, before any floor or
+    // judgement is layered on. Only a dated read can say "lately", so this
+    // is what the recency count below is allowed to look at.
+    final fastRead = <int, double>{};
 
     for (final series in allSeries) {
       if (excludeSeriesIds.contains(series.opdsId)) continue;
-      // The user's own in-app status outranks the server-side one.
-      final status =
-          (signals.statusOverrides[series.opdsId] ?? series.readingStatus)
-              .trim()
-              .toLowerCase();
       final entries = entriesBySeries[series.opdsId];
+      // The user's own in-app status outranks the server-side one. The
+      // server's 'completed' is a different fact — the NOVEL has finished
+      // publishing — and a Novel Grabber migration seeded it onto books
+      // that were never opened; read as a verdict it handed those an
+      // undecaying +1.0, several times louder than a genuinely finished
+      // read, and banned them from the shelf as "engaged". So it only
+      // counts once an in-app read backs it up. Every other server status
+      // ('dropped' above all, which comes from a real picker) is honoured.
+      final override = signals.statusOverrides[series.opdsId];
+      final serverStatus = series.readingStatus.trim().toLowerCase();
+      final backed = entries?.any((e) => e.progress.isStarted) ?? false;
+      final status =
+          override?.trim().toLowerCase() ??
+          (serverStatus == 'completed' && !backed ? '' : serverStatus);
       final userFeedback = feedback?[series.opdsId];
-      double? signed;
+      var core = 0.0;
+      var fast = 0.0;
       if (entries != null) {
         // Sum per-volume like weights, then dampen with √n so a 10-volume
         // binge doesn't drown out single-volume favourites.
-        var aggregated = 0.0;
+        var aggCore = 0.0;
+        var aggFast = 0.0;
+        var contributing = 0;
         for (final entry in entries) {
-          aggregated += _likeWeight(
+          final weight = _likeWeight(
             entry,
             clock,
+            halfLife: halfLifeDays,
+            keepFinishedFloor: true,
             signals: signals,
             medianSeconds: medianSeconds,
             medianWords: medianWords,
           );
+          aggCore += weight;
+          aggFast += _likeWeight(
+            entry,
+            clock,
+            halfLife: fastHalfLifeDays,
+            keepFinishedFloor: false,
+            signals: signals,
+            medianSeconds: medianSeconds,
+            medianWords: medianWords,
+          );
+          // The two lanes differ only by decay, which cannot change a
+          // sign, so counting contributors once off the core lane keeps
+          // the damping identical in both.
+          if (weight > 0) contributing++;
         }
-        if (entries.length > 1) {
-          aggregated = aggregated * sqrt(entries.length) / entries.length;
+        // Only volumes that actually earned something count towards the
+        // damping. Dividing by every row instead meant one volume read out
+        // of twenty downloaded scored ~0.22 rather than ~1.0, so a series
+        // the user is really reading steered taste less than a skim of a
+        // single-volume book. Stalled volumes are excluded too: they are
+        // already negative in the sum, and putting them in the divisor
+        // would shrink the penalty they are there to apply. `> 1` also
+        // keeps the divisor away from zero when nothing contributed.
+        if (contributing > 1) {
+          final damping = sqrt(contributing) / contributing;
+          aggCore *= damping;
+          aggFast *= damping;
         }
+        // What the READING alone says on the fast lane, kept before the
+        // floors and judgements below. Recency is counted off this: a
+        // status mark carries no timestamp, so letting it through would
+        // report a series as read-this-week forever and freeze the blend.
+        if (aggFast > 0) fastRead[series.opdsId] = aggFast;
         if (status == 'completed') {
           // User-marked complete → at least a full "like" even if the
           // chapter-count guess says otherwise.
-          if (aggregated < 1.0) aggregated = 1.0;
+          if (aggCore < 1.0) aggCore = 1.0;
+          if (aggFast < 1.0) aggFast = 1.0;
+          // Caught-up means done with it, so it must not be recommended
+          // back. Membership used to come free from the progress row's
+          // existence; now that engagement means real progress, a series
+          // marked caught-up after a single unstarted open needs saying.
+          engagedIds.add(series.opdsId);
         }
-        signed = aggregated;
+        core = aggCore;
+        fast = aggFast;
       } else if (status == 'completed') {
         // Marked caught-up with ZERO in-app reading entries — the
         // listened-elsewhere binge (e.g. Share-story → an external reader).
+        // Only the user's own override can reach here now; an unbacked
+        // server 'completed' was neutralised above.
         // Consuming everything available is a full like; without a read
         // timestamp it doesn't decay, matching the finished-favourite floor
         // in spirit.
-        signed = 1.0;
+        core = 1.0;
+        fast = 1.0;
         engagedIds.add(series.opdsId);
       }
+      // Everything from here down is a judgement, not a read: it happened
+      // at no particular timescale, so both lanes get the same value and
+      // the same verdict (decided off the core lane). Letting the lanes
+      // disagree about a dropped or dismissed series would have shown up
+      // as fake drift and pushed the blend around for no reason.
+      //
       // Highlight density: saved passages are a strong love signal, worth up
       // to +0.3 on top of whatever the read itself earned.
       final highlights = signals.highlightsPerSeries[series.opdsId] ?? 0;
       if (highlights > 0) {
-        signed = (signed ?? 0) + min(0.3, 0.1 * highlights);
+        final bonus = min(0.3, 0.1 * highlights);
+        core += bonus;
+        fast += bonus;
         engagedIds.add(series.opdsId);
       }
       // Curating a series into a collection is explicit interest.
       if (signals.collectionSeriesIds.contains(series.opdsId)) {
-        signed = (signed ?? 0) + 0.25;
+        core += 0.25;
+        fast += 0.25;
         engagedIds.add(series.opdsId);
       }
       // Hiding from the Continue shelf is a mild "enough of this for now".
@@ -546,11 +698,14 @@ class RecommendationEngine {
           entries.any(
             (e) => signals.hiddenVolumeKeys.contains(_volumeKey(e.volume)),
           )) {
-        signed = (signed ?? 0) - 0.15;
+        core -= 0.15;
+        fast -= 0.15;
       }
       if (status == 'dropped') {
         // User-marked dropped → flip to a negative signal.
-        signed = -(((signed ?? 0).abs()).clamp(0.5, double.infinity));
+        final flipped = -(core.abs().clamp(0.5, double.infinity));
+        core = flipped;
+        fast = flipped;
         engagedIds.add(series.opdsId);
       }
       // Explicit per-card feedback: reset is the strongest "no thanks",
@@ -559,54 +714,171 @@ class RecommendationEngine {
       // snoozed just leaves the engaged set to keep the series off shelves.
       switch (userFeedback) {
         case RecommendationFeedback.reset:
-          signed = -0.7;
+          core = -0.7;
+          fast = -0.7;
           engagedIds.add(series.opdsId);
         case RecommendationFeedback.dismissed:
           // Genuine re-engagement outranks a card-level "not interested":
           // if they've substantially READ it since, the read wins.
-          if ((signed ?? 0) < 0.5) signed = -0.3;
+          if (core < 0.5) {
+            core = -0.3;
+            fast = -0.3;
+          }
           engagedIds.add(series.opdsId);
         case RecommendationFeedback.liked:
-          signed = max(signed ?? 0, 0) + 1.0;
+          final liked = max(core, 0) + 1.0;
+          core = liked;
+          fast = liked;
           engagedIds.add(series.opdsId);
         case RecommendationFeedback.snoozed:
           engagedIds.add(series.opdsId);
         case null:
           break;
       }
-      if (signed != null && signed != 0) {
-        signedSeries[series.opdsId] = signed;
-      }
+      if (core != 0) signedCore[series.opdsId] = core;
+      if (fast != 0) signedFast[series.opdsId] = fast;
     }
 
     // Accumulate signed affinity per content tag, remembering which positive
-    // seed carries each tag hardest (for "like X" reason lines).
-    final tagScore = <String, double>{};
+    // seed carries each tag hardest (for "like X" reason lines). Reason
+    // lines are drawn from the CORE lane on purpose: "like X" should name a
+    // book they know they love, not whatever they happened to open on
+    // Tuesday.
+    final coreTags = <String, double>{};
     final tagTopSeed = <String, int>{};
     final tagTopContribution = <String, double>{};
     final seedTitles = <int, String>{};
-    signedSeries.forEach((id, score) {
+    signedCore.forEach((id, score) {
       final series = byId[id];
       if (series == null) return;
       if (score > 0) seedTitles[id] = series.title;
       for (final tag in _tagsFor(series, keywords[id] ?? const [])) {
-        tagScore.update(tag, (s) => s + score, ifAbsent: () => score);
+        coreTags.update(tag, (s) => s + score, ifAbsent: () => score);
         if (score > (tagTopContribution[tag] ?? 0)) {
           tagTopContribution[tag] = score;
           tagTopSeed[tag] = id;
         }
       }
     });
+    final fastTags = <String, double>{};
+    signedFast.forEach((id, score) {
+      final series = byId[id];
+      if (series == null) return;
+      for (final tag in _tagsFor(series, keywords[id] ?? const [])) {
+        fastTags.update(tag, (s) => s + score, ifAbsent: () => score);
+      }
+    });
+
+    // How much of the blended taste vector the fast lane gets, decided by
+    // the divergence actually measured between the lanes rather than by a
+    // constant: a constant either ignores a real change of heart or churns
+    // the shelf when nothing has changed.
+    var recentSeries = 0;
+    for (final value in fastRead.values) {
+      if (value >= _recentLaneFloor) recentSeries++;
+    }
+    final double alpha;
+    if (recentSeries == 0) {
+      // Nothing read lately at all. Skip the blend outright — the fast
+      // lane is then numerical dust from year-old reads, and rescaling
+      // dust onto the core lane's magnitude would amplify it into a
+      // direction the reader never took.
+      alpha = 0.0;
+    } else if (recentSeries < _minRecentSeries) {
+      alpha = _driftAlphaMin;
+    } else {
+      alpha =
+          _driftAlphaMin +
+          (_driftAlphaMax - _driftAlphaMin) * _genreDrift(fastTags, coreTags);
+    }
 
     return RecTasteProfile._(
-      tagScore: tagScore,
+      tagScore: _blendLanes(coreTags, fastTags, alpha),
       tagIdf: tagIdf,
       keywords: keywords,
       tagTopSeed: tagTopSeed,
       seedTitles: seedTitles,
       engagedIds: engagedIds,
-      hasHistory: signedSeries.isNotEmpty,
+      // Something read, or something liked — not merely a non-empty map.
+      // Card feedback writes a negative, so a reader with nothing read who
+      // dismissed one card counted as having history, took the scoring path
+      // and got an empty shelf: every score there needs a positive affinity
+      // to clear, and a lone "no thanks" supplies none.
+      //
+      // A started read counts however it is signed, though. Reading a book
+      // and then resetting it leaves one negative value and no positives,
+      // and that reader HAS a taste — a negative one, which the scoring
+      // path is exactly what honours.
+      hasHistory: startedIds.isNotEmpty || signedCore.values.any((v) => v > 0),
     );
+  }
+
+  /// 1 − cosine between the two lanes' GENRE vectors, clamped to 0..1: how
+  /// far this week points away from the settled taste.
+  ///
+  /// Genres only. At a seven-day window the keyword tags are mostly the
+  /// vocabulary of one or two blurbs, and the author and length tags move
+  /// with the genres anyway — including them would measure the same drift
+  /// three times and drown the one dimension that means something.
+  double _genreDrift(Map<String, double> fast, Map<String, double> core) {
+    var dot = 0.0;
+    var fastSq = 0.0;
+    var coreSq = 0.0;
+    for (final tag in {...fast.keys, ...core.keys}) {
+      if (!tag.startsWith('g:')) continue;
+      final f = fast[tag] ?? 0.0;
+      final c = core[tag] ?? 0.0;
+      dot += f * c;
+      fastSq += f * f;
+      coreSq += c * c;
+    }
+    if (fastSq <= 0 || coreSq <= 0) return 0.0;
+    return (1 - dot / (sqrt(fastSq) * sqrt(coreSq))).clamp(0.0, 1.0);
+  }
+
+  /// Mixes the lanes into the single tag map the scorer reads: [alpha]
+  /// parts fast to (1 − [alpha]) parts core.
+  ///
+  /// The fast lane is rescaled onto the core lane's magnitude first.
+  /// Without that, [alpha] would not be a mix at all — this reader has 883
+  /// books behind them and a week in front, so the core sums are an order
+  /// of magnitude larger and the fast lane stays a rounding error however
+  /// high [alpha] goes. Rescaled, [alpha] means what it says: this share of
+  /// the taste vector is what they are reading now.
+  ///
+  /// This happens BEFORE `RecTasteProfile._squash`. Either lane saturates
+  /// past a pre-squash sum of about 10, so mixing squashed values would
+  /// have flattened the fast lane into invisibility exactly when it had
+  /// most to say.
+  ///
+  /// When the lanes agree the core lane comes back untouched: entries read
+  /// today decay to the same value on both timescales, so identical lanes
+  /// give a scale of 1 and a blend that is the identity.
+  Map<String, double> _blendLanes(
+    Map<String, double> core,
+    Map<String, double> fast,
+    double alpha,
+  ) {
+    if (alpha <= 0) return core;
+    final coreNorm = _norm(core.values);
+    final fastNorm = _norm(fast.values);
+    if (coreNorm <= 0 || fastNorm <= 0) return core;
+    final scale = coreNorm / fastNorm;
+    final blended = <String, double>{};
+    for (final tag in {...core.keys, ...fast.keys}) {
+      final c = core[tag] ?? 0.0;
+      final f = fast[tag] ?? 0.0;
+      blended[tag] = (1 - alpha) * c + alpha * scale * f;
+    }
+    return blended;
+  }
+
+  static double _norm(Iterable<double> values) {
+    var sum = 0.0;
+    for (final value in values) {
+      sum += value * value;
+    }
+    return sqrt(sum);
   }
 
   /// Iterates every affinity tag for a series. Group weighting is no longer
@@ -772,15 +1044,18 @@ class RecommendationEngine {
     return picks.sublist(0, maxResults);
   }
 
-  /// How strongly a single reading entry counts as a "like": the chapter
-  /// fraction sets the base, actual time/words spent scale it (a book you
-  /// lived in for 30 hours beats one you skimmed to the same fraction),
-  /// recency decays it — but finished reads keep a floor so an all-time
-  /// favourite never rots to zero — and a shallow start abandoned for months
-  /// tapers into a soft negative ("bounced off it").
+  /// How strongly a single reading entry counts as a "like" on ONE
+  /// timescale: how much of the book they actually consumed sets the base,
+  /// actual time/words spent scale it (a book you lived in for 30 hours
+  /// beats one you skimmed to the same fraction), [halfLife] decays it —
+  /// with a floor under finished reads when [keepFinishedFloor], so an
+  /// all-time favourite never rots to zero — and a shallow start abandoned
+  /// for months tapers into a soft, fading negative ("bounced off it").
   double _likeWeight(
     ReadingEntry entry,
     DateTime now, {
+    required int halfLife,
+    required bool keepFinishedFloor,
     RecSignals signals = RecSignals.none,
     double medianSeconds = 0,
     double medianWords = 0,
@@ -789,29 +1064,10 @@ class RecommendationEngine {
     final updated = p.updatedAt;
     final ageDays = updated == null ? 0 : now.difference(updated).inDays;
 
-    // Stall taper: started shallow and untouched for 60+ days means the
-    // book failed to hold them — a soft negative, strengthening to -0.2.
-    if (!p.isFinished && p.isStarted && p.fraction < 0.3 && ageDays >= 60) {
-      return -min(0.2, 0.1 + (ageDays - 60) / 600);
-    }
-
-    final double base;
-    if (p.isFinished) {
-      base = 1.0;
-    } else if (p.fraction >= 0.5) {
-      base = 0.7;
-    } else if (p.fraction >= 0.2) {
-      base = 0.4;
-    } else if (p.isStarted) {
-      base = 0.1;
-    } else {
-      base = 0;
-    }
-    if (base == 0) return 0;
-
     // Engagement multiplier: time (and words) in THIS volume vs the user's
-    // own median volume. sqrt keeps it gentle; neutral (1.0) at the median
-    // or when the ledger has nothing for this volume.
+    // own median volume. Computed before the stall taper because it is the
+    // evidence that decides whether an untouched book was abandoned or is
+    // merely waiting.
     final key = _volumeKey(entry.volume);
     var ratioSum = 0.0;
     var ratioCount = 0;
@@ -825,16 +1081,75 @@ class RecommendationEngine {
       ratioSum += words / medianWords;
       ratioCount++;
     }
-    final engagement = ratioCount == 0
-        ? 1.0
-        : sqrt(ratioSum / ratioCount).clamp(0.6, 1.5);
+    final ratio = ratioCount == 0 ? 0.0 : ratioSum / ratioCount;
+    // sqrt keeps it gentle; neutral (1.0) at the median or when the ledger
+    // has nothing for this volume. The ceiling is 2.5 rather than the old
+    // 1.5 because at 1.5 the fraction always decided: a volume the reader
+    // spent four times their usual evening in could still not out-weigh a
+    // skim that happened to reach a higher percentage.
+    final engagement = ratioCount == 0 ? 1.0 : sqrt(ratio).clamp(0.6, 2.5);
+
+    // Depth: chapters actually read, independent of how long the book is.
+    // x/(x+60) — 7 chapters ≈ 0.1 (the old shallow-start tier), 40 ≈ 0.4,
+    // 60 = 0.5, a whole 250-chapter Novel Grabber volume ≈ 0.81, never
+    // reaching the 1.0 that finishing earns. Without it, forty chapters of
+    // a packed volume scored 0.1 — the same as opening chapter two and
+    // leaving — because 40 of 250 is still a small fraction, and the
+    // engagement multiplier was capped too low to say otherwise.
+    final chaptersRead = p.chapterIndex;
+    final depth = chaptersRead / (chaptersRead + depthHalfChapters);
+
+    final double fractionBase;
+    if (p.isFinished) {
+      fractionBase = 1.0;
+    } else if (p.fraction >= 0.5) {
+      fractionBase = 0.7;
+    } else if (p.fraction >= 0.2) {
+      fractionBase = 0.4;
+    } else if (p.isStarted) {
+      fractionBase = 0.1;
+    } else {
+      fractionBase = 0;
+    }
+    final base = max(fractionBase, depth);
+    if (base == 0) return 0;
+
+    // Stall taper: started, still shallow, untouched for 60+ days — the
+    // book failed to hold them. Two cases that look identical from outside
+    // are deliberately spared, because for this reader both are routine:
+    //
+    //  • A long favourite paused between chapter drops. 300 chapters into
+    //    a 1500-chapter novel is a 0.2 fraction, which used to taper into
+    //    a negative against the reader's own favourite genre; the depth
+    //    term now carries `base` well clear of the threshold.
+    //  • A book they sank real time into before drifting off. That is
+    //    gated on POSITIVE evidence (`ratioCount > 0`), never on
+    //    `engagement`, which falls back to 1.0 whenever the ledger has no
+    //    row for the volume — gating on the multiplier would have spared
+    //    every volume the ledger never saw, which is most of them, and
+    //    disabled the taper altogether.
+    //
+    // The negative also fades with age now (90-day half-life from its -0.1
+    // peak) instead of growing to a permanent -0.2: under the old curve a
+    // book set aside two years ago shouted twice as loud as one set aside
+    // last month, so old mistakes only ever got louder.
+    if (!p.isFinished &&
+        p.isStarted &&
+        base < 0.3 &&
+        ageDays >= 60 &&
+        !(ratioCount > 0 && ratio >= 1.0)) {
+      return -0.1 * pow(0.5, (ageDays - 60) / 90).toDouble();
+    }
 
     final weighted = base * engagement;
     if (updated == null || ageDays <= 0) return weighted;
-    final decayed = weighted * pow(0.5, ageDays / halfLifeDays).toDouble();
+    final decayed = weighted * pow(0.5, ageDays / halfLife).toDouble();
     // Finished favourites decay toward a floor, not to nothing: the canon
-    // should keep steering taste even when the read is a year old.
-    if (p.isFinished) return max(decayed, 0.15 * weighted);
+    // should keep steering taste even when the read is a year old. The fast
+    // lane passes keepFinishedFloor: false — a floor there would pin the
+    // canon permanently into the lane whose whole job is to say what has
+    // changed, leaving no divergence left to measure.
+    if (p.isFinished && keepFinishedFloor) return max(decayed, 0.15 * weighted);
     return decayed;
   }
 

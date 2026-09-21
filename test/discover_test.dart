@@ -6,6 +6,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:umbra_reader/models/series.dart';
+import 'package:umbra_reader/screens/discover_screen.dart';
 import 'package:umbra_reader/services/recommendation_loader.dart';
 
 Series _s({
@@ -138,6 +139,53 @@ void main() {
         ..remove('addedAt');
       expect(Series.fromJson(json).addedAt, isNull);
     });
+  });
+
+  group('librarySignature', () {
+    final library = [
+      _s(id: 1, title: 'a', updatedAt: _day(1), addedAt: _day(1)),
+      _s(id: 2, title: 'b', updatedAt: _day(9), addedAt: _day(2)),
+    ];
+
+    test('the same library and the same reading means no refit', () {
+      // The guard this feeds is deliberate: recomputing while the tab is
+      // being looked at reshuffles the shelf under the reader.
+      //
+      // Built from separate objects carrying equal values on purpose. The
+      // library is reloaded from disk on every redraw, so it is never the
+      // same instances twice; comparing a list against a copy of itself
+      // would pass for any implementation, including one keyed on identity
+      // that refits on every single draw.
+      final reloaded = [
+        _s(id: 1, title: 'a', updatedAt: _day(1), addedAt: _day(1)),
+        _s(id: 2, title: 'b', updatedAt: _day(9), addedAt: _day(2)),
+      ];
+      expect(
+        librarySignature(library, _day(4)),
+        librarySignature(reloaded, DateTime(2026, 8, 4)),
+      );
+    });
+
+    test('a week of reading changes it, though the library did not', () {
+      // The whole reason reading is in here. A reader who adds no books for
+      // a month changes none of the library's own dates, and the shelf used
+      // to stay frozen on whatever it decided when the last book arrived —
+      // however much had been read since.
+      final before = librarySignature(library, _day(4));
+      final after = librarySignature(library, _day(11));
+      expect(after, isNot(before));
+    });
+
+    test('reading nothing at all is not the same as reading', () {
+      expect(
+        librarySignature(library, null),
+        isNot(librarySignature(library, _day(4))),
+      );
+    });
+
+    // "The newest read, whatever order the rows come back in" is pinned
+    // where that answer is now worked out: see
+    // reading_progress_store_test.dart, 'newestUpdatedAt'.
   });
 
   group('RecommendationLoader', () {

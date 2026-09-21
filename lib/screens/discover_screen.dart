@@ -5,6 +5,7 @@ import '../services/library_cache.dart';
 import '../services/library_refresh.dart';
 import '../services/library_storage.dart';
 import '../services/opds_client.dart';
+import '../services/reading_progress_store.dart';
 import '../services/recommendation_loader.dart';
 import '../services/settings_service.dart';
 import '../widgets/section_header.dart';
@@ -27,9 +28,21 @@ import 'series_detail_screen.dart';
 /// the most frequent thing anyone does here, and it belongs where the app
 /// opens.
 class DiscoverScreen extends StatefulWidget {
-  const DiscoverScreen({super.key, required this.settings});
+  const DiscoverScreen({
+    super.key,
+    required this.settings,
+    this.isSelected = false,
+  });
 
   final OpdsSettings settings;
+
+  /// True while this is the tab the shell is showing.
+  ///
+  /// The shell keeps every tab alive in an IndexedStack, so this screen is
+  /// built and running from launch whether or not anyone has ever opened it.
+  /// The recommendation shelf needs to know the difference: it records that
+  /// its cards were *seen*, and off-screen cards were not.
+  final bool isSelected;
 
   @override
   State<DiscoverScreen> createState() => DiscoverScreenState();
@@ -62,6 +75,16 @@ class DiscoverScreenState extends State<DiscoverScreen>
   }
 
   @override
+  void didUpdateWidget(DiscoverScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Becoming the selected tab is the moment the shelf is first actually
+    // seen — an IndexedStack child is built and laid out long before that.
+    if (!oldWidget.isSelected && widget.isSelected) {
+      recordShelfImpressions();
+    }
+  }
+
+  @override
   void dispose() {
     libraryCacheRevision.removeListener(_onCacheChanged);
     super.dispose();
@@ -76,7 +99,10 @@ class DiscoverScreenState extends State<DiscoverScreen>
   OpdsSettings? get opdsSettings => widget.settings;
 
   @override
-  Future<void> reloadReading() => _load();
+  bool get shelfIsOnScreen => widget.isSelected;
+
+  @override
+  Future<void> reloadRecommendations() => _load(force: true);
 
   @override
   Future<void> openSeries(Series series) async {
@@ -86,7 +112,10 @@ class DiscoverScreenState extends State<DiscoverScreen>
             SeriesDetailScreen(series: series, settings: widget.settings),
       ),
     );
-    if (mounted) await _load();
+    // Forced: going into a book and coming back is a deliberate act, and
+    // what it changes — reading position, the series' own status, feedback
+    // from the detail screen — is exactly what the shelf should answer to.
+    if (mounted) await _load(force: true);
   }
 
   /// Reads the cached library, then works out what to suggest.
@@ -98,7 +127,14 @@ class DiscoverScreenState extends State<DiscoverScreen>
   Future<void> _load({bool force = false}) async {
     final cache = LibraryCache(LibraryStorage());
     final downloads = DownloadStore(LibraryStorage());
+    // Started alongside the disk reads rather than after them: the signature
+    // needs the newest reading timestamp, and waiting for it in series would
+    // add a SQLite round trip to every shelf redraw. One column, not every
+    // entry: the whole list would have to decode each row's volume JSON to
+    // hand back a timestamp that is thrown away a line later.
+    final reading = ReadingProgressStore().newestUpdatedAt();
     await (cache.load(), downloads.load()).wait;
+    final newestRead = await reading;
     final library = cache.series;
     if (!mounted) return;
     setState(() {
@@ -110,9 +146,14 @@ class DiscoverScreenState extends State<DiscoverScreen>
     // The shelves above are a cheap re-read and always refresh. The
     // recommendations are not: they read seven stores and refit the ranking
     // weights, and the shelf shuffles its pool — so recomputing them when
-    // the library hasn't changed would both cost real work and make the tab
-    // appear to reorder itself while being looked at.
-    final signature = _signatureOf(library);
+    // nothing has changed would both cost real work and make the tab appear
+    // to reorder itself while being looked at.
+    //
+    // The guard stays; what changed is what counts as a change. Reading is
+    // part of the signature now, so a week in books moves the picks, and
+    // every deliberate act — feedback, returning from a book, a pull —
+    // arrives forced and never consults it at all.
+    final signature = librarySignature(library, newestRead);
     if (!force && signature == _librarySignature) return;
     _librarySignature = signature;
 
@@ -134,21 +175,6 @@ class DiscoverScreenState extends State<DiscoverScreen>
   Future<void> _refresh() async {
     await const LibraryRefresh().run(widget.settings);
     await _load(force: true);
-  }
-
-  /// Cheap stand-in for "the library changed in a way the shelves care
-  /// about" — size, plus the newest date of each kind.
-  static String _signatureOf(List<Series> library) {
-    DateTime? updated;
-    DateTime? added;
-    for (final s in library) {
-      final u = s.updatedAt;
-      if (u != null && (updated == null || u.isAfter(updated))) updated = u;
-      final a = s.addedAt;
-      if (a != null && (added == null || a.isAfter(added))) added = a;
-    }
-    return '${library.length}|${updated?.toIso8601String()}'
-        '|${added?.toIso8601String()}';
   }
 
   /// True when the server has content newer than anything downloaded.
@@ -421,4 +447,31 @@ class DiscoverScreenState extends State<DiscoverScreen>
       ),
     );
   }
+}
+
+/// Cheap stand-in for "something the shelves care about has changed" — the
+/// library's size, the newest date of each kind, and how recently anything
+/// was read.
+///
+/// Reading is in there because the first three are all properties of the
+/// *collection*, and a reader who adds nothing for a month changes none of
+/// them. A week of reading is the single biggest thing that can happen to
+/// what should be suggested next, and it used to leave the shelf frozen at
+/// whatever it decided the last time a book arrived.
+///
+/// A top-level function rather than a member of the state: it is a pure
+/// function of the data, and a private member cannot be reached from a test
+/// however it is annotated, since privacy in Dart is per-library.
+@visibleForTesting
+String librarySignature(List<Series> library, DateTime? newestRead) {
+  DateTime? updated;
+  DateTime? added;
+  for (final s in library) {
+    final u = s.updatedAt;
+    if (u != null && (updated == null || u.isAfter(updated))) updated = u;
+    final a = s.addedAt;
+    if (a != null && (added == null || a.isAfter(added))) added = a;
+  }
+  return '${library.length}|${updated?.toIso8601String()}'
+      '|${added?.toIso8601String()}|${newestRead?.toIso8601String()}';
 }

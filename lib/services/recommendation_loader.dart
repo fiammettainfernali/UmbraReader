@@ -28,6 +28,12 @@ class RecommendationLoader {
   Future<List<Recommendation>> load(List<Series> library) async {
     if (library.isEmpty) return const [];
 
+    // Before the outcomes are read, not after: an expired row must not get
+    // one last vote. This is the only place old impressions ever leave, so
+    // it runs on the path that is guaranteed to happen before every ranking
+    // rather than on a timer nobody winds.
+    await RecOutcomeStore().pruneStale();
+
     final (
       entries,
       feedback,
@@ -102,7 +108,10 @@ class RecommendationLoader {
 /// A pure view over the library, so it needs no stores at all — which is
 /// why it can sit beside the recommendations without doubling the load.
 List<Series> recentlyUpdated(List<Series> library, {int limit = 12}) {
-  final dated = [for (final s in library) if (s.updatedAt != null) s];
+  final dated = [
+    for (final s in library)
+      if (s.updatedAt != null) s,
+  ];
   dated.sort((a, b) => b.updatedAt!.compareTo(a.updatedAt!));
   return dated.take(limit).toList();
 }
@@ -113,7 +122,10 @@ List<Series> recentlyUpdated(List<Series> library, {int limit = 12}) {
 /// and so reshuffles whenever Novel Grabber recompiles — this answers
 /// "what did I add and not start yet", and its order never changes.
 List<Series> recentlyAdded(List<Series> library, {int limit = 12}) {
-  final dated = [for (final s in library) if (s.addedAt != null) s];
+  final dated = [
+    for (final s in library)
+      if (s.addedAt != null) s,
+  ];
   dated.sort((a, b) => b.addedAt!.compareTo(a.addedAt!));
   return dated.take(limit).toList();
 }

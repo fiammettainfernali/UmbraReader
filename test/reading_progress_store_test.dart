@@ -33,11 +33,7 @@ void main() {
     final volume = _volume();
     await store.save(
       volume,
-      const ReadingProgress(
-        chapterIndex: 4,
-        blockIndex: 12,
-        chapterCount: 30,
-      ),
+      const ReadingProgress(chapterIndex: 4, blockIndex: 12, chapterCount: 30),
     );
 
     final loaded = await store.load(volume);
@@ -163,19 +159,22 @@ void main() {
     expect(entries.first.progress.chapterIndex, 3);
   });
 
-  test('allEntries skips legacy entries that have no volume snapshot', () async {
-    // Simulate a position saved before volume snapshots were recorded.
-    SharedPreferences.setMockInitialValues(<String, Object>{
-      'reading_chapter:99/legacy.epub': 7,
-      'reading_block:99/legacy.epub': 3,
-    });
-    expect(await ReadingProgressStore().allEntries(), isEmpty);
-    // The bare position still loads for the reader itself.
-    final loaded = await ReadingProgressStore().load(
-      _volume(seriesId: 99, fileName: 'legacy.epub'),
-    );
-    expect(loaded.chapterIndex, 7);
-  });
+  test(
+    'allEntries skips legacy entries that have no volume snapshot',
+    () async {
+      // Simulate a position saved before volume snapshots were recorded.
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        'reading_chapter:99/legacy.epub': 7,
+        'reading_block:99/legacy.epub': 3,
+      });
+      expect(await ReadingProgressStore().allEntries(), isEmpty);
+      // The bare position still loads for the reader itself.
+      final loaded = await ReadingProgressStore().load(
+        _volume(seriesId: 99, fileName: 'legacy.epub'),
+      );
+      expect(loaded.chapterIndex, 7);
+    },
+  );
 
   test('finishing is sticky until the chapter count changes', () async {
     final store = ReadingProgressStore();
@@ -278,8 +277,56 @@ void main() {
 
     // An older cloud position must not clobber the local one.
     final past = DateTime.now().subtract(const Duration(days: 1));
-    final stale = blob.replaceFirst(future.toIso8601String(), past.toIso8601String());
+    final stale = blob.replaceFirst(
+      future.toIso8601String(),
+      past.toIso8601String(),
+    );
     expect(await store.mergeSyncBlob(stale), isFalse);
     expect((await store.load(volume)).chapterIndex, 8);
+  });
+
+  group('newestUpdatedAt', () {
+    test(
+      'is the latest of every volume, whatever order the rows are in',
+      () async {
+        // The Discover shelf refits when this moves, so "newest" has to mean
+        // newest and not last-row-wins. The timestamp is set through the sync
+        // path rather than passed to save(), which stamps its own: see the
+        // note on save() — `updatedAt` is when the position actually moved.
+        final store = ReadingProgressStore();
+        await store.save(
+          _volume(fileName: 'a.epub'),
+          const ReadingProgress(
+            chapterIndex: 1,
+            blockIndex: 0,
+            chapterCount: 10,
+          ),
+        );
+        await store.save(
+          _volume(fileName: 'b.epub'),
+          const ReadingProgress(
+            chapterIndex: 2,
+            blockIndex: 0,
+            chapterCount: 10,
+          ),
+        );
+
+        // The FIRST row written becomes the newest read, so an implementation
+        // that returns whatever row comes back last still fails this.
+        final newest = DateTime.now().add(const Duration(hours: 2));
+        final blob =
+            '{"1/a.epub":{"chapterIndex":5,"blockIndex":0,"chapterCount":10,'
+            '"updatedAt":"${newest.toIso8601String()}","endReached":false,'
+            '"volume":${'{"seriesOpdsId":1,"title":"A Book","fileName":"a.epub",'
+                '"downloadUrl":"http://host/a.epub","fileSizeBytes":1000}'}}}';
+        expect(await store.mergeSyncBlob(blob), isTrue);
+
+        expect(await store.newestUpdatedAt(), newest);
+      },
+    );
+
+    test('a library nobody has read yet has no newest read', () async {
+      expect(await ReadingProgressStore().newestUpdatedAt(), isNull);
+    });
   });
 }

@@ -86,8 +86,11 @@ void main() {
       ),
       now: today,
     );
-    expect(recs.first.series.opdsId, 4,
-        reason: 'the book they lived in should steer taste');
+    expect(
+      recs.first.series.opdsId,
+      4,
+      reason: 'the book they lived in should steer taste',
+    );
   });
 
   test('highlight density boosts a series', () {
@@ -101,11 +104,17 @@ void main() {
       signals: const RecSignals(highlightsPerSeries: {2: 3}),
       now: today,
     );
-    expect(recs.first.series.opdsId, 4,
-        reason: 'saved passages are a love signal');
+    expect(
+      recs.first.series.opdsId,
+      4,
+      reason: 'saved passages are a love signal',
+    );
   });
 
   test('a shallow start abandoned for months turns soft-negative', () {
+    // Still true, and still the point of the taper — what changed is that
+    // the negative now fades with age instead of growing; see the test
+    // below.
     final stale = today.subtract(const Duration(days: 120));
     final entries = [
       // Bounced off Seed A at 10% four months ago.
@@ -128,8 +137,59 @@ void main() {
     );
     final ids = [for (final r in recs) r.series.opdsId];
     expect(ids.first, 4);
-    expect(ids, isNot(contains(3)),
-        reason: 'the bounced-off genre must not score positive');
+    expect(
+      ids,
+      isNot(contains(3)),
+      reason: 'the bounced-off genre must not score positive',
+    );
+  });
+
+  test('an old bounce fades instead of getting louder', () {
+    // The taper used to grow as 0.1 + (ageDays - 60)/600 and stick at
+    // -0.2, so a book set aside three years ago shouted twice as loud as
+    // one set aside three months ago: an old mistake could only ever get
+    // more expensive. It now peaks at -0.1 and halves every 90 days.
+    //
+    // Read through a candidate carrying BOTH genres, so its score moves
+    // with the strength of the negative rather than just being filtered
+    // out by it. Only the bounce's age differs between the two runs.
+    final lib = [
+      _series(
+        id: 1,
+        title: 'Bounced',
+        genres: ['Cultivation'],
+        totalChapters: 50,
+      ),
+      _series(id: 2, title: 'Loved', genres: ['Regression']),
+      _series(id: 5, title: 'Mixed', genres: ['Cultivation', 'Regression']),
+    ];
+    double mixedScore(int bounceAgeDays) {
+      final recs = engine.recommend(
+        allSeries: lib,
+        readingEntries: [
+          _entry(
+            seriesId: 1,
+            progress: ReadingProgress(
+              chapterIndex: 20,
+              blockIndex: 0,
+              chapterCount: 200,
+              updatedAt: today.subtract(Duration(days: bounceAgeDays)),
+            ),
+          ),
+          _entry(seriesId: 2, progress: halfRead(today)),
+        ],
+        now: today,
+      );
+      return recs.firstWhere((r) => r.series.opdsId == 5).score;
+    }
+
+    expect(
+      mixedScore(400),
+      greaterThan(mixedScore(90)),
+      reason:
+          'a three-month-old bounce is the fresher verdict; the old '
+          'curve had it backwards',
+    );
   });
 
   test('finished favourites keep a floor instead of decaying to zero', () {
@@ -152,11 +212,17 @@ void main() {
       readingEntries: entries,
       now: today,
     );
-    expect(recs.map((r) => r.series.opdsId), contains(3),
-        reason: 'a year-old finished read must still steer recommendations');
+    expect(
+      recs.map((r) => r.series.opdsId),
+      contains(3),
+      reason: 'a year-old finished read must still steer recommendations',
+    );
     final pick = recs.firstWhere((r) => r.series.opdsId == 3);
-    expect(pick.score, greaterThan(0.1),
-        reason: 'the floor keeps meaningful weight (~0.15), not dust');
+    expect(
+      pick.score,
+      greaterThan(0.1),
+      reason: 'the floor keeps meaningful weight (~0.15), not dust',
+    );
   });
 
   test('liked feedback adds a full extra like', () {
@@ -174,9 +240,7 @@ void main() {
   });
 
   test('snoozed series leave the shelf without becoming a taste signal', () {
-    final entries = [
-      _entry(seriesId: 1, progress: halfRead(today)),
-    ];
+    final entries = [_entry(seriesId: 1, progress: halfRead(today))];
     final recs = engine.recommend(
       allSeries: library(),
       readingEntries: entries,
@@ -202,8 +266,11 @@ void main() {
       ),
       now: today,
     );
-    expect(recs.first.series.opdsId, 4,
-        reason: 'a rec ignored for days must yield to a fresh one');
+    expect(
+      recs.first.series.opdsId,
+      4,
+      reason: 'a rec ignored for days must yield to a fresh one',
+    );
     // A tapped candidate is NOT penalised.
     final tapped = engine.recommend(
       allSeries: library(),
@@ -239,11 +306,14 @@ void main() {
 
   test('unknown length is not a matchable tag', () {
     final lib = [
-      _series(id: 1, title: 'Seed', genres: ['Cultivation'],
-          totalChapters: 0),
+      _series(id: 1, title: 'Seed', genres: ['Cultivation'], totalChapters: 0),
       // Shares ONLY the unknown length bucket with the seed — must not match.
-      _series(id: 2, title: 'AlsoUnknown', genres: ['Romance'],
-          totalChapters: 0),
+      _series(
+        id: 2,
+        title: 'AlsoUnknown',
+        genres: ['Romance'],
+        totalChapters: 0,
+      ),
       _series(id: 3, title: 'GenreMatch', genres: ['Cultivation']),
     ];
     final recs = engine.recommend(
@@ -253,28 +323,51 @@ void main() {
     );
     final ids = [for (final r in recs) r.series.opdsId];
     expect(ids, contains(3));
-    expect(ids, isNot(contains(2)),
-        reason: 'two series with missing metadata do not "match"');
+    expect(
+      ids,
+      isNot(contains(2)),
+      reason: 'two series with missing metadata do not "match"',
+    );
   });
 
   test('bigram keywords carry two-word concepts', () {
     Series withDesc(int id, String title, String desc) => Series(
-      opdsId: id, title: title, author: 'Author $id', description: desc,
-      genres: const [], readingStatus: 'ongoing', totalChapters: 200,
-      downloadedChapters: 0, coverUrl: null, updatedAt: null,
-      directEpubUrl: null, volumesFeedUrl: null,
+      opdsId: id,
+      title: title,
+      author: 'Author $id',
+      description: desc,
+      genres: const [],
+      readingStatus: 'ongoing',
+      totalChapters: 200,
+      downloadedChapters: 0,
+      coverUrl: null,
+      updatedAt: null,
+      directEpubUrl: null,
+      volumesFeedUrl: null,
     );
     // Both candidates mention the words; only one preserves the CONCEPT
     // "martial arts" as an adjacent pair.
     final lib = [
-      withDesc(1, 'Seed',
-          'A cripple rises through martial arts tournaments and sect wars.'),
-      withDesc(2, 'ConceptMatch',
-          'Martial arts cultivation in a ruthless sect tournament.'),
-      withDesc(3, 'WordSoup',
-          'Martial law and fine arts in a peaceful academy of painters.'),
-      withDesc(4, 'Unrelated',
-          'Corporate romance about spreadsheets and quarterly meetings.'),
+      withDesc(
+        1,
+        'Seed',
+        'A cripple rises through martial arts tournaments and sect wars.',
+      ),
+      withDesc(
+        2,
+        'ConceptMatch',
+        'Martial arts cultivation in a ruthless sect tournament.',
+      ),
+      withDesc(
+        3,
+        'WordSoup',
+        'Martial law and fine arts in a peaceful academy of painters.',
+      ),
+      withDesc(
+        4,
+        'Unrelated',
+        'Corporate romance about spreadsheets and quarterly meetings.',
+      ),
     ];
     final recs = engine.recommend(
       allSeries: lib,
@@ -282,23 +375,36 @@ void main() {
       now: today,
     );
     expect(recs, isNotEmpty);
-    expect(recs.first.series.opdsId, 2,
-        reason: 'the adjacent-pair bigram must outrank scattered words');
+    expect(
+      recs.first.series.opdsId,
+      2,
+      reason: 'the adjacent-pair bigram must outrank scattered words',
+    );
   });
 
   test('learned weights change the ranking', () {
     // Candidate 3 matches the seed's AUTHOR; candidate 4 matches its genre.
     final lib = [
-      _series(id: 1, title: 'Seed', author: 'Shared Author',
-          genres: ['Cultivation']),
-      _series(id: 3, title: 'AuthorMatch', author: 'Shared Author',
-          genres: ['Romance']),
+      _series(
+        id: 1,
+        title: 'Seed',
+        author: 'Shared Author',
+        genres: ['Cultivation'],
+      ),
+      _series(
+        id: 3,
+        title: 'AuthorMatch',
+        author: 'Shared Author',
+        genres: ['Romance'],
+      ),
       _series(id: 4, title: 'GenreMatch', genres: ['Cultivation']),
     ];
     final entries = [_entry(seriesId: 1, progress: halfRead(today))];
     // Under the prior (author 2.0) the author match wins…
     final withPrior = engine.recommend(
-      allSeries: lib, readingEntries: entries, now: today,
+      allSeries: lib,
+      readingEntries: entries,
+      now: today,
     );
     expect(withPrior.first.series.opdsId, 3);
     // …but a learner that discovered this user ignores author matches
@@ -307,7 +413,10 @@ void main() {
       allSeries: lib,
       readingEntries: entries,
       weights: const RecWeights(
-        author: 0.1, genre: 2.5, keyword: 1.0, length: 0.5,
+        author: 0.1,
+        genre: 2.5,
+        keyword: 1.0,
+        length: 0.5,
       ),
       now: today,
     );
@@ -316,10 +425,18 @@ void main() {
 
   test('recommendations carry a "Because…" reason naming the seed', () {
     final lib = [
-      _series(id: 1, title: 'Reverend Insanity', author: 'Gu Zhen Ren',
-          genres: ['Cultivation']),
-      _series(id: 3, title: 'AuthorPick', author: 'Gu Zhen Ren',
-          genres: ['Romance']),
+      _series(
+        id: 1,
+        title: 'Reverend Insanity',
+        author: 'Gu Zhen Ren',
+        genres: ['Cultivation'],
+      ),
+      _series(
+        id: 3,
+        title: 'AuthorPick',
+        author: 'Gu Zhen Ren',
+        genres: ['Romance'],
+      ),
       _series(id: 4, title: 'GenrePick', genres: ['Cultivation']),
     ];
     final recs = engine.recommend(
@@ -328,8 +445,11 @@ void main() {
       now: today,
     );
     final byId = {for (final r in recs) r.series.opdsId: r};
-    expect(byId[3]!.reason, contains('Reverend Insanity'),
-        reason: 'the author connection should name the read that drove it');
+    expect(
+      byId[3]!.reason,
+      contains('Reverend Insanity'),
+      reason: 'the author connection should name the read that drove it',
+    );
     expect(byId[4]!.reason.toLowerCase(), contains('cultivation'));
     expect(byId[4]!.reason, contains('Reverend Insanity'));
   });
@@ -339,10 +459,18 @@ void main() {
     // (3000 chapters = 'huge'; the seeds are short/medium).
     final lib = [
       ...library(),
-      _series(id: 9, title: 'Outside A', genres: ['Slice of Life'],
-          totalChapters: 3000),
-      _series(id: 10, title: 'Outside B', genres: ['Horror'],
-          totalChapters: 3000),
+      _series(
+        id: 9,
+        title: 'Outside A',
+        genres: ['Slice of Life'],
+        totalChapters: 3000,
+      ),
+      _series(
+        id: 10,
+        title: 'Outside B',
+        genres: ['Horror'],
+        totalChapters: 3000,
+      ),
     ];
     // Read both seeds so Cultivation AND Regression are in-taste — the only
     // out-of-taste series left are 9 and 10.
@@ -358,8 +486,11 @@ void main() {
     );
     final wildcards = recs.where((r) => r.isWildcard).toList();
     expect(wildcards, hasLength(1));
-    expect([9, 10], contains(wildcards.single.series.opdsId),
-        reason: 'the wildcard comes from outside the taste vector');
+    expect(
+      [9, 10],
+      contains(wildcards.single.series.opdsId),
+      reason: 'the wildcard comes from outside the taste vector',
+    );
     expect(wildcards.single.reason, 'Something different');
     // Deterministic within a day, so the shelf doesn't flicker on refresh.
     final again = engine.recommend(
@@ -368,11 +499,15 @@ void main() {
       explore: true,
       now: today.add(const Duration(hours: 3)),
     );
-    expect(again.where((r) => r.isWildcard).single.series.opdsId,
-        wildcards.single.series.opdsId);
+    expect(
+      again.where((r) => r.isWildcard).single.series.opdsId,
+      wildcards.single.series.opdsId,
+    );
     // Off by default.
     final plain = engine.recommend(
-      allSeries: lib, readingEntries: entries, now: today,
+      allSeries: lib,
+      readingEntries: entries,
+      now: today,
     );
     expect(plain.any((r) => r.isWildcard), isFalse);
   });
@@ -386,27 +521,39 @@ void main() {
       feedback: const {1: RecommendationFeedback.dismissed},
       now: today,
     );
-    expect(recs.map((r) => r.series.opdsId), contains(3),
-        reason: 'actually reading it beats a stale card dismissal');
+    expect(
+      recs.map((r) => r.series.opdsId),
+      contains(3),
+      reason: 'actually reading it beats a stale card dismissal',
+    );
   });
 
-  test('caught-up with zero in-app entries is a full like (external binge)',
-      () {
-    // The Natural-Reader workflow: the user listened to Seed A entirely
-    // outside the app (no reading entries, no time/words) and marked it
-    // caught-up in the status picker. That alone must seed taste.
-    final recs = engine.recommend(
-      allSeries: library(),
-      readingEntries: const [], // nothing read in-app at all
-      signals: const RecSignals(statusOverrides: {1: 'completed'}),
-      now: today,
-    );
-    final ids = [for (final r in recs) r.series.opdsId];
-    expect(ids, contains(3),
-        reason: "the binge-listened series' genre must drive picks");
-    expect(ids, isNot(contains(1)), reason: 'the caught-up series is engaged');
-    expect(recs.first.series.opdsId, 3);
-  });
+  test(
+    'caught-up with zero in-app entries is a full like (external binge)',
+    () {
+      // The Natural-Reader workflow: the user listened to Seed A entirely
+      // outside the app (no reading entries, no time/words) and marked it
+      // caught-up in the status picker. That alone must seed taste.
+      final recs = engine.recommend(
+        allSeries: library(),
+        readingEntries: const [], // nothing read in-app at all
+        signals: const RecSignals(statusOverrides: {1: 'completed'}),
+        now: today,
+      );
+      final ids = [for (final r in recs) r.series.opdsId];
+      expect(
+        ids,
+        contains(3),
+        reason: "the binge-listened series' genre must drive picks",
+      );
+      expect(
+        ids,
+        isNot(contains(1)),
+        reason: 'the caught-up series is engaged',
+      );
+      expect(recs.first.series.opdsId, 3);
+    },
+  );
 
   test('an in-app dropped status suppresses without any reading entries', () {
     final recs = engine.recommend(
@@ -417,8 +564,11 @@ void main() {
     );
     final ids = [for (final r in recs) r.series.opdsId];
     expect(ids, isNot(contains(1)));
-    expect(ids, isNot(contains(3)),
-        reason: "the dropped series' genre must score negative");
+    expect(
+      ids,
+      isNot(contains(3)),
+      reason: "the dropped series' genre must score negative",
+    );
     expect(ids, contains(4));
   });
 
@@ -426,8 +576,13 @@ void main() {
     // Server says dropped; the user's own picker says caught-up. The user
     // wins: the series seeds positively.
     final lib = [
-      _series(id: 1, title: 'Seed A', genres: ['Cultivation'],
-          totalChapters: 50, readingStatus: 'dropped'),
+      _series(
+        id: 1,
+        title: 'Seed A',
+        genres: ['Cultivation'],
+        totalChapters: 50,
+        readingStatus: 'dropped',
+      ),
       ...library().skip(1),
     ];
     final recs = engine.recommend(
@@ -437,18 +592,59 @@ void main() {
       now: today,
     );
     expect(recs.map((r) => r.series.opdsId), contains(3));
+
+    // And the mirror, which matters now that the server's 'completed' only
+    // means "this novel finished publishing": it must not survive the user
+    // saying they dropped the thing.
+    final mirror = [
+      _series(
+        id: 1,
+        title: 'Seed A',
+        genres: ['Cultivation'],
+        totalChapters: 50,
+        readingStatus: 'completed',
+      ),
+      ...library().skip(1),
+    ];
+    final dropped = engine.recommend(
+      allSeries: mirror,
+      readingEntries: [_entry(seriesId: 2, progress: halfRead(today))],
+      signals: const RecSignals(statusOverrides: {1: 'dropped'}),
+      now: today,
+    );
+    final ids = [for (final r in dropped) r.series.opdsId];
+    expect(
+      ids,
+      isNot(contains(3)),
+      reason:
+          "the user's drop poisons Cultivation regardless of what the "
+          'feed claims',
+    );
+    expect(ids, contains(4));
   });
 
   test('similarTo excludes dropped and caught-up candidates without '
       'polluting the similarity seed', () {
-    final source = _series(id: 1, title: 'Source', genres: ['Cultivation'],
-        totalChapters: 50);
+    final source = _series(
+      id: 1,
+      title: 'Source',
+      genres: ['Cultivation'],
+      totalChapters: 50,
+    );
     final lib = [
       source,
-      _series(id: 3, title: 'Pick A', genres: ['Cultivation'],
-          totalChapters: 50),
-      _series(id: 7, title: 'AlsoSimilar', genres: ['Cultivation'],
-          totalChapters: 50),
+      _series(
+        id: 3,
+        title: 'Pick A',
+        genres: ['Cultivation'],
+        totalChapters: 50,
+      ),
+      _series(
+        id: 7,
+        title: 'AlsoSimilar',
+        genres: ['Cultivation'],
+        totalChapters: 50,
+      ),
       _series(id: 4, title: 'Unrelated', genres: ['Regression']),
     ];
     final recs = engine.similarTo(
@@ -461,8 +657,11 @@ void main() {
     );
     final ids = [for (final r in recs) r.series.opdsId];
     expect(ids, isNot(contains(3)), reason: 'dropped never resurfaces here');
-    expect(ids, isNot(contains(7)),
-        reason: "already caught up — nothing to recommend");
+    expect(
+      ids,
+      isNot(contains(7)),
+      reason: "already caught up — nothing to recommend",
+    );
   });
 
   test('similarTo on a dropped/reset series still finds similar picks', () {
@@ -479,9 +678,13 @@ void main() {
       feedback: const {1: RecommendationFeedback.reset},
       now: today,
     );
-    expect(recs.map((r) => r.series.opdsId), contains(3),
-        reason: "the source's own status/feedback must not flip the seed "
-            'negative (the anti-recommendation bug)');
+    expect(
+      recs.map((r) => r.series.opdsId),
+      contains(3),
+      reason:
+          "the source's own status/feedback must not flip the seed "
+          'negative (the anti-recommendation bug)',
+    );
     expect(recs.first.series.opdsId, 3);
   });
 }

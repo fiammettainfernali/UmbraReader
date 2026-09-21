@@ -107,6 +107,37 @@ class RecOutcomeStore {
     }
   }
 
+  /// How long an outcome keeps counting. Two months of neither being shown
+  /// nor being opened and the row is no longer evidence about anything.
+  static const staleDays = 60;
+
+  /// Forgets rows that have gone [staleDays] without an impression or a tap,
+  /// returning how many were dropped.
+  ///
+  /// Until this existed the tally could only grow. A series shown on a dozen
+  /// mornings last spring kept its ignored count — and with it the engine's
+  /// 35%-floor score penalty — forever, and the learner kept training on
+  /// labels from a shelf that had long since moved on. Worse, impressions
+  /// used to be stamped at launch for cards that were never rendered, so
+  /// every install carries a backlog of verdicts nobody gave; expiry is the
+  /// only path by which those leave.
+  ///
+  /// `lastShownDay` is `YYYY-MM-DD` and `lastTapAt` is ISO-8601, so both
+  /// compare correctly against a day key as plain strings — and a tap-only
+  /// row's empty `lastShownDay` sorts before every cutoff, leaving its fate
+  /// to the tap date, which is the only date it has.
+  Future<int> pruneStale({DateTime? now}) async {
+    final cutoff = _dayKey(
+      (now ?? DateTime.now()).subtract(const Duration(days: staleDays)),
+    );
+    return (_db.delete(_db.recOutcomeRows)..where(
+          (t) =>
+              t.lastShownDay.isSmallerThanValue(cutoff) &
+              (t.lastTapAt.isNull() | t.lastTapAt.isSmallerThanValue(cutoff)),
+        ))
+        .go();
+  }
+
   String _dayKey(DateTime t) {
     final local = t.toLocal();
     final m = local.month.toString().padLeft(2, '0');
