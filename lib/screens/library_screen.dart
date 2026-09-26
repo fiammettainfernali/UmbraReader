@@ -1286,6 +1286,13 @@ class _LibraryScreenState extends State<LibraryScreen>
             SliverToBoxAdapter(child: _buildContinueHero())
           else
             SliverToBoxAdapter(child: _buildCalmNothingOpen()),
+          // Every book on the go, not just the last one touched. This shelf
+          // was cut from the first calm home as chrome, which was wrong: for
+          // a reader with several books open at once the hero alone hides
+          // most of what they came back for, and the only route to the other
+          // four is the grid the calm view exists to avoid.
+          if (_reading.length > 1)
+            SliverToBoxAdapter(child: _buildContinueShelf()),
           if (picks.isNotEmpty) ...[
             SliverToBoxAdapter(child: _sectionHeader('Maybe next')),
             for (final pick in picks)
