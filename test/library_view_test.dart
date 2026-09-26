@@ -107,8 +107,9 @@ void main() {
 
     test('the downloaded filter distinguishes false from unset', () {
       expect(
-        const LibraryFilters(downloaded: false)
-            .matches(_series(), isDownloaded: true),
+        const LibraryFilters(
+          downloaded: false,
+        ).matches(_series(), isDownloaded: true),
         isFalse,
       );
       expect(
@@ -126,7 +127,7 @@ void main() {
       expect(view.filters.isEmpty, isTrue);
     });
 
-    test('what was saved is what loads back', () async {
+    test('what was saved is what loads back, except the chip', () async {
       final store = LibraryViewStore();
       await store.save(
         const LibraryView(
@@ -139,7 +140,44 @@ void main() {
       final back = await LibraryViewStore().load();
       expect(back.sort, LibrarySort.author);
       expect(back.descending, isTrue);
-      expect(back.readingState, ReadingStateFilter.finished);
+      // This test used to pin the chip surviving too. It was rewritten
+      // rather than dropped, because the behaviour it pinned turned out to
+      // be a trap: the library screen shows its Continue card only on an
+      // unfiltered list, so a restored chip removed the way back to the
+      // book from every subsequent launch. The arrangement still persists;
+      // the chip is a question asked once. See LibraryViewStore.load.
+      expect(back.readingState, ReadingStateFilter.any);
+    });
+
+    test('tapping a chip cannot delete the home screen for good', () async {
+      // "Reading" is the obvious thing to tap when looking for your book,
+      // and it was persisted AND cloud-synced — so one tap took the Continue
+      // card, the in-progress shelf and the streak off every future launch,
+      // on every device, with nothing on screen connecting the two.
+      await LibraryViewStore().save(
+        const LibraryView(readingState: ReadingStateFilter.inProgress),
+      );
+
+      expect(
+        (await LibraryViewStore().load()).readingState,
+        ReadingStateFilter.any,
+      );
+    });
+
+    test('a chip from another device is not restored either', () async {
+      // Sync stores the view verbatim and the neutralising happens on read,
+      // so a device that never tapped the chip cannot inherit the trap from
+      // one that did.
+      final blob =
+          '{"view":{"sort":"titleAsc","descending":false,'
+          '"readingState":"finished","filters":{}},'
+          '"at":"${DateTime.now().toUtc().add(const Duration(minutes: 5)).toIso8601String()}"}';
+      expect(await LibraryViewStore().mergeSyncBlob(blob), isTrue);
+
+      expect(
+        (await LibraryViewStore().load()).readingState,
+        ReadingStateFilter.any,
+      );
     });
 
     test('corrupt stored data falls back instead of throwing', () async {
@@ -191,21 +229,23 @@ void main() {
       expect((await store.load()).sort, LibrarySort.author);
     });
 
-    test('nothing saved yet exports an empty blob, not a default view',
-        () async {
-      // Pushing a default would let a fresh install overwrite the real
-      // arrangement already in the cloud.
-      expect(await LibraryViewStore().exportSyncBlob(), isEmpty);
-    });
+    test(
+      'nothing saved yet exports an empty blob, not a default view',
+      () async {
+        // Pushing a default would let a fresh install overwrite the real
+        // arrangement already in the cloud.
+        expect(await LibraryViewStore().exportSyncBlob(), isEmpty);
+      },
+    );
   });
 
   group('sort direction labels', () {
     test('each sort names directions that make sense for it', () {
       expect(LibrarySort.titleAsc.directionLabels, ('A–Z', 'Z–A'));
-      expect(
-        LibrarySort.recentlyUpdated.directionLabels,
-        ('Newest first', 'Oldest first'),
-      );
+      expect(LibrarySort.recentlyUpdated.directionLabels, (
+        'Newest first',
+        'Oldest first',
+      ));
     });
   });
 }

@@ -9,6 +9,7 @@ import '../services/settings_service.dart';
 import '../widgets/section_header.dart';
 import 'notes_screen.dart';
 import 'series_detail_screen.dart';
+import 'stats_awards.dart';
 
 /// Shows reading statistics derived from saved reading positions and
 /// reading-time activity.
@@ -23,6 +24,18 @@ class StatsScreen extends StatefulWidget {
 
   @override
   State<StatsScreen> createState() => _StatsScreenState();
+}
+
+/// The two halves of this screen: what the reading WAS, and what it adds up
+/// to. Split rather than stacked because the figures below are already a
+/// dense page, and progress bars on top of them would make looking up how
+/// much you read last week an exercise in scrolling past your own trophies.
+enum _StatsTab {
+  reading('Reading'),
+  awards('Earned');
+
+  const _StatsTab(this.label);
+  final String label;
 }
 
 class _StatsScreenState extends State<StatsScreen> {
@@ -50,6 +63,10 @@ class _StatsScreenState extends State<StatsScreen> {
   static const int _bookRowCap = 8;
   bool _showAllBooks = false;
 
+  /// Opens on the figures, not the trophies: the question this screen is
+  /// most often opened to answer is still "how am I doing lately".
+  _StatsTab _tab = _StatsTab.reading;
+
   @override
   void initState() {
     super.initState();
@@ -74,44 +91,13 @@ class _StatsScreenState extends State<StatsScreen> {
   }
 
   Future<void> _editGoal() async {
-    final controller = TextEditingController(
-      text: _dailyGoalMinutes > 0 ? '$_dailyGoalMinutes' : '',
-    );
+    // Not promptForText: this has a third answer. Cancel means "leave it
+    // alone" and Clear means "set it to none", and a shared prompt that
+    // returns text can only tell you one of those.
     final result = await showDialog<int>(
       context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: const Text('Daily reading goal'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(
-            labelText: 'Minutes per day',
-            hintText: 'e.g. 20',
-            border: OutlineInputBorder(),
-          ),
-          onSubmitted: (value) =>
-              Navigator.of(dialogCtx).pop(int.tryParse(value) ?? 0),
-        ),
-        actions: [
-          if (_dailyGoalMinutes > 0)
-            TextButton(
-              onPressed: () => Navigator.of(dialogCtx).pop(0),
-              child: const Text('Clear goal'),
-            ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.of(dialogCtx).pop(int.tryParse(controller.text) ?? 0),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+      builder: (_) => _GoalDialog(current: _dailyGoalMinutes),
     );
-    controller.dispose();
     if (result == null) return;
     await _settingsService.saveDailyMinuteGoal(result);
     await _load();
@@ -141,7 +127,32 @@ class _StatsScreenState extends State<StatsScreen> {
           ? const Center(child: CircularProgressIndicator())
           : entries.isEmpty && _activity.totalSeconds == 0
           ? _buildEmpty(context)
-          : _buildContent(context, entries),
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  child: SegmentedButton<_StatsTab>(
+                    segments: [
+                      for (final t in _StatsTab.values)
+                        ButtonSegment(value: t, label: Text(t.label)),
+                    ],
+                    selected: {_tab},
+                    showSelectedIcon: false,
+                    onSelectionChanged: (sel) =>
+                        setState(() => _tab = sel.first),
+                  ),
+                ),
+                Expanded(
+                  child: _tab == _StatsTab.reading
+                      ? _buildContent(context, entries)
+                      : AwardsView(
+                          activity: _activity,
+                          entries: entries,
+                          library: _seriesById.values.toList(),
+                        ),
+                ),
+              ],
+            ),
     );
   }
 
@@ -945,3 +956,69 @@ String _dateKey(DateTime date) {
 }
 
 String _todayKey() => _dateKey(DateTime.now());
+
+/// The daily-goal prompt.
+///
+/// A widget rather than a bare AlertDialog because it owns the text
+/// controller, and a controller handed to a dialog has to be owned by
+/// something the framework disposes — see [promptForText] for what happens
+/// when the caller disposes it instead.
+///
+/// It is not promptForText itself because it has three answers rather than
+/// two: Cancel leaves the goal alone, Clear sets it to none, and those are
+/// different things a prompt returning text cannot distinguish.
+class _GoalDialog extends StatefulWidget {
+  const _GoalDialog({required this.current});
+
+  /// The goal in minutes, or 0 when none is set.
+  final int current;
+
+  @override
+  State<_GoalDialog> createState() => _GoalDialogState();
+}
+
+class _GoalDialogState extends State<_GoalDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.current > 0 ? '${widget.current}' : '',
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _save() =>
+      Navigator.of(context).pop(int.tryParse(_controller.text.trim()) ?? 0);
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Daily reading goal'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        keyboardType: TextInputType.number,
+        textInputAction: TextInputAction.done,
+        onSubmitted: (_) => _save(),
+        decoration: const InputDecoration(
+          labelText: 'Minutes per day',
+          hintText: 'e.g. 20',
+          border: OutlineInputBorder(),
+        ),
+      ),
+      actions: [
+        if (widget.current > 0)
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(0),
+            child: const Text('Clear goal'),
+          ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _save, child: const Text('Save')),
+      ],
+    );
+  }
+}

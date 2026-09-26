@@ -202,6 +202,28 @@ class KvRows extends Table {
 /// Stores migrate here from SharedPreferences one at a time (roadmap Phase 1
 /// item 1); each store owns its one-time import from the legacy prefs keys,
 /// and imports are non-destructive — the prefs copies stay behind untouched.
+/// When each badge was first earned, and whether the reader has been told.
+///
+/// Deliberately thin: WHAT is earned is recomputed from the activity ledger
+/// every time (see services/awards.dart), so nothing here can drift out of
+/// step with the reading it describes. The one thing a later recomputation
+/// cannot recover is the moment something first became true, which is the
+/// only reason this table exists.
+class AwardRows extends Table {
+  /// The badge's stable id — a ladder tier like `hours.6`, or `find.marathon`.
+  TextColumn get id => text()();
+
+  TextColumn get earnedAt => text()();
+
+  /// False until it has been shown. The backfill of a reader's existing
+  /// history writes these already seen, so shipping the feature does not
+  /// announce a decade of reading in one go.
+  BoolColumn get seen => boolean().withDefault(const Constant(false))();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}
+
 @DriftDatabase(
   tables: [
     ReadingProgressRows,
@@ -211,6 +233,7 @@ class KvRows extends Table {
     VolumeActivityRows,
     RecOutcomeRows,
     WebSeriesRows,
+    AwardRows,
     KvRows,
   ],
 )
@@ -242,7 +265,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -287,6 +310,13 @@ class AppDatabase extends _$AppDatabase {
       if (from < 8) {
         // v8: web series — comics followed on their own site.
         await m.createTable(webSeriesRows);
+      }
+      if (from < 9) {
+        // v9: badges. Only the earned dates live here; the awards
+        // themselves are derived from the activity ledger, so an upgrading
+        // reader's whole history is already earned the first time they
+        // open the stats screen.
+        await m.createTable(awardRows);
       }
     },
   );

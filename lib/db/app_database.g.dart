@@ -3427,6 +3427,270 @@ class WebSeriesRowsCompanion extends UpdateCompanion<WebSeriesRow> {
   }
 }
 
+class $AwardRowsTable extends AwardRows
+    with TableInfo<$AwardRowsTable, AwardRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $AwardRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _earnedAtMeta = const VerificationMeta(
+    'earnedAt',
+  );
+  @override
+  late final GeneratedColumn<String> earnedAt = GeneratedColumn<String>(
+    'earned_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _seenMeta = const VerificationMeta('seen');
+  @override
+  late final GeneratedColumn<bool> seen = GeneratedColumn<bool>(
+    'seen',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("seen" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, earnedAt, seen];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'award_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<AwardRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('earned_at')) {
+      context.handle(
+        _earnedAtMeta,
+        earnedAt.isAcceptableOrUnknown(data['earned_at']!, _earnedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_earnedAtMeta);
+    }
+    if (data.containsKey('seen')) {
+      context.handle(
+        _seenMeta,
+        seen.isAcceptableOrUnknown(data['seen']!, _seenMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  AwardRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return AwardRow(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      earnedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}earned_at'],
+      )!,
+      seen: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}seen'],
+      )!,
+    );
+  }
+
+  @override
+  $AwardRowsTable createAlias(String alias) {
+    return $AwardRowsTable(attachedDatabase, alias);
+  }
+}
+
+class AwardRow extends DataClass implements Insertable<AwardRow> {
+  /// The badge's stable id — a ladder tier like `hours.6`, or `find.marathon`.
+  final String id;
+  final String earnedAt;
+
+  /// False until it has been shown. The backfill of a reader's existing
+  /// history writes these already seen, so shipping the feature does not
+  /// announce a decade of reading in one go.
+  final bool seen;
+  const AwardRow({
+    required this.id,
+    required this.earnedAt,
+    required this.seen,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['earned_at'] = Variable<String>(earnedAt);
+    map['seen'] = Variable<bool>(seen);
+    return map;
+  }
+
+  AwardRowsCompanion toCompanion(bool nullToAbsent) {
+    return AwardRowsCompanion(
+      id: Value(id),
+      earnedAt: Value(earnedAt),
+      seen: Value(seen),
+    );
+  }
+
+  factory AwardRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return AwardRow(
+      id: serializer.fromJson<String>(json['id']),
+      earnedAt: serializer.fromJson<String>(json['earnedAt']),
+      seen: serializer.fromJson<bool>(json['seen']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'earnedAt': serializer.toJson<String>(earnedAt),
+      'seen': serializer.toJson<bool>(seen),
+    };
+  }
+
+  AwardRow copyWith({String? id, String? earnedAt, bool? seen}) => AwardRow(
+    id: id ?? this.id,
+    earnedAt: earnedAt ?? this.earnedAt,
+    seen: seen ?? this.seen,
+  );
+  AwardRow copyWithCompanion(AwardRowsCompanion data) {
+    return AwardRow(
+      id: data.id.present ? data.id.value : this.id,
+      earnedAt: data.earnedAt.present ? data.earnedAt.value : this.earnedAt,
+      seen: data.seen.present ? data.seen.value : this.seen,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AwardRow(')
+          ..write('id: $id, ')
+          ..write('earnedAt: $earnedAt, ')
+          ..write('seen: $seen')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, earnedAt, seen);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is AwardRow &&
+          other.id == this.id &&
+          other.earnedAt == this.earnedAt &&
+          other.seen == this.seen);
+}
+
+class AwardRowsCompanion extends UpdateCompanion<AwardRow> {
+  final Value<String> id;
+  final Value<String> earnedAt;
+  final Value<bool> seen;
+  final Value<int> rowid;
+  const AwardRowsCompanion({
+    this.id = const Value.absent(),
+    this.earnedAt = const Value.absent(),
+    this.seen = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  AwardRowsCompanion.insert({
+    required String id,
+    required String earnedAt,
+    this.seen = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       earnedAt = Value(earnedAt);
+  static Insertable<AwardRow> custom({
+    Expression<String>? id,
+    Expression<String>? earnedAt,
+    Expression<bool>? seen,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (earnedAt != null) 'earned_at': earnedAt,
+      if (seen != null) 'seen': seen,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  AwardRowsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? earnedAt,
+    Value<bool>? seen,
+    Value<int>? rowid,
+  }) {
+    return AwardRowsCompanion(
+      id: id ?? this.id,
+      earnedAt: earnedAt ?? this.earnedAt,
+      seen: seen ?? this.seen,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (earnedAt.present) {
+      map['earned_at'] = Variable<String>(earnedAt.value);
+    }
+    if (seen.present) {
+      map['seen'] = Variable<bool>(seen.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('AwardRowsCompanion(')
+          ..write('id: $id, ')
+          ..write('earnedAt: $earnedAt, ')
+          ..write('seen: $seen, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $KvRowsTable extends KvRows with TableInfo<$KvRowsTable, KvRow> {
   @override
   final GeneratedDatabase attachedDatabase;
@@ -3645,6 +3909,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $VolumeActivityRowsTable(this);
   late final $RecOutcomeRowsTable recOutcomeRows = $RecOutcomeRowsTable(this);
   late final $WebSeriesRowsTable webSeriesRows = $WebSeriesRowsTable(this);
+  late final $AwardRowsTable awardRows = $AwardRowsTable(this);
   late final $KvRowsTable kvRows = $KvRowsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
@@ -3658,6 +3923,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     volumeActivityRows,
     recOutcomeRows,
     webSeriesRows,
+    awardRows,
     kvRows,
   ];
 }
@@ -5444,6 +5710,162 @@ typedef $$WebSeriesRowsTableProcessedTableManager =
       WebSeriesRow,
       PrefetchHooks Function()
     >;
+typedef $$AwardRowsTableCreateCompanionBuilder =
+    AwardRowsCompanion Function({
+      required String id,
+      required String earnedAt,
+      Value<bool> seen,
+      Value<int> rowid,
+    });
+typedef $$AwardRowsTableUpdateCompanionBuilder =
+    AwardRowsCompanion Function({
+      Value<String> id,
+      Value<String> earnedAt,
+      Value<bool> seen,
+      Value<int> rowid,
+    });
+
+class $$AwardRowsTableFilterComposer
+    extends Composer<_$AppDatabase, $AwardRowsTable> {
+  $$AwardRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get earnedAt => $composableBuilder(
+    column: $table.earnedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get seen => $composableBuilder(
+    column: $table.seen,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$AwardRowsTableOrderingComposer
+    extends Composer<_$AppDatabase, $AwardRowsTable> {
+  $$AwardRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get earnedAt => $composableBuilder(
+    column: $table.earnedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get seen => $composableBuilder(
+    column: $table.seen,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$AwardRowsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $AwardRowsTable> {
+  $$AwardRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get earnedAt =>
+      $composableBuilder(column: $table.earnedAt, builder: (column) => column);
+
+  GeneratedColumn<bool> get seen =>
+      $composableBuilder(column: $table.seen, builder: (column) => column);
+}
+
+class $$AwardRowsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $AwardRowsTable,
+          AwardRow,
+          $$AwardRowsTableFilterComposer,
+          $$AwardRowsTableOrderingComposer,
+          $$AwardRowsTableAnnotationComposer,
+          $$AwardRowsTableCreateCompanionBuilder,
+          $$AwardRowsTableUpdateCompanionBuilder,
+          (AwardRow, BaseReferences<_$AppDatabase, $AwardRowsTable, AwardRow>),
+          AwardRow,
+          PrefetchHooks Function()
+        > {
+  $$AwardRowsTableTableManager(_$AppDatabase db, $AwardRowsTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$AwardRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$AwardRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$AwardRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> earnedAt = const Value.absent(),
+                Value<bool> seen = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => AwardRowsCompanion(
+                id: id,
+                earnedAt: earnedAt,
+                seen: seen,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String earnedAt,
+                Value<bool> seen = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => AwardRowsCompanion.insert(
+                id: id,
+                earnedAt: earnedAt,
+                seen: seen,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$AwardRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $AwardRowsTable,
+      AwardRow,
+      $$AwardRowsTableFilterComposer,
+      $$AwardRowsTableOrderingComposer,
+      $$AwardRowsTableAnnotationComposer,
+      $$AwardRowsTableCreateCompanionBuilder,
+      $$AwardRowsTableUpdateCompanionBuilder,
+      (AwardRow, BaseReferences<_$AppDatabase, $AwardRowsTable, AwardRow>),
+      AwardRow,
+      PrefetchHooks Function()
+    >;
 typedef $$KvRowsTableCreateCompanionBuilder =
     KvRowsCompanion Function({
       required String key,
@@ -5592,6 +6014,8 @@ class $AppDatabaseManager {
       $$RecOutcomeRowsTableTableManager(_db, _db.recOutcomeRows);
   $$WebSeriesRowsTableTableManager get webSeriesRows =>
       $$WebSeriesRowsTableTableManager(_db, _db.webSeriesRows);
+  $$AwardRowsTableTableManager get awardRows =>
+      $$AwardRowsTableTableManager(_db, _db.awardRows);
   $$KvRowsTableTableManager get kvRows =>
       $$KvRowsTableTableManager(_db, _db.kvRows);
 }

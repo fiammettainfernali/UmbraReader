@@ -5,8 +5,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/library_view.dart';
 import 'cloud_sync_service.dart';
 
-/// Persists how the reader has arranged their library — sort, direction,
-/// reading-state chip and filter set — and syncs it across devices.
+/// Persists how the reader has arranged their library — sort, direction and
+/// filter set — and syncs it across devices. The reading-state chip is
+/// stored with them but deliberately not restored; see [load].
 ///
 /// Every other piece of user state in the app persists: progress, bookmarks,
 /// collections, reader settings, themes. The library view was the exception,
@@ -24,7 +25,24 @@ class LibraryViewStore {
 
   Future<LibraryView> load() async {
     final prefs = await SharedPreferences.getInstance();
-    return _decode(prefs.getString(_key)) ?? LibraryView.initial;
+    final stored = _decode(prefs.getString(_key)) ?? LibraryView.initial;
+    // Everything survives a launch except which reading-state chip was
+    // tapped, and that exception is deliberate.
+    //
+    // The library screen only shows its home extras — the Continue card, the
+    // in-progress shelf, the streak — on an unfiltered list. So tapping
+    // "Reading", which is the most natural gesture there is for "where was
+    // I", silently removed the resume card from every future launch, on
+    // every device, with nothing on screen to connect the two. The chip had
+    // become a one-way door into a library with no way back to the book.
+    //
+    // This is the same reasoning the class already applies to a search
+    // query — a question you ask once, and reopening the app to a silently
+    // narrowed library is worse than asking it again — which simply had not
+    // been applied to the chip beside it. Saved views keep their own
+    // reading state: choosing to save a filtered view is a different act
+    // from tapping a chip to look something up.
+    return stored.copyWith(readingState: ReadingStateFilter.any);
   }
 
   Future<void> save(LibraryView view) async {

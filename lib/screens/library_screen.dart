@@ -17,7 +17,9 @@ import '../services/streamed_count_refresh.dart';
 import '../services/rec_outcome_store.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/control_client.dart';
+import '../services/recommendation_engine.dart';
 import '../services/recommendation_feedback_store.dart';
+import '../services/recommendation_loader.dart';
 import '../services/saved_view_store.dart';
 import '../services/series_status_store.dart';
 import '../services/reading_activity_store.dart';
@@ -33,6 +35,7 @@ import 'library_cards.dart';
 import 'library_downloads.dart';
 import 'library_filters.dart';
 import 'library_search_screen.dart';
+import '../db/app_database.dart';
 import '../services/web_series_refresh.dart';
 import '../services/web_series_store.dart';
 import '../widgets/pro_sheet.dart';
@@ -101,6 +104,27 @@ class _LibraryScreenState extends State<LibraryScreen>
   /// library, so they are on the shelf whether or not a server answers.
   List<WebSeries> _webSeries = const [];
   final WebSeriesStore _webSeriesStore = WebSeriesStore();
+
+  /// Which of the two libraries is on screen. Remembered, because someone
+  /// who reads comics opens the app to read comics, and being put back in
+  /// the novels every launch is a small tax on every visit.
+  bool _showingComics = false;
+
+  /// The library opens calm: the book in progress, a couple of suggestions,
+  /// and one way into the rest of the shelf.
+  ///
+  /// Session-only, and deliberately never persisted. Every launch starts
+  /// calm — which costs a tap on the days you came to browse, and is worth
+  /// it, because a remembered view is exactly how the reading-state chip
+  /// became a trap that silently deleted the home screen on every launch
+  /// after the one it was tapped on. Nothing here can get stuck.
+  bool _calmHome = true;
+
+  /// Two picks for the calm home, loaded after the first frame so the book
+  /// you are actually reading never waits on a ranking pass.
+  List<Recommendation>? _calmPicks;
+  bool _calmPicksRequested = false;
+  static const String _kLibraryModeKey = 'library.showingComics';
 
   /// Reading-time activity + daily goal for the home streak chip. Its
   /// per-volume seconds also drive the library's "Time spent" sort.
@@ -288,9 +312,15 @@ class _LibraryScreenState extends State<LibraryScreen>
     // to reach for the network on behalf of books sitting in local storage.
     await _loadDownloads();
     await _loadReading();
-    // Local rows, so the shelf has them before anything is asked of a
-    // network — and, unlike the books, it keeps them when nothing answers.
+    // Local rows, so they are there before anything is asked of a network —
+    // and, unlike the books, they stay when nothing answers.
     await _loadWebSeries();
+    // Which library was last open. Read after the comics, since landing in
+    // an empty one would be worse than ignoring the preference.
+    final mode = await AppDatabase.instance.kvGet(_kLibraryModeKey);
+    if (mounted && mode == '1' && _webSeries.isNotEmpty) {
+      setState(() => _showingComics = true);
+    }
     if (settings.isConfigured) {
       await _sync();
     }
@@ -311,7 +341,19 @@ class _LibraryScreenState extends State<LibraryScreen>
   Future<void> _loadWebSeries() async {
     final followed = await _webSeriesStore.all();
     if (!mounted) return;
-    setState(() => _webSeries = followed);
+    setState(() {
+      _webSeries = followed;
+      // Nothing left to show over there. Being stranded on an empty
+      // library after unfollowing the last comic is a dead end, and the
+      // toggle out of it disappears at the same moment.
+      if (followed.isEmpty) _showingComics = false;
+    });
+  }
+
+  Future<void> _setLibraryMode(bool comics) async {
+    if (comics == _showingComics) return;
+    setState(() => _showingComics = comics);
+    await AppDatabase.instance.kvSet(_kLibraryModeKey, comics ? '1' : '0');
   }
 
   /// Asks the followed sites whether anything new has appeared, then
@@ -364,28 +406,100 @@ class _LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  Widget _buildWebSeriesShelf() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _sectionHeader('Following'),
-        SizedBox(
-          height: 236,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: _webSeries.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 14),
-            itemBuilder: (context, index) => WebSeriesCard(
-              series: _webSeries[index],
-              onTap: () => _openWebSeries(_webSeries[index]),
-              onLongPress: () => _webSeriesMenu(_webSeries[index]),
+  /// Switches between the two libraries.
+  ///
+  /// They are separate rather than mixed because they are separate things:
+  /// one is books on the device with chapters, progress and a reading
+  /// streak, the other is comics read on their sites. Sharing a screen made
+  /// each one clutter in the other's way — the comics sat as a shelf
+  /// wedged between the novels' shelves and their grid, which is not where
+  /// anyone browsing comics would look for them.
+  ///
+  /// Only offered once there is something on the other side. Someone who
+  /// has never followed a comic should not be asked, on every visit, to
+  /// choose between their library and an empty one.
+  Widget _buildLibraryToggle() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: SegmentedButton<bool>(
+        segments: [
+          const ButtonSegment<bool>(
+            value: false,
+            icon: Icon(Icons.auto_stories_outlined, size: 18),
+            label: Text('Novels'),
+          ),
+          ButtonSegment<bool>(
+            value: true,
+            icon: const Icon(Icons.image_outlined, size: 18),
+            label: Text('Comics (${_webSeries.length})'),
+          ),
+        ],
+        selected: {_showingComics},
+        showSelectedIcon: false,
+        onSelectionChanged: (choice) => _setLibraryMode(choice.first),
+      ),
+    );
+  }
+
+  /// The comics library: a grid of what is followed, and nothing borrowed
+  /// from the novels' screen. Search, the reading-state chips, the streak
+  /// and the sort all describe books on the device, and none of them has an
+  /// answer for something read on a website.
+  List<Widget> _buildComicsSlivers() {
+    if (_webSeries.isEmpty) {
+      return [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.image_outlined,
+                  size: 48,
+                  color: Theme.of(context).colorScheme.outline,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Nothing followed yet',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Find a comic in Discover → Browse the sites, then tap '
+                  'Follow. It stays on its own site; this remembers your '
+                  'place and tells you when it grows.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
-        const SizedBox(height: 12),
-      ],
-    );
+      ];
+    }
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+        sliver: SliverGrid.builder(
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 160,
+            childAspectRatio: 0.52,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 20,
+          ),
+          itemCount: _webSeries.length,
+          itemBuilder: (context, index) => WebSeriesCard(
+            series: _webSeries[index],
+            onTap: () => _openWebSeries(_webSeries[index]),
+            onLongPress: () => _webSeriesMenu(_webSeries[index]),
+          ),
+        ),
+      ),
+    ];
   }
 
   /// Refreshes the "Continue reading" shelf and the recommendation engine
@@ -1118,6 +1232,16 @@ class _LibraryScreenState extends State<LibraryScreen>
       ];
     }
 
+    // Comics are their own library, not a shelf inside this one. Nothing
+    // below applies to them: the search, the reading-state chips, the sort
+    // and the streak all describe books held on the device.
+    if (_showingComics) {
+      return [
+        SliverToBoxAdapter(child: _buildLibraryToggle()),
+        ..._buildComicsSlivers(),
+      ];
+    }
+
     // We have a library to show (live or from the offline cache).
     final all = _library ?? const <Series>[];
     if (all.isNotEmpty) {
@@ -1138,10 +1262,43 @@ class _LibraryScreenState extends State<LibraryScreen>
       final hasHomeContent =
           showHome &&
           (_reading.isNotEmpty ||
-              _webSeries.isNotEmpty ||
               _activity.currentStreak() > 0 ||
               _dailyGoalMinutes > 0);
+
+      // The calm home. Everything the full view stacks above the grid — the
+      // search field, three icon buttons, the recent-search chips, five
+      // reading-state chips, the active-filter row, the count and sort line,
+      // the streak — is roughly nineteen controls standing between opening
+      // the app and carrying on with the book that was already open. Here
+      // there are two decisions: keep reading, or go and look.
+      if (_calmHome && showHome) {
+        if (!_calmPicksRequested) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => _loadCalmPicks());
+        }
+        final picks = _calmPicks ?? const <Recommendation>[];
+        return [
+          if (_webSeries.isNotEmpty)
+            SliverToBoxAdapter(child: _buildLibraryToggle()),
+          // Kept: being told the shelf is an old copy is not clutter, it is
+          // the difference between "nothing new" and "nothing loaded".
+          if (_offline) SliverToBoxAdapter(child: _buildOfflineBanner()),
+          if (_reading.isNotEmpty)
+            SliverToBoxAdapter(child: _buildContinueHero())
+          else
+            SliverToBoxAdapter(child: _buildCalmNothingOpen()),
+          if (picks.isNotEmpty) ...[
+            SliverToBoxAdapter(child: _sectionHeader('Maybe next')),
+            for (final pick in picks)
+              SliverToBoxAdapter(child: _buildCalmPick(pick)),
+          ],
+          SliverToBoxAdapter(child: _buildBrowseAll(all.length)),
+        ];
+      }
+
       return [
+        // Only once there is a second library to switch to.
+        if (_webSeries.isNotEmpty)
+          SliverToBoxAdapter(child: _buildLibraryToggle()),
         if (_offline) SliverToBoxAdapter(child: _buildOfflineBanner()),
         if (bulkDownloading) SliverToBoxAdapter(child: buildBulkBanner()),
         SliverToBoxAdapter(child: buildControls(all.length, visible.length)),
@@ -1152,10 +1309,6 @@ class _LibraryScreenState extends State<LibraryScreen>
           SliverToBoxAdapter(child: _buildContinueHero()),
         if (showHome && _reading.length > 1)
           SliverToBoxAdapter(child: _buildContinueShelf()),
-        // Above "All books" because it is not one: these are read on their
-        // own sites, and nothing about them is in the grid below.
-        if (showHome && _webSeries.isNotEmpty)
-          SliverToBoxAdapter(child: _buildWebSeriesShelf()),
         // Only worth a heading when something sits above it. With nothing
         // in progress the grid starts right under the controls, and
         // "All books" would just be a label on the only thing there is.
@@ -1373,6 +1526,115 @@ class _LibraryScreenState extends State<LibraryScreen>
   /// silently nuked everything below it in the sliver list — so be careful
   /// before reintroducing Spacer/Expanded inside this widget.
   Widget _sectionHeader(String title) => SectionHeader(title);
+
+  /// Ranks a couple of picks for the calm home, once per visit to the
+  /// screen. Deliberately after the first frame: the hero is the thing
+  /// somebody opened the app for, and it must not wait on eight stores.
+  Future<void> _loadCalmPicks() async {
+    if (_calmPicksRequested) return;
+    _calmPicksRequested = true;
+    final library = _library;
+    if (library == null || library.isEmpty) return;
+    final picks = await const RecommendationLoader(
+      maxResults: 12,
+    ).load(library);
+    if (!mounted) return;
+    setState(() => _calmPicks = picks.take(2).toList());
+  }
+
+  /// The calm home with nothing in progress. Says so plainly rather than
+  /// leaving a gap where the hero would be.
+  Widget _buildCalmNothingOpen() {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+      child: Text(
+        'Nothing open right now.',
+        style: theme.textTheme.bodyLarge?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+
+  /// One suggestion: cover, title, and the engine's reason for it.
+  ///
+  /// The whole row is the only control. No dismiss, no thumbs, no long-press
+  /// sheet — a calm screen that asks to be rated is not calm, and the
+  /// recommender learns from what gets read anyway.
+  Widget _buildCalmPick(Recommendation pick) {
+    final theme = Theme.of(context);
+    final headers = (_settings?.isConfigured ?? false)
+        ? OpdsClient(_settings!).authHeaders
+        : const <String, String>{};
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+      child: Material(
+        color: theme.colorScheme.surfaceContainerHigh,
+        borderRadius: BorderRadius.circular(12),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => openSeries(pick.series),
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 52,
+                  height: 74,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(5),
+                    child: CoverImage(series: pick.series, headers: headers),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        pick.series.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (pick.reason.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          pick.reason,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The one way out of the calm home, into the full shelf for this session.
+  Widget _buildBrowseAll(int count) => Padding(
+    padding: const EdgeInsets.fromLTRB(12, 12, 16, 24),
+    child: Align(
+      alignment: Alignment.centerLeft,
+      child: TextButton.icon(
+        onPressed: () => setState(() => _calmHome = false),
+        icon: const Icon(Icons.grid_view_outlined),
+        label: Text('Browse all $count books'),
+      ),
+    ),
+  );
 
   Widget _buildContinueHero() {
     final theme = Theme.of(context);
