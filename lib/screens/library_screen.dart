@@ -552,9 +552,17 @@ class _LibraryScreenState extends State<LibraryScreen>
     if (rebuilt.isNotEmpty) {
       var any = false;
       for (final e in entries.where((e) => e.progress.isFinished)) {
+        // Asked of the volume, not of its series. Passing the series'
+        // timestamp here meant one new chapter anywhere in a series revived
+        // every finished volume in it — volume twelve grows, and volumes one
+        // through eleven reappear on the Continue shelf having not changed
+        // at all.
         if (await ReadingProgressStore().unfinishIfRebuilt(
           e.volume,
-          rebuilt[e.volume.seriesOpdsId],
+          ReadingProgressStore.volumeRebuiltAt(
+            e,
+            _cache?.volumesFor(e.volume.seriesOpdsId),
+          ),
         )) {
           any = true;
         }

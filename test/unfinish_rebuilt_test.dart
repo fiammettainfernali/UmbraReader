@@ -24,16 +24,15 @@ Volume _volume() => Volume(
   updatedAt: DateTime.utc(2026, 5, 1),
 );
 
-Future<void> _finish(ReadingProgressStore store, Volume volume) =>
-    store.save(
-      volume,
-      const ReadingProgress(
-        chapterIndex: 29,
-        blockIndex: 3,
-        chapterCount: 30,
-        endReached: true,
-      ),
-    );
+Future<void> _finish(ReadingProgressStore store, Volume volume) => store.save(
+  volume,
+  const ReadingProgress(
+    chapterIndex: 29,
+    blockIndex: 3,
+    chapterCount: 30,
+    endReached: true,
+  ),
+);
 
 void main() {
   setUp(() async {
@@ -50,7 +49,9 @@ void main() {
     expect((await store.load(volume)).isFinished, isTrue);
 
     final changed = await store.unfinishIfRebuilt(
-      volume, DateTime.now().add(const Duration(hours: 1)));
+      volume,
+      DateTime.now().add(const Duration(hours: 1)),
+    );
 
     expect(changed, isTrue);
     expect((await store.load(volume)).isFinished, isFalse);
@@ -64,7 +65,9 @@ void main() {
     await _finish(store, volume);
 
     final changed = await store.unfinishIfRebuilt(
-      volume, DateTime.now().subtract(const Duration(days: 7)));
+      volume,
+      DateTime.now().subtract(const Duration(days: 7)),
+    );
 
     expect(changed, isFalse);
     expect((await store.load(volume)).isFinished, isTrue);
@@ -91,8 +94,7 @@ void main() {
       volume,
       const ReadingProgress(chapterIndex: 4, blockIndex: 0, chapterCount: 30),
     );
-    expect(
-      await store.unfinishIfRebuilt(volume, DateTime.now()), isFalse);
+    expect(await store.unfinishIfRebuilt(volume, DateTime.now()), isFalse);
   });
 
   test('a book with no saved position is left alone', () async {
@@ -112,6 +114,106 @@ void main() {
     expect((await store.load(volume)).isFinished, isTrue);
   });
 
+  group('which volume was rebuilt', () {
+    // The evidence question, kept apart from the act. The caller used to
+    // answer it with the SERIES timestamp, so a new chapter in volume twelve
+    // marked every finished volume of that series as rebuilt and dumped the
+    // lot back onto the Continue shelf. For a long series that is most of
+    // the shelf, arriving unasked, one dismissal each to clear.
+    Volume vol(int n, {required int size, required DateTime at}) => Volume(
+      seriesOpdsId: 7,
+      title: 'Volume $n',
+      fileName: 'v$n.epub',
+      downloadUrl: 'http://host/v$n.epub',
+      fileSizeBytes: size,
+      updatedAt: at,
+    );
+
+    ReadingEntry finishedEntry(Volume volume) => ReadingEntry(
+      volume: volume,
+      progress: const ReadingProgress(
+        chapterIndex: 29,
+        blockIndex: 3,
+        chapterCount: 30,
+        endReached: true,
+      ),
+    );
+
+    final oldVolume = vol(1, size: 1000, at: DateTime.utc(2026, 1, 1));
+    final grownVolume = vol(12, size: 2000, at: DateTime.utc(2026, 9, 20));
+
+    test('a new chapter in volume twelve leaves volume one finished', () {
+      // The reported bug, in one assertion.
+      final current = [
+        oldVolume, // untouched: same size, same mtime
+        vol(12, size: 2400, at: DateTime.utc(2026, 9, 27)), // grew today
+      ];
+
+      expect(
+        ReadingProgressStore.volumeRebuiltAt(finishedEntry(oldVolume), current),
+        isNull,
+      );
+    });
+
+    test('the volume that actually grew does come back', () {
+      final current = [
+        oldVolume,
+        vol(12, size: 2400, at: DateTime.utc(2026, 9, 27)),
+      ];
+
+      expect(
+        ReadingProgressStore.volumeRebuiltAt(
+          finishedEntry(grownVolume),
+          current,
+        ),
+        DateTime.utc(2026, 9, 27),
+      );
+    });
+
+    test('a rebuild that added nothing is not a reason to come back', () {
+      // Re-rendered with a new cover: newer, and not one word longer.
+      final current = [vol(1, size: 1000, at: DateTime.utc(2026, 9, 27))];
+
+      expect(
+        ReadingProgressStore.volumeRebuiltAt(finishedEntry(oldVolume), current),
+        isNull,
+      );
+    });
+
+    test('a volume the cache has never seen is left alone', () {
+      expect(
+        ReadingProgressStore.volumeRebuiltAt(finishedEntry(oldVolume), null),
+        isNull,
+      );
+      expect(
+        ReadingProgressStore.volumeRebuiltAt(finishedEntry(oldVolume), [
+          grownVolume,
+        ]),
+        isNull,
+        reason: 'a different volume of the same series says nothing',
+      );
+    });
+
+    test('a legacy entry with no recorded size falls back to the date', () {
+      final legacy = ReadingEntry(
+        volume: vol(1, size: 0, at: DateTime.utc(2026, 1, 1)),
+        progress: const ReadingProgress(
+          chapterIndex: 29,
+          blockIndex: 3,
+          chapterCount: 30,
+          endReached: true,
+        ),
+      );
+
+      expect(
+        ReadingProgressStore.volumeRebuiltAt(legacy, [
+          vol(1, size: 1000, at: DateTime.utc(2026, 9, 27)),
+        ]),
+        DateTime.utc(2026, 9, 27),
+      );
+    });
+  });
+
   test('reviving keeps the reading position', () async {
     // It returns to the shelf where the reader left off, not at the start:
     // the new chapters are at the end, and the old ones are still read.
@@ -119,7 +221,9 @@ void main() {
     final volume = _volume();
     await _finish(store, volume);
     await store.unfinishIfRebuilt(
-      volume, DateTime.now().add(const Duration(hours: 1)));
+      volume,
+      DateTime.now().add(const Duration(hours: 1)),
+    );
     final after = await store.load(volume);
     expect(after.chapterIndex, 29);
     expect(after.blockIndex, 3);

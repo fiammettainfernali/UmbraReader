@@ -321,6 +321,38 @@ class ReadingProgressStore {
   /// back on the shelf too. That is the right way round to be wrong: an
   /// unwanted entry is dismissed with one swipe, while a book that never
   /// returns is invisible.
+  /// When the volume behind [entry] was itself rebuilt with more in it,
+  /// judged against [current] — the series' volumes as the library cache
+  /// last saw them. Null when there is no evidence about THIS volume.
+  ///
+  /// The caller used to answer this with `Series.updatedAt`, which is the
+  /// wrong question by one level: a series' timestamp advances whenever any
+  /// volume in it gains a chapter, so a new chapter in volume twelve made
+  /// every finished volume of that series look rebuilt, and volumes one
+  /// through eleven — untouched for months — all came back to the Continue
+  /// shelf at once. For a long series that is most of the shelf, arriving
+  /// unbidden, and the only way to clear it is to dismiss each one.
+  ///
+  /// Two conditions, because a rebuild is not the same as growth: the file
+  /// has to be newer than the reading position AND bigger than it was when
+  /// the reader finished it. A volume re-rendered with a new cover is newer
+  /// without having gained a word, and finishing a book should survive
+  /// that.
+  static DateTime? volumeRebuiltAt(ReadingEntry entry, List<Volume>? current) {
+    if (current == null) return null;
+    for (final volume in current) {
+      if (volume.fileName != entry.volume.fileName) continue;
+      final at = volume.updatedAt;
+      if (at == null) return null;
+      // A stored size of zero is a legacy entry that never recorded one;
+      // there is nothing to compare, so the timestamp stands alone.
+      final known = entry.volume.fileSizeBytes;
+      if (known > 0 && volume.fileSizeBytes <= known) return null;
+      return at;
+    }
+    return null;
+  }
+
   Future<bool> unfinishIfRebuilt(Volume volume, DateTime? rebuiltAt) async {
     if (rebuiltAt == null) return false;
     await _ensureMigrated();
