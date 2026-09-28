@@ -214,6 +214,135 @@ void main() {
     });
   });
 
+  group('tidying up what the old revival left behind', () {
+    // Fixing the cause does not put back the flags it already took off, so
+    // the shelf stays cluttered with books finished months ago. Nothing
+    // recorded that they were finished, so the repair matches the shape the
+    // bug left: read to the last chapter, no growth, several volumes of one
+    // series at once.
+    Volume vol(int n, {int size = 1000}) => Volume(
+      seriesOpdsId: 7,
+      title: 'Volume $n',
+      fileName: 'v$n.epub',
+      downloadUrl: 'http://host/v$n.epub',
+      fileSizeBytes: size,
+      updatedAt: DateTime.utc(2026, 1, 1),
+    );
+
+    /// A volume read to its last chapter but not marked finished — exactly
+    /// what a revived row looks like.
+    Future<void> atLastChapter(ReadingProgressStore store, Volume volume) =>
+        store.save(
+          volume,
+          const ReadingProgress(
+            chapterIndex: 29,
+            blockIndex: 3,
+            chapterCount: 30,
+          ),
+        );
+
+    test('a series worth of revived volumes comes back finished', () async {
+      final store = ReadingProgressStore();
+      for (final n in [1, 2, 3]) {
+        await atLastChapter(store, vol(n));
+      }
+
+      final restored = await store.tidyRevivedVolumes(
+        await store.allEntries(),
+        (_) => null,
+      );
+
+      expect(restored, 3);
+      for (final n in [1, 2, 3]) {
+        expect((await store.load(vol(n))).isFinished, isTrue);
+      }
+    });
+
+    test('one book stopped in its final chapter is left alone', () async {
+      // The case this could get wrong. Someone genuinely mid-way through a
+      // last chapter looks identical to a revived volume, so a lone match
+      // is not treated as evidence of anything.
+      final store = ReadingProgressStore();
+      await atLastChapter(store, vol(1));
+
+      expect(
+        await store.tidyRevivedVolumes(await store.allEntries(), (_) => null),
+        0,
+      );
+      expect((await store.load(vol(1))).isFinished, isFalse);
+    });
+
+    test('a volume that really grew stays on the shelf', () async {
+      final store = ReadingProgressStore();
+      for (final n in [1, 2, 3]) {
+        await atLastChapter(store, vol(n));
+      }
+
+      // Volume 3 is bigger and newer than when it was read: it has genuinely
+      // gained chapters and belongs on the Continue shelf.
+      final restored = await store.tidyRevivedVolumes(
+        await store.allEntries(),
+        (_) => [
+          vol(1),
+          vol(2),
+          Volume(
+            seriesOpdsId: 7,
+            title: 'Volume 3',
+            fileName: 'v3.epub',
+            downloadUrl: 'http://host/v3.epub',
+            fileSizeBytes: 5000,
+            updatedAt: DateTime.utc(2026, 9, 27),
+          ),
+        ],
+      );
+
+      expect(restored, 2);
+      expect((await store.load(vol(3))).isFinished, isFalse);
+      expect((await store.load(vol(1))).isFinished, isTrue);
+    });
+
+    test('a book being read in the middle is never touched', () async {
+      final store = ReadingProgressStore();
+      for (final n in [1, 2]) {
+        await store.save(
+          vol(n),
+          const ReadingProgress(
+            chapterIndex: 8,
+            blockIndex: 1,
+            chapterCount: 30,
+          ),
+        );
+      }
+
+      expect(
+        await store.tidyRevivedVolumes(await store.allEntries(), (_) => null),
+        0,
+      );
+      expect((await store.load(vol(1))).isFinished, isFalse);
+    });
+
+    test('it happens once and never again', () async {
+      final store = ReadingProgressStore();
+      for (final n in [1, 2]) {
+        await atLastChapter(store, vol(n));
+      }
+      expect(
+        await store.tidyRevivedVolumes(await store.allEntries(), (_) => null),
+        2,
+      );
+
+      // A later re-read left at the last chapter is the reader's business,
+      // not the repair's.
+      for (final n in [1, 2]) {
+        await atLastChapter(store, vol(n));
+      }
+      expect(
+        await store.tidyRevivedVolumes(await store.allEntries(), (_) => null),
+        0,
+      );
+    });
+  });
+
   test('reviving keeps the reading position', () async {
     // It returns to the shelf where the reader left off, not at the start:
     // the new chapters are at the end, and the old ones are still read.

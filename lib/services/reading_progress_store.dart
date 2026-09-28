@@ -353,6 +353,80 @@ class ReadingProgressStore {
     return null;
   }
 
+  /// Puts back the finished flags that the series-level revival took off.
+  ///
+  /// Fixing the cause does not undo the effect: volumes already revived are
+  /// sitting in the database as unfinished, cluttering the Continue shelf
+  /// with books that were read to the end months ago. Nothing recorded that
+  /// they were ever finished, so this matches the shape the bug left behind
+  /// rather than a flag:
+  ///
+  ///  * the position is at the LAST chapter, exactly where it was when the
+  ///    book was finished — reviving preserved the position and only cleared
+  ///    the flag;
+  ///  * the volume shows no growth, so it would not be revived today either;
+  ///  * and at least two volumes of the SAME series match, which is the
+  ///    bug's actual signature. One new chapter took a whole series' worth
+  ///    of finished volumes off at once.
+  ///
+  /// That last condition is what protects the one case this could otherwise
+  /// get wrong: a book genuinely stopped part-way through its final chapter
+  /// looks identical to a revived one from the outside. Being stopped
+  /// mid-final-chapter in two volumes of the same series, both un-grown, is
+  /// not a state a reader gets into by reading.
+  ///
+  /// Returns how many were restored.
+  static const _tidiedKey = 'continue_shelf_tidied';
+
+  Future<int> tidyRevivedVolumes(
+    List<ReadingEntry> entries,
+    List<Volume>? Function(int seriesId) volumesFor,
+  ) async {
+    await _ensureMigrated();
+    // Once, ever. A repair that ran on every library load would be a second
+    // process with opinions about the reader's shelf, and this one cannot
+    // tell a book they have since chosen to re-read from one it restored.
+    if (await _db.kvGet(_tidiedKey) != null) return 0;
+    final bySeries = <int, List<ReadingEntry>>{};
+    for (final entry in entries) {
+      final progress = entry.progress;
+      if (progress.endReached) continue;
+      if (progress.chapterCount <= 0) continue;
+      if (progress.chapterIndex < progress.chapterCount - 1) continue;
+      if (volumeRebuiltAt(entry, volumesFor(entry.volume.seriesOpdsId)) !=
+          null) {
+        continue;
+      }
+      bySeries
+          .putIfAbsent(entry.volume.seriesOpdsId, () => <ReadingEntry>[])
+          .add(entry);
+    }
+
+    var restored = 0;
+    // Stamped so the repair travels to other devices. Without a new
+    // timestamp the merge is last-write-wins against a device still holding
+    // the revived state, which would simply undo this on the next sync.
+    final now = DateTime.now().toIso8601String();
+    for (final group in bySeries.values) {
+      if (group.length < 2) continue;
+      for (final entry in group) {
+        await (_db.update(_table)
+              ..where((t) => t.volumeKey.equals(_key(entry.volume))))
+            .write(
+              ReadingProgressRowsCompanion(
+                endReached: const Value(true),
+                updatedAt: Value(now),
+              ),
+            );
+        restored++;
+      }
+    }
+    // Set after the work, not before: a run interrupted half way should be
+    // retried rather than recorded as done.
+    await _db.kvSet(_tidiedKey, DateTime.now().toIso8601String());
+    return restored;
+  }
+
   Future<bool> unfinishIfRebuilt(Volume volume, DateTime? rebuiltAt) async {
     if (rebuiltAt == null) return false;
     await _ensureMigrated();

@@ -546,6 +546,16 @@ class _LibraryScreenState extends State<LibraryScreen>
     // without this they stayed finished for good however many chapters
     // arrived. Costs nothing: the timestamps are already in hand.
     var revived = entries;
+    // One-off repair for what the series-level revival left behind before it
+    // was fixed. Fixing the cause does not put back the finished flags it
+    // already took off, and those volumes are still on the shelf.
+    if (await ReadingProgressStore().tidyRevivedVolumes(
+          entries,
+          (id) => _cache?.volumesFor(id),
+        ) >
+        0) {
+      revived = await ReadingProgressStore().allEntries();
+    }
     final rebuilt = <int, DateTime?>{
       for (final s in _library ?? const <Series>[]) s.opdsId: s.updatedAt,
     };
