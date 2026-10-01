@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the FileProvider is allowed to hand out.
+
+     Only the one cache subdirectory, not the library. A volume offered to
+     another app is copied there first, so the URI points at a throwaway copy:
+     the real EPUB stays in app-private storage where nothing else can reach
+     it, and a stale grant cannot leak a reader's whole library. -->
+<paths>
+    <cache-path name="open_in" path="open_in/" />
+</paths>

@@ -49,6 +49,21 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- Hands a volume's EPUB to another app to open. The file lives in
+             app-private storage, so a path is no use to anybody else: a
+             reader app can only be given a content:// URI it has been
+             granted permission to read. Scoped to the cache directory, since
+             what is offered is a throwaway copy rather than the library's
+             own file. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data
@@ -64,6 +79,17 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Apps that can OPEN an EPUB, which is not the same set as the apps
+             that accept one as a share. Natural Reader, for instance,
+             registers EPUB under VIEW and only plain text under SEND — so it
+             never appeared in the share sheet, while being the one app on the
+             phone that could read a whole volume aloud. Without this element
+             the query comes back empty on API 30+ and the app would report
+             that nothing can open it. -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:mimeType="application/epub+zip"/>
         </intent>
     </queries>
 </manifest>

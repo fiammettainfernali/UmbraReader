@@ -14,6 +14,7 @@ import '../services/reading_progress_store.dart';
 import '../services/rec_weight_learner.dart';
 import '../services/recommendation_engine.dart';
 import '../services/control_client.dart';
+import '../services/open_in_app.dart';
 import '../services/recommendation_feedback_store.dart';
 import '../services/series_status_store.dart';
 import '../services/settings_service.dart';
@@ -296,6 +297,25 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
             : null,
       ),
     );
+  }
+
+  /// Hands a downloaded volume's EPUB to another app to OPEN, which is the
+  /// route a read-aloud app is likely to have registered for.
+  ///
+  /// Falls back to the share sheet rather than reporting failure. On iOS the
+  /// share sheet IS the open-in mechanism, and on Android the only way to
+  /// reach here is that nothing claims to open an EPUB — in which case a
+  /// sheet showing what the phone CAN do with the file is more use than a
+  /// message saying what it cannot.
+  Future<void> _openIn(Volume volume) async {
+    final file = await LibraryStorage().epubFile(volume);
+    if (!file.existsSync()) {
+      _snack('That volume isn’t downloaded.', isError: true);
+      return;
+    }
+    final opened = await const OpenInApp().openEpub(file, title: volume.title);
+    if (!mounted || opened) return;
+    await _share(volume);
   }
 
   /// Maxes out a volume's reading progress — marks it fully read so it counts
@@ -781,6 +801,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
               onStream: () => _stream(volume),
               onDelete: () => _delete(volume),
               onShare: () => _share(volume),
+              onOpenIn: () => _openIn(volume),
               onResetProgress: () => _resetProgress(volume),
               onMarkFinished: () => _markFinished(volume),
               onOpen:
@@ -1057,7 +1078,14 @@ class _Description extends StatelessWidget {
 }
 
 /// Menu actions on a downloaded volume.
-enum _VolumeAction { download, share, markFinished, resetProgress, delete }
+enum _VolumeAction {
+  download,
+  share,
+  openIn,
+  markFinished,
+  resetProgress,
+  delete,
+}
 
 /// One row in the volume list, with a download / progress / downloaded control.
 class _VolumeTile extends StatelessWidget {
@@ -1070,6 +1098,7 @@ class _VolumeTile extends StatelessWidget {
     required this.onStream,
     required this.onDelete,
     required this.onShare,
+    required this.onOpenIn,
     required this.onResetProgress,
     required this.onMarkFinished,
     required this.onOpen,
@@ -1088,6 +1117,7 @@ class _VolumeTile extends StatelessWidget {
 
   final VoidCallback onDelete;
   final VoidCallback onShare;
+  final VoidCallback onOpenIn;
   final VoidCallback onResetProgress;
 
   /// Marks the volume fully read (e.g. when finished elsewhere, like Speechify)
@@ -1238,6 +1268,16 @@ class _VolumeTile extends StatelessWidget {
               label: 'Share story',
               subtitle: 'Send the EPUB to another app',
             ),
+            // Separate from Share on purpose. The apps that accept a shared
+            // EPUB and the apps that can open one are different sets: a
+            // read-aloud app may register EPUB only as something it opens,
+            // which leaves it out of the share sheet entirely.
+            const SheetAction(
+              value: _VolumeAction.openIn,
+              icon: Icons.headphones_outlined,
+              label: 'Open in another app',
+              subtitle: 'For read-aloud apps that import a whole volume',
+            ),
           ],
         ),
         SheetGroup(
@@ -1282,6 +1322,8 @@ class _VolumeTile extends StatelessWidget {
         onDownload();
       case _VolumeAction.share:
         onShare();
+      case _VolumeAction.openIn:
+        onOpenIn();
       case _VolumeAction.markFinished:
         onMarkFinished();
       case _VolumeAction.resetProgress:
