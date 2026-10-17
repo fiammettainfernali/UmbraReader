@@ -224,6 +224,38 @@ class AwardRows extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
+/// One embedding per series — what the book is about, as a point in space.
+///
+/// The vector is stored rather than recomputed because embedding 1,016
+/// books is a minute of phone, and nothing about a blurb changes between
+/// app launches. [textHash] is what decides that: re-embed only when the
+/// text that produced the vector has actually changed, so a library
+/// refresh costs nothing and a rewritten description costs one book.
+class SeriesVectorRows extends Table {
+  IntColumn get seriesId => integer()();
+
+  /// Float32 little-endian, [dimensions] of them. A BLOB rather than a
+  /// JSON array: 384 doubles as text is ~9KB per book and 9MB across the
+  /// library, against 1.5KB and 1.5MB packed.
+  BlobColumn get vector => blob()();
+
+  IntColumn get dimensions => integer()();
+
+  /// Hash of the exact text embedded, so a changed blurb re-indexes and an
+  /// unchanged one never does.
+  TextColumn get textHash => text()();
+
+  /// Which model produced it. A different model's vectors are not
+  /// comparable with these, so swapping models has to invalidate the index
+  /// rather than silently mix two spaces.
+  TextColumn get model => text()();
+
+  TextColumn get updatedAt => text()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {seriesId};
+}
+
 @DriftDatabase(
   tables: [
     ReadingProgressRows,
@@ -234,6 +266,7 @@ class AwardRows extends Table {
     RecOutcomeRows,
     WebSeriesRows,
     AwardRows,
+    SeriesVectorRows,
     KvRows,
   ],
 )
@@ -265,7 +298,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 9;
+  int get schemaVersion => 10;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -310,6 +343,13 @@ class AppDatabase extends _$AppDatabase {
       if (from < 8) {
         // v8: web series — comics followed on their own site.
         await m.createTable(webSeriesRows);
+      }
+      if (from < 10) {
+        // v10: the semantic index. Nothing is backfilled here — the vectors
+        // are rebuilt by running the model, which is a minute of phone and
+        // belongs in the background after the library loads, not in a
+        // migration holding the app shut.
+        await m.createTable(seriesVectorRows);
       }
       if (from < 9) {
         // v9: badges. Only the earned dates live here; the awards

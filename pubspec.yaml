@@ -99,6 +99,8 @@ dependencies:
   flutter_timezone: ^5.1.0
   webview_flutter: ^4.14.1
   background_downloader: ^9.5.7
+  flutter_onnxruntime: ^1.9.0
+  dart_bert_tokenizer: ^1.3.0
 
 dev_dependencies:
   flutter_test:
@@ -142,6 +144,9 @@ flutter:
   # The page-turn sound (off by default; see ReaderSettings.pageTurnSound).
   assets:
     - assets/sounds/
+    # The embedding model: 23MB, and the only thing in the app that knows
+    # what a book is ABOUT rather than what its metadata says.
+    - assets/models/minilm/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

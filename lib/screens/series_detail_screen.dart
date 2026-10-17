@@ -15,6 +15,8 @@ import '../services/recommendation_engine.dart';
 import '../services/control_client.dart';
 import '../services/open_in_app.dart';
 import '../services/recommendation_feedback_store.dart';
+import '../services/semantic_recommender.dart';
+import '../services/series_vector_store.dart';
 import '../services/series_status_store.dart';
 import '../services/settings_service.dart';
 import '../utils/volume_ordering.dart';
@@ -90,23 +92,47 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     if (!mounted) return;
     final feedback = await RecommendationFeedbackStore().load();
     final statuses = await _statusStore.load();
-    final similar = const RecommendationEngine().similarTo(
+    final statusOverrides = {
+      for (final e in statuses.entries)
+        if (e.value == SeriesStatus.caughtUp)
+          e.key: 'completed'
+        else if (e.value == SeriesStatus.dropped)
+          e.key: 'dropped',
+    };
+
+    // By meaning where the index can answer, by metadata where it cannot.
+    //
+    // The old path ranks on genre strings and shared blurb words, and this
+    // library holds 1,213 distinct genre labels for 1,016 books — which is
+    // how an action cultivation novel came to sit beside age regression.
+    // An empty semantic result means this book has not been indexed yet,
+    // not that nothing resembles it, so it falls back rather than showing
+    // an empty shelf.
+    final vectors = await SeriesVectorStore().loadAll();
+    final semantic = mostSimilarTo(
       source: widget.series,
-      allSeries: cache.series,
-      feedback: feedback,
-      signals: RecSignals(
-        statusOverrides: {
-          for (final e in statuses.entries)
-            if (e.value == SeriesStatus.caughtUp)
-              e.key: 'completed'
-            else if (e.value == SeriesStatus.dropped)
-              e.key: 'dropped',
-        },
-      ),
-      // Deliberately not the reader's learned weights. Those describe what
-      // makes them tap a shelf pick, not what makes two books alike — see
-      // RecWeights.similarity.
+      library: cache.series,
+      vectors: vectors,
+      exclude: {
+        for (final e in statusOverrides.entries)
+          if (e.value == 'dropped' || e.value == 'completed') e.key,
+      },
     );
+    final similar = semantic.isNotEmpty
+        ? [
+            for (final pick in semantic)
+              Recommendation(
+                pick.series,
+                pick.similarity,
+                reason: _closeness(pick.similarity),
+              ),
+          ]
+        : const RecommendationEngine().similarTo(
+            source: widget.series,
+            allSeries: cache.series,
+            feedback: feedback,
+            signals: RecSignals(statusOverrides: statusOverrides),
+          );
     final status = await _statusStore.statusFor(widget.series.opdsId);
     setState(() {
       _store = store;
@@ -297,6 +323,19 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
             : null,
       ),
     );
+  }
+
+  /// How alike, said plainly.
+  ///
+  /// The old engine's reasons named a shared genre, which it could do
+  /// because genre was what it matched on. This matches on meaning, and
+  /// claiming a specific reason for it would be inventing one — the model
+  /// knows these two books are close, not why. So it reports the strength
+  /// it actually has rather than a story about it.
+  static String _closeness(double similarity) {
+    if (similarity >= 0.6) return 'Very close to this one';
+    if (similarity >= 0.4) return 'Much the same sort of story';
+    return 'Loosely related';
   }
 
   /// Hands a downloaded volume's EPUB to another app to OPEN, which is the

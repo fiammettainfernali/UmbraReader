@@ -3691,6 +3691,422 @@ class AwardRowsCompanion extends UpdateCompanion<AwardRow> {
   }
 }
 
+class $SeriesVectorRowsTable extends SeriesVectorRows
+    with TableInfo<$SeriesVectorRowsTable, SeriesVectorRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $SeriesVectorRowsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _seriesIdMeta = const VerificationMeta(
+    'seriesId',
+  );
+  @override
+  late final GeneratedColumn<int> seriesId = GeneratedColumn<int>(
+    'series_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _vectorMeta = const VerificationMeta('vector');
+  @override
+  late final GeneratedColumn<Uint8List> vector = GeneratedColumn<Uint8List>(
+    'vector',
+    aliasedName,
+    false,
+    type: DriftSqlType.blob,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _dimensionsMeta = const VerificationMeta(
+    'dimensions',
+  );
+  @override
+  late final GeneratedColumn<int> dimensions = GeneratedColumn<int>(
+    'dimensions',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _textHashMeta = const VerificationMeta(
+    'textHash',
+  );
+  @override
+  late final GeneratedColumn<String> textHash = GeneratedColumn<String>(
+    'text_hash',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _modelMeta = const VerificationMeta('model');
+  @override
+  late final GeneratedColumn<String> model = GeneratedColumn<String>(
+    'model',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    seriesId,
+    vector,
+    dimensions,
+    textHash,
+    model,
+    updatedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'series_vector_rows';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<SeriesVectorRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('series_id')) {
+      context.handle(
+        _seriesIdMeta,
+        seriesId.isAcceptableOrUnknown(data['series_id']!, _seriesIdMeta),
+      );
+    }
+    if (data.containsKey('vector')) {
+      context.handle(
+        _vectorMeta,
+        vector.isAcceptableOrUnknown(data['vector']!, _vectorMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_vectorMeta);
+    }
+    if (data.containsKey('dimensions')) {
+      context.handle(
+        _dimensionsMeta,
+        dimensions.isAcceptableOrUnknown(data['dimensions']!, _dimensionsMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_dimensionsMeta);
+    }
+    if (data.containsKey('text_hash')) {
+      context.handle(
+        _textHashMeta,
+        textHash.isAcceptableOrUnknown(data['text_hash']!, _textHashMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_textHashMeta);
+    }
+    if (data.containsKey('model')) {
+      context.handle(
+        _modelMeta,
+        model.isAcceptableOrUnknown(data['model']!, _modelMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_modelMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {seriesId};
+  @override
+  SeriesVectorRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return SeriesVectorRow(
+      seriesId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}series_id'],
+      )!,
+      vector: attachedDatabase.typeMapping.read(
+        DriftSqlType.blob,
+        data['${effectivePrefix}vector'],
+      )!,
+      dimensions: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}dimensions'],
+      )!,
+      textHash: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}text_hash'],
+      )!,
+      model: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}model'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+    );
+  }
+
+  @override
+  $SeriesVectorRowsTable createAlias(String alias) {
+    return $SeriesVectorRowsTable(attachedDatabase, alias);
+  }
+}
+
+class SeriesVectorRow extends DataClass implements Insertable<SeriesVectorRow> {
+  final int seriesId;
+
+  /// Float32 little-endian, [dimensions] of them. A BLOB rather than a
+  /// JSON array: 384 doubles as text is ~9KB per book and 9MB across the
+  /// library, against 1.5KB and 1.5MB packed.
+  final Uint8List vector;
+  final int dimensions;
+
+  /// Hash of the exact text embedded, so a changed blurb re-indexes and an
+  /// unchanged one never does.
+  final String textHash;
+
+  /// Which model produced it. A different model's vectors are not
+  /// comparable with these, so swapping models has to invalidate the index
+  /// rather than silently mix two spaces.
+  final String model;
+  final String updatedAt;
+  const SeriesVectorRow({
+    required this.seriesId,
+    required this.vector,
+    required this.dimensions,
+    required this.textHash,
+    required this.model,
+    required this.updatedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['series_id'] = Variable<int>(seriesId);
+    map['vector'] = Variable<Uint8List>(vector);
+    map['dimensions'] = Variable<int>(dimensions);
+    map['text_hash'] = Variable<String>(textHash);
+    map['model'] = Variable<String>(model);
+    map['updated_at'] = Variable<String>(updatedAt);
+    return map;
+  }
+
+  SeriesVectorRowsCompanion toCompanion(bool nullToAbsent) {
+    return SeriesVectorRowsCompanion(
+      seriesId: Value(seriesId),
+      vector: Value(vector),
+      dimensions: Value(dimensions),
+      textHash: Value(textHash),
+      model: Value(model),
+      updatedAt: Value(updatedAt),
+    );
+  }
+
+  factory SeriesVectorRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return SeriesVectorRow(
+      seriesId: serializer.fromJson<int>(json['seriesId']),
+      vector: serializer.fromJson<Uint8List>(json['vector']),
+      dimensions: serializer.fromJson<int>(json['dimensions']),
+      textHash: serializer.fromJson<String>(json['textHash']),
+      model: serializer.fromJson<String>(json['model']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'seriesId': serializer.toJson<int>(seriesId),
+      'vector': serializer.toJson<Uint8List>(vector),
+      'dimensions': serializer.toJson<int>(dimensions),
+      'textHash': serializer.toJson<String>(textHash),
+      'model': serializer.toJson<String>(model),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+    };
+  }
+
+  SeriesVectorRow copyWith({
+    int? seriesId,
+    Uint8List? vector,
+    int? dimensions,
+    String? textHash,
+    String? model,
+    String? updatedAt,
+  }) => SeriesVectorRow(
+    seriesId: seriesId ?? this.seriesId,
+    vector: vector ?? this.vector,
+    dimensions: dimensions ?? this.dimensions,
+    textHash: textHash ?? this.textHash,
+    model: model ?? this.model,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
+  SeriesVectorRow copyWithCompanion(SeriesVectorRowsCompanion data) {
+    return SeriesVectorRow(
+      seriesId: data.seriesId.present ? data.seriesId.value : this.seriesId,
+      vector: data.vector.present ? data.vector.value : this.vector,
+      dimensions: data.dimensions.present
+          ? data.dimensions.value
+          : this.dimensions,
+      textHash: data.textHash.present ? data.textHash.value : this.textHash,
+      model: data.model.present ? data.model.value : this.model,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SeriesVectorRow(')
+          ..write('seriesId: $seriesId, ')
+          ..write('vector: $vector, ')
+          ..write('dimensions: $dimensions, ')
+          ..write('textHash: $textHash, ')
+          ..write('model: $model, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    seriesId,
+    $driftBlobEquality.hash(vector),
+    dimensions,
+    textHash,
+    model,
+    updatedAt,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is SeriesVectorRow &&
+          other.seriesId == this.seriesId &&
+          $driftBlobEquality.equals(other.vector, this.vector) &&
+          other.dimensions == this.dimensions &&
+          other.textHash == this.textHash &&
+          other.model == this.model &&
+          other.updatedAt == this.updatedAt);
+}
+
+class SeriesVectorRowsCompanion extends UpdateCompanion<SeriesVectorRow> {
+  final Value<int> seriesId;
+  final Value<Uint8List> vector;
+  final Value<int> dimensions;
+  final Value<String> textHash;
+  final Value<String> model;
+  final Value<String> updatedAt;
+  const SeriesVectorRowsCompanion({
+    this.seriesId = const Value.absent(),
+    this.vector = const Value.absent(),
+    this.dimensions = const Value.absent(),
+    this.textHash = const Value.absent(),
+    this.model = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  });
+  SeriesVectorRowsCompanion.insert({
+    this.seriesId = const Value.absent(),
+    required Uint8List vector,
+    required int dimensions,
+    required String textHash,
+    required String model,
+    required String updatedAt,
+  }) : vector = Value(vector),
+       dimensions = Value(dimensions),
+       textHash = Value(textHash),
+       model = Value(model),
+       updatedAt = Value(updatedAt);
+  static Insertable<SeriesVectorRow> custom({
+    Expression<int>? seriesId,
+    Expression<Uint8List>? vector,
+    Expression<int>? dimensions,
+    Expression<String>? textHash,
+    Expression<String>? model,
+    Expression<String>? updatedAt,
+  }) {
+    return RawValuesInsertable({
+      if (seriesId != null) 'series_id': seriesId,
+      if (vector != null) 'vector': vector,
+      if (dimensions != null) 'dimensions': dimensions,
+      if (textHash != null) 'text_hash': textHash,
+      if (model != null) 'model': model,
+      if (updatedAt != null) 'updated_at': updatedAt,
+    });
+  }
+
+  SeriesVectorRowsCompanion copyWith({
+    Value<int>? seriesId,
+    Value<Uint8List>? vector,
+    Value<int>? dimensions,
+    Value<String>? textHash,
+    Value<String>? model,
+    Value<String>? updatedAt,
+  }) {
+    return SeriesVectorRowsCompanion(
+      seriesId: seriesId ?? this.seriesId,
+      vector: vector ?? this.vector,
+      dimensions: dimensions ?? this.dimensions,
+      textHash: textHash ?? this.textHash,
+      model: model ?? this.model,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (seriesId.present) {
+      map['series_id'] = Variable<int>(seriesId.value);
+    }
+    if (vector.present) {
+      map['vector'] = Variable<Uint8List>(vector.value);
+    }
+    if (dimensions.present) {
+      map['dimensions'] = Variable<int>(dimensions.value);
+    }
+    if (textHash.present) {
+      map['text_hash'] = Variable<String>(textHash.value);
+    }
+    if (model.present) {
+      map['model'] = Variable<String>(model.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('SeriesVectorRowsCompanion(')
+          ..write('seriesId: $seriesId, ')
+          ..write('vector: $vector, ')
+          ..write('dimensions: $dimensions, ')
+          ..write('textHash: $textHash, ')
+          ..write('model: $model, ')
+          ..write('updatedAt: $updatedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $KvRowsTable extends KvRows with TableInfo<$KvRowsTable, KvRow> {
   @override
   final GeneratedDatabase attachedDatabase;
@@ -3910,6 +4326,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $RecOutcomeRowsTable recOutcomeRows = $RecOutcomeRowsTable(this);
   late final $WebSeriesRowsTable webSeriesRows = $WebSeriesRowsTable(this);
   late final $AwardRowsTable awardRows = $AwardRowsTable(this);
+  late final $SeriesVectorRowsTable seriesVectorRows = $SeriesVectorRowsTable(
+    this,
+  );
   late final $KvRowsTable kvRows = $KvRowsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
@@ -3924,6 +4343,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     recOutcomeRows,
     webSeriesRows,
     awardRows,
+    seriesVectorRows,
     kvRows,
   ];
 }
@@ -5866,6 +6286,227 @@ typedef $$AwardRowsTableProcessedTableManager =
       AwardRow,
       PrefetchHooks Function()
     >;
+typedef $$SeriesVectorRowsTableCreateCompanionBuilder =
+    SeriesVectorRowsCompanion Function({
+      Value<int> seriesId,
+      required Uint8List vector,
+      required int dimensions,
+      required String textHash,
+      required String model,
+      required String updatedAt,
+    });
+typedef $$SeriesVectorRowsTableUpdateCompanionBuilder =
+    SeriesVectorRowsCompanion Function({
+      Value<int> seriesId,
+      Value<Uint8List> vector,
+      Value<int> dimensions,
+      Value<String> textHash,
+      Value<String> model,
+      Value<String> updatedAt,
+    });
+
+class $$SeriesVectorRowsTableFilterComposer
+    extends Composer<_$AppDatabase, $SeriesVectorRowsTable> {
+  $$SeriesVectorRowsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get seriesId => $composableBuilder(
+    column: $table.seriesId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<Uint8List> get vector => $composableBuilder(
+    column: $table.vector,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get dimensions => $composableBuilder(
+    column: $table.dimensions,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get textHash => $composableBuilder(
+    column: $table.textHash,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get model => $composableBuilder(
+    column: $table.model,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$SeriesVectorRowsTableOrderingComposer
+    extends Composer<_$AppDatabase, $SeriesVectorRowsTable> {
+  $$SeriesVectorRowsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get seriesId => $composableBuilder(
+    column: $table.seriesId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<Uint8List> get vector => $composableBuilder(
+    column: $table.vector,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get dimensions => $composableBuilder(
+    column: $table.dimensions,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get textHash => $composableBuilder(
+    column: $table.textHash,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get model => $composableBuilder(
+    column: $table.model,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$SeriesVectorRowsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $SeriesVectorRowsTable> {
+  $$SeriesVectorRowsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get seriesId =>
+      $composableBuilder(column: $table.seriesId, builder: (column) => column);
+
+  GeneratedColumn<Uint8List> get vector =>
+      $composableBuilder(column: $table.vector, builder: (column) => column);
+
+  GeneratedColumn<int> get dimensions => $composableBuilder(
+    column: $table.dimensions,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get textHash =>
+      $composableBuilder(column: $table.textHash, builder: (column) => column);
+
+  GeneratedColumn<String> get model =>
+      $composableBuilder(column: $table.model, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+}
+
+class $$SeriesVectorRowsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $SeriesVectorRowsTable,
+          SeriesVectorRow,
+          $$SeriesVectorRowsTableFilterComposer,
+          $$SeriesVectorRowsTableOrderingComposer,
+          $$SeriesVectorRowsTableAnnotationComposer,
+          $$SeriesVectorRowsTableCreateCompanionBuilder,
+          $$SeriesVectorRowsTableUpdateCompanionBuilder,
+          (
+            SeriesVectorRow,
+            BaseReferences<
+              _$AppDatabase,
+              $SeriesVectorRowsTable,
+              SeriesVectorRow
+            >,
+          ),
+          SeriesVectorRow,
+          PrefetchHooks Function()
+        > {
+  $$SeriesVectorRowsTableTableManager(
+    _$AppDatabase db,
+    $SeriesVectorRowsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$SeriesVectorRowsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$SeriesVectorRowsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$SeriesVectorRowsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> seriesId = const Value.absent(),
+                Value<Uint8List> vector = const Value.absent(),
+                Value<int> dimensions = const Value.absent(),
+                Value<String> textHash = const Value.absent(),
+                Value<String> model = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+              }) => SeriesVectorRowsCompanion(
+                seriesId: seriesId,
+                vector: vector,
+                dimensions: dimensions,
+                textHash: textHash,
+                model: model,
+                updatedAt: updatedAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> seriesId = const Value.absent(),
+                required Uint8List vector,
+                required int dimensions,
+                required String textHash,
+                required String model,
+                required String updatedAt,
+              }) => SeriesVectorRowsCompanion.insert(
+                seriesId: seriesId,
+                vector: vector,
+                dimensions: dimensions,
+                textHash: textHash,
+                model: model,
+                updatedAt: updatedAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$SeriesVectorRowsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $SeriesVectorRowsTable,
+      SeriesVectorRow,
+      $$SeriesVectorRowsTableFilterComposer,
+      $$SeriesVectorRowsTableOrderingComposer,
+      $$SeriesVectorRowsTableAnnotationComposer,
+      $$SeriesVectorRowsTableCreateCompanionBuilder,
+      $$SeriesVectorRowsTableUpdateCompanionBuilder,
+      (
+        SeriesVectorRow,
+        BaseReferences<_$AppDatabase, $SeriesVectorRowsTable, SeriesVectorRow>,
+      ),
+      SeriesVectorRow,
+      PrefetchHooks Function()
+    >;
 typedef $$KvRowsTableCreateCompanionBuilder =
     KvRowsCompanion Function({
       required String key,
@@ -6016,6 +6657,8 @@ class $AppDatabaseManager {
       $$WebSeriesRowsTableTableManager(_db, _db.webSeriesRows);
   $$AwardRowsTableTableManager get awardRows =>
       $$AwardRowsTableTableManager(_db, _db.awardRows);
+  $$SeriesVectorRowsTableTableManager get seriesVectorRows =>
+      $$SeriesVectorRowsTableTableManager(_db, _db.seriesVectorRows);
   $$KvRowsTableTableManager get kvRows =>
       $$KvRowsTableTableManager(_db, _db.kvRows);
 }

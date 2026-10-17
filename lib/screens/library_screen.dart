@@ -13,6 +13,7 @@ import '../services/opds_client.dart';
 import '../services/bookmark_store.dart';
 import '../services/collection_store.dart';
 import '../services/reading_progress_store.dart';
+import '../services/semantic_index_service.dart';
 import '../services/streamed_count_refresh.dart';
 import '../services/rec_outcome_store.dart';
 import '../services/cloud_sync_service.dart';
@@ -668,6 +669,11 @@ class _LibraryScreenState extends State<LibraryScreen>
       // Background library upkeep: pull the next volume of in-progress
       // series, then (if enabled) delete finished volumes we've moved past.
       unawaited(runLibraryMaintenance());
+      // And bring the semantic index up to date with whatever arrived.
+      // Unawaited and failure-swallowing by design: this only makes
+      // suggestions better, so nothing here is allowed to delay a shelf or
+      // break a library that loaded perfectly well without it.
+      unawaited(SemanticIndexService.instance.refresh(library));
     } on OpdsException catch (e) {
       if (!mounted) return;
       setState(() {
