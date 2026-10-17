@@ -1055,18 +1055,35 @@ class RecommendationEngine {
             (e.value == 'dropped' || e.value == 'completed'))
           e.key,
     };
-    final picks =
-        recommend(
-              allSeries: seriesPool,
-              readingEntries: [fakeEntry],
-              feedback: scopedFeedback,
-              weights: weights ?? RecWeights.similarity,
-              now: clock,
-            )
-            // "More like this" means LIKE this — the exploration wildcard
-            // belongs on the library shelf only.
-            .where((r) => !r.isWildcard && !excluded.contains(r.series.opdsId))
-            .toList();
+    // Without the diversity guard, which is a variety rule — and variety is
+    // the opposite of what this list is for. recommend() caps picks at
+    // maxPerGenre (3) and maxPerAuthor (2) so the Discover shelf cannot
+    // become six of the same thing; applied here it guaranteed that half of
+    // a six-pick "more like this" came from OTHER genres however well the
+    // top three matched. On an action cultivation novel that is three
+    // cultivation novels and then whatever scored next, which is how age
+    // regression arrived on the shelf. Same author and same genre are the
+    // two best answers to "what else is like this", so neither is throttled.
+    final similarity = RecommendationEngine(
+      halfLifeDays: halfLifeDays,
+      fastHalfLifeDays: fastHalfLifeDays,
+      maxResults: this.maxResults,
+      maxPerAuthor: this.maxResults,
+      maxPerGenre: this.maxResults,
+      keywordsPerSeries: keywordsPerSeries,
+    );
+    final picks = similarity
+        .recommend(
+          allSeries: seriesPool,
+          readingEntries: [fakeEntry],
+          feedback: scopedFeedback,
+          weights: weights ?? RecWeights.similarity,
+          now: clock,
+        )
+        // "More like this" means LIKE this — the exploration wildcard
+        // belongs on the library shelf only.
+        .where((r) => !r.isWildcard && !excluded.contains(r.series.opdsId))
+        .toList();
     if (picks.length <= maxResults) return picks;
     return picks.sublist(0, maxResults);
   }

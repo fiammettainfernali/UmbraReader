@@ -715,6 +715,81 @@ void main() {
       );
     });
 
+    test(
+      'a shelf of six is six like it, not three and a change of subject',
+      () {
+        // The bug the first fix missed. recommend() caps picks at three per
+        // primary genre so the Discover shelf cannot become six of the same
+        // thing — correct there, and on "more like this" it guaranteed half
+        // the list came from other genres however well the top three matched.
+        //
+        // The earlier test here passed throughout, because it offered a
+        // single same-genre candidate and the cap never bit.
+        final deepLibrary = [
+          source,
+          for (var i = 20; i < 29; i++)
+            _series(
+              id: i,
+              title: 'Cultivator $i',
+              author: 'Author $i',
+              genres: ['Cultivation', 'Action'],
+              totalChapters: 1200,
+            ),
+          for (var i = 40; i < 46; i++)
+            _series(
+              id: i,
+              title: 'Elsewhere $i',
+              author: 'Other $i',
+              genres: ['Age Regression', 'Slice of Life'],
+              totalChapters: 100,
+              description: blurb,
+            ),
+        ];
+
+        final picks = engine.similarTo(
+          source: source,
+          allSeries: deepLibrary,
+          now: today,
+        );
+
+        expect(picks, hasLength(6));
+        expect(
+          [for (final p in picks) p.series.genres.first],
+          everyElement('Cultivation'),
+          reason: 'nine cultivation novels were available to fill six slots',
+        );
+      },
+    );
+
+    test('the same author is not rationed here', () {
+      // maxPerAuthor exists so one writer cannot own the Discover shelf.
+      // Asked "what else is like this book", their other books are the
+      // best answer there is.
+      final sameAuthor = [
+        source,
+        for (var i = 30; i < 36; i++)
+          _series(
+            id: i,
+            title: 'Azure Peak $i',
+            author: 'A',
+            genres: ['Cultivation', 'Action'],
+            totalChapters: 1300,
+          ),
+      ];
+
+      final picks = engine.similarTo(
+        source: source,
+        allSeries: sameAuthor,
+        now: today,
+      );
+
+      expect(
+        picks.length,
+        greaterThan(2),
+        reason: 'capped at two, this is the Discover rule leaking in',
+      );
+    });
+
     test('the collapsed learned vector is why the default exists', () {
       // What the screen used to pass on an install carrying the weights the
       // old learner could produce. Kept as a test so the reason the default
