@@ -650,6 +650,100 @@ void main() {
     expect(recs.any((r) => r.series.opdsId == 2), isFalse);
   });
 
+  group('what "similar" is allowed to mean', () {
+    // Reported from a real library: the "More like this" shelf on an action
+    // cultivation novel was offering age regression, and had not changed in
+    // months. The screen was handing similarTo the reader's LEARNED weights
+    // — fitted on what makes them tap a shelf pick, and free to turn genre
+    // down to nothing — so the ranking fell through to description-keyword
+    // overlap.
+    const blurb = 'sect elder spirit stone tribulation breakthrough';
+
+    final source = _series(
+      id: 1,
+      title: 'Azure Peak',
+      author: 'A',
+      genres: ['Cultivation', 'Action'],
+      totalChapters: 1500,
+      description: blurb,
+    );
+    final sameGenre = _series(
+      id: 2,
+      title: 'Jade Summit',
+      author: 'B',
+      genres: ['Cultivation', 'Action'],
+      totalChapters: 1400,
+      description: 'rivals duel across the northern mountain passes',
+    );
+    // Shares the source's vocabulary and none of its genres: the shape of
+    // book that was winning.
+    final keywordTwin = _series(
+      id: 3,
+      title: 'Second Childhood',
+      author: 'C',
+      genres: ['Slice of Life', 'Age Regression'],
+      totalChapters: 120,
+      description: blurb,
+    );
+    final library = [
+      source,
+      sameGenre,
+      keywordTwin,
+      for (var i = 10; i < 20; i++)
+        _series(id: i, title: 'Filler $i', genres: ['Romance']),
+    ];
+
+    int rankOf(List<Recommendation> picks, String title) =>
+        picks.indexWhere((r) => r.series.title == title);
+
+    test('genre beats a shared blurb', () {
+      final picks = engine.similarTo(
+        source: source,
+        allSeries: library,
+        now: today,
+      );
+
+      expect(rankOf(picks, 'Jade Summit'), isNonNegative);
+      expect(
+        rankOf(picks, 'Jade Summit'),
+        lessThan(
+          rankOf(picks, 'Second Childhood') == -1
+              ? 1 << 30
+              : rankOf(picks, 'Second Childhood'),
+        ),
+        reason: 'the book in the same genre is the more alike one',
+      );
+    });
+
+    test('the collapsed learned vector is why the default exists', () {
+      // What the screen used to pass on an install carrying the weights the
+      // old learner could produce. Kept as a test so the reason the default
+      // is not negotiable stays visible.
+      const collapsed = RecWeights(
+        author: 2.0,
+        genre: 0.0,
+        keyword: 1.0,
+        length: 0.0,
+      );
+      final picks = engine.similarTo(
+        source: source,
+        allSeries: library,
+        weights: collapsed,
+        now: today,
+      );
+
+      expect(
+        rankOf(picks, 'Second Childhood'),
+        lessThan(
+          rankOf(picks, 'Jade Summit') == -1
+              ? 1 << 30
+              : rankOf(picks, 'Jade Summit'),
+        ),
+        reason: 'with genre switched off, a shared blurb is all that is left',
+      );
+    });
+  });
+
   test('similarTo finds picks resembling the given series', () {
     final source = _series(
       id: 1,

@@ -11,7 +11,6 @@ import '../services/library_storage.dart';
 import '../services/opds_client.dart';
 import '../services/epub_parser.dart';
 import '../services/reading_progress_store.dart';
-import '../services/rec_weight_learner.dart';
 import '../services/recommendation_engine.dart';
 import '../services/control_client.dart';
 import '../services/open_in_app.dart';
@@ -90,7 +89,6 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     await cache.load();
     if (!mounted) return;
     final feedback = await RecommendationFeedbackStore().load();
-    final weights = await RecWeightsStore().load();
     final statuses = await _statusStore.load();
     final similar = const RecommendationEngine().similarTo(
       source: widget.series,
@@ -105,7 +103,9 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
               e.key: 'dropped',
         },
       ),
-      weights: weights,
+      // Deliberately not the reader's learned weights. Those describe what
+      // makes them tap a shelf pick, not what makes two books alike — see
+      // RecWeights.similarity.
     );
     final status = await _statusStore.statusFor(widget.series.opdsId);
     setState(() {

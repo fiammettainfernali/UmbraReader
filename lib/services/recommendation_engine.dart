@@ -103,6 +103,29 @@ class RecWeights {
     length: 0.5,
   );
 
+  /// Weights for "more like THIS book", which is a different question from
+  /// "what should this reader be shown next".
+  ///
+  /// The learned vector answers the second. It is fitted on which feature
+  /// group predicts this reader ACTING on a shelf pick, and it is free to
+  /// turn genre right down if genre is not what moves them — perfectly
+  /// reasonable for a shelf, and wrong for a similarity list, where it
+  /// stops similarity being about similarity. Worse on an install still
+  /// carrying the collapsed vector the old learner could produce (genre
+  /// 0.0, length 0.0): ranking fell back to author matches and
+  /// description-keyword noise, which is how an action cultivation novel
+  /// came to suggest age regression.
+  ///
+  /// Genre leads keywords here deliberately. Two books sharing a genre are
+  /// alike in the way a reader means by "similar"; two sharing a word in
+  /// their blurb very often are not.
+  static const similarity = RecWeights(
+    author: 2.0,
+    genre: 1.5,
+    keyword: 0.6,
+    length: 0.5,
+  );
+
   Map<String, dynamic> toJson() => {
     'author': author,
     'genre': genre,
@@ -977,6 +1000,10 @@ class RecommendationEngine {
   /// Recommends series similar to a single [source] series — used by the
   /// "More like this" shelf on a series detail screen. The source is treated
   /// as a fresh, fully-completed read, so its content tags drive the picks.
+  ///
+  /// Ranks under [RecWeights.similarity] unless told otherwise, NOT under
+  /// the reader's learned vector: see that constant for why handing this
+  /// the shelf's weights makes it answer the wrong question.
   List<Recommendation> similarTo({
     required Series source,
     required List<Series> allSeries,
@@ -1033,7 +1060,7 @@ class RecommendationEngine {
               allSeries: seriesPool,
               readingEntries: [fakeEntry],
               feedback: scopedFeedback,
-              weights: weights,
+              weights: weights ?? RecWeights.similarity,
               now: clock,
             )
             // "More like this" means LIKE this — the exploration wildcard

@@ -17,9 +17,7 @@ import '../services/streamed_count_refresh.dart';
 import '../services/rec_outcome_store.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/control_client.dart';
-import '../services/recommendation_engine.dart';
 import '../services/recommendation_feedback_store.dart';
-import '../services/recommendation_loader.dart';
 import '../services/saved_view_store.dart';
 import '../services/series_status_store.dart';
 import '../services/reading_activity_store.dart';
@@ -110,20 +108,6 @@ class _LibraryScreenState extends State<LibraryScreen>
   /// the novels every launch is a small tax on every visit.
   bool _showingComics = false;
 
-  /// The library opens calm: the book in progress, a couple of suggestions,
-  /// and one way into the rest of the shelf.
-  ///
-  /// Session-only, and deliberately never persisted. Every launch starts
-  /// calm — which costs a tap on the days you came to browse, and is worth
-  /// it, because a remembered view is exactly how the reading-state chip
-  /// became a trap that silently deleted the home screen on every launch
-  /// after the one it was tapped on. Nothing here can get stuck.
-  bool _calmHome = true;
-
-  /// Two picks for the calm home, loaded after the first frame so the book
-  /// you are actually reading never waits on a ranking pass.
-  List<Recommendation>? _calmPicks;
-  bool _calmPicksRequested = false;
   static const String _kLibraryModeKey = 'library.showingComics';
 
   /// Reading-time activity + daily goal for the home streak chip. Its
@@ -1283,43 +1267,6 @@ class _LibraryScreenState extends State<LibraryScreen>
               _activity.currentStreak() > 0 ||
               _dailyGoalMinutes > 0);
 
-      // The calm home. Everything the full view stacks above the grid — the
-      // search field, three icon buttons, the recent-search chips, five
-      // reading-state chips, the active-filter row, the count and sort line,
-      // the streak — is roughly nineteen controls standing between opening
-      // the app and carrying on with the book that was already open. Here
-      // there are two decisions: keep reading, or go and look.
-      if (_calmHome && showHome) {
-        if (!_calmPicksRequested) {
-          WidgetsBinding.instance.addPostFrameCallback((_) => _loadCalmPicks());
-        }
-        final picks = _calmPicks ?? const <Recommendation>[];
-        return [
-          if (_webSeries.isNotEmpty)
-            SliverToBoxAdapter(child: _buildLibraryToggle()),
-          // Kept: being told the shelf is an old copy is not clutter, it is
-          // the difference between "nothing new" and "nothing loaded".
-          if (_offline) SliverToBoxAdapter(child: _buildOfflineBanner()),
-          if (_reading.isNotEmpty)
-            SliverToBoxAdapter(child: _buildContinueHero())
-          else
-            SliverToBoxAdapter(child: _buildCalmNothingOpen()),
-          // Every book on the go, not just the last one touched. This shelf
-          // was cut from the first calm home as chrome, which was wrong: for
-          // a reader with several books open at once the hero alone hides
-          // most of what they came back for, and the only route to the other
-          // four is the grid the calm view exists to avoid.
-          if (_reading.length > 1)
-            SliverToBoxAdapter(child: _buildContinueShelf()),
-          if (picks.isNotEmpty) ...[
-            SliverToBoxAdapter(child: _sectionHeader('Maybe next')),
-            for (final pick in picks)
-              SliverToBoxAdapter(child: _buildCalmPick(pick)),
-          ],
-          SliverToBoxAdapter(child: _buildBrowseAll(all.length)),
-        ];
-      }
-
       return [
         // Only once there is a second library to switch to.
         if (_webSeries.isNotEmpty)
@@ -1551,115 +1498,6 @@ class _LibraryScreenState extends State<LibraryScreen>
   /// silently nuked everything below it in the sliver list — so be careful
   /// before reintroducing Spacer/Expanded inside this widget.
   Widget _sectionHeader(String title) => SectionHeader(title);
-
-  /// Ranks a couple of picks for the calm home, once per visit to the
-  /// screen. Deliberately after the first frame: the hero is the thing
-  /// somebody opened the app for, and it must not wait on eight stores.
-  Future<void> _loadCalmPicks() async {
-    if (_calmPicksRequested) return;
-    _calmPicksRequested = true;
-    final library = _library;
-    if (library == null || library.isEmpty) return;
-    final picks = await const RecommendationLoader(
-      maxResults: 12,
-    ).load(library);
-    if (!mounted) return;
-    setState(() => _calmPicks = picks.take(2).toList());
-  }
-
-  /// The calm home with nothing in progress. Says so plainly rather than
-  /// leaving a gap where the hero would be.
-  Widget _buildCalmNothingOpen() {
-    final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-      child: Text(
-        'Nothing open right now.',
-        style: theme.textTheme.bodyLarge?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
-      ),
-    );
-  }
-
-  /// One suggestion: cover, title, and the engine's reason for it.
-  ///
-  /// The whole row is the only control. No dismiss, no thumbs, no long-press
-  /// sheet — a calm screen that asks to be rated is not calm, and the
-  /// recommender learns from what gets read anyway.
-  Widget _buildCalmPick(Recommendation pick) {
-    final theme = Theme.of(context);
-    final headers = (_settings?.isConfigured ?? false)
-        ? OpdsClient(_settings!).authHeaders
-        : const <String, String>{};
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-      child: Material(
-        color: theme.colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => openSeries(pick.series),
-          child: Padding(
-            padding: const EdgeInsets.all(10),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(
-                  width: 52,
-                  height: 74,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(5),
-                    child: CoverImage(series: pick.series, headers: headers),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        pick.series.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      if (pick.reason.isNotEmpty) ...[
-                        const SizedBox(height: 3),
-                        Text(
-                          pick.reason,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// The one way out of the calm home, into the full shelf for this session.
-  Widget _buildBrowseAll(int count) => Padding(
-    padding: const EdgeInsets.fromLTRB(12, 12, 16, 24),
-    child: Align(
-      alignment: Alignment.centerLeft,
-      child: TextButton.icon(
-        onPressed: () => setState(() => _calmHome = false),
-        icon: const Icon(Icons.grid_view_outlined),
-        label: Text('Browse all $count books'),
-      ),
-    ),
-  );
 
   Widget _buildContinueHero() {
     final theme = Theme.of(context);
