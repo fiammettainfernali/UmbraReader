@@ -25,12 +25,6 @@ Widget _bar({required bool exact, int? pageOfSpread, int? spreadCount}) =>
           onNext: () {},
           onSeek: (_) {},
           onJump: (_) {},
-          isReading: false,
-          isPlaying: false,
-          canSeek: false,
-          onPlayPause: () {},
-          onBack15: () {},
-          onForward15: () {},
         ),
       ),
     );

@@ -14,7 +14,6 @@ import '../reader/book_search_screen.dart';
 import '../reader/bookmarks_sheet.dart';
 import '../reader/reader_chrome.dart';
 import '../reader/reader_layout.dart';
-import '../reader/reader_tts_session.dart';
 import '../models/bookmark.dart';
 import '../models/content_block.dart';
 import '../models/epub_book.dart';
@@ -33,14 +32,10 @@ import '../services/glossary_store.dart';
 import '../services/library_cache.dart';
 import '../services/cover_cache.dart';
 import '../services/library_storage.dart';
-import '../services/network_tts_service.dart';
 import '../services/reader_preferences.dart';
 import '../services/settings_service.dart';
 import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
-import '../services/tts_engine.dart';
-import '../services/tts_service.dart';
-import '../services/tts_skip.dart';
 import '../utils/volume_ordering.dart';
 import '../widgets/reader_settings_sheet.dart';
 import '../reader/reader_selection.dart';
@@ -106,7 +101,6 @@ class ReaderScreen extends StatefulWidget {
 class _ReaderScreenState extends State<ReaderScreen>
     with
         WidgetsBindingObserver,
-        ReaderTtsSession,
         ReaderSelection,
         ReaderSession {
   final _progressStore = ReadingProgressStore();
@@ -251,12 +245,6 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// rotation (width change) from keyboard/inset churn in didChangeMetrics.
   double _lastViewWidth = 0;
 
-  /// Last block that auto-follow moved to — so it only moves on a change.
-  int _followedBlock = -1;
-
-  /// Last page that read-aloud auto-follow turned to (paged mode).
-  int _followedPage = -1;
-
   /// Periodic timer driving the hands-free auto-scroll, when enabled.
   Timer? _autoScrollTimer;
 
@@ -313,7 +301,6 @@ class _ReaderScreenState extends State<ReaderScreen>
   @override
   void initState() {
     super.initState();
-    initTtsSession();
     _scrollController.addListener(_onPositionTick);
     _pageController.addListener(_onPositionTick);
     WidgetsBinding.instance.addObserver(this);
@@ -396,14 +383,16 @@ class _ReaderScreenState extends State<ReaderScreen>
     PageTurnSound.instance.dispose();
     disposeSession();
     _brightnessHudTimer?.cancel();
-    disposeTtsSession();
     _scrollController.dispose();
     _pageController.dispose();
     super.dispose();
   }
 
-  // ── ReaderTtsSession plumbing ────────────────────────────────────────────
-  // Thin proxies exposing the State's private fields to the read-aloud mixin.
+  // ── mixin plumbing ──────────────────────────────────────────────────────
+  // Thin proxies exposing this State's private fields to ReaderSelection and
+  // ReaderSession. These were once labelled as read-aloud plumbing, which was
+  // wrong and briefly cost the whole section when read-aloud was deleted:
+  // selection and session reading had always depended on them too.
 
   @override
   Volume get readerVolume => widget.volume;
@@ -418,19 +407,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   EpubBook? get currentBook => _book;
 
   @override
-  EpubParser? get currentParser => _parser;
-
-  @override
   int get currentChapterIndex => _chapterIndex;
-
-  @override
-  int get currentChapterWordCount => _chapterWordCount;
-
-  @override
-  double get chapterFraction => _chapterFraction;
-
-  @override
-  set chapterFraction(double value) => _chapterFraction = value;
 
   @override
   int currentTopBlockIndex() => _settings.focusParagraph
@@ -439,55 +416,11 @@ class _ReaderScreenState extends State<ReaderScreen>
       ? _pagedTopBlockIndex()
       : _scrollTopBlockIndex();
 
-  @override
-  void goToChapter(
-    int index, {
-    bool landOnLastPage = false,
-    bool fromTts = false,
-  }) => _goToChapter(index, landOnLastPage: landOnLastPage, fromTts: fromTts);
-
-  @override
-  void saveReadingProgress() => _saveProgress();
-
-  @override
-  void followSpeaking(int blockIndex) => _followSpeaking(blockIndex);
-
-  @override
-  void resetFollow() {
-    _followedBlock = -1;
-    _followedPage = -1;
-  }
-
-  @override
-  Future<void> applyReaderSettings(ReaderSettings next) => _applySettings(next);
-
-  @override
-  Future<void> openReaderSettings() => _openSettings();
-
   Future<void> _open() async {
     var settings = await ReaderPreferences().load(volume: widget.volume);
     // Decoding the clip takes long enough to be audible as a late first
     // sound, and the reader has network and parsing to do anyway.
     if (settings.pageTurnSound) PageTurnSound.instance.warmUp();
-    // Apply this series' remembered narrator, if one was chosen for it.
-    final seriesVoice = await ReaderPreferences().seriesVoice(
-      widget.volume.seriesOpdsId,
-    );
-    if (seriesVoice != null) {
-      settings = settings.copyWith(
-        voiceName: seriesVoice.$1,
-        voiceLocale: seriesVoice.$2,
-      );
-    }
-    final resume = await _progressStore.resumeOffset(widget.volume);
-    if (resume != null) {
-      ttsResumeBlock = resume.$1;
-      ttsResumeChar = resume.$2;
-    }
-    final cover = await CoverCache(
-      LibraryStorage(),
-    ).cached(widget.volume.seriesOpdsId);
-    ttsCoverPath = cover?.path;
     try {
       final parser = EpubParser();
       final EpubBook book;
@@ -593,8 +526,6 @@ class _ReaderScreenState extends State<ReaderScreen>
       startSessionTicker();
       _applyOrientation(settings.orientation);
       _applyKeepAwake(settings.keepAwake);
-      syncEngineToSettings();
-      loadPronunciations().then((_) => prepareAudio());
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _restoreScrollPosition();
         if (_settings.autoScroll) _startAutoScroll();
@@ -678,8 +609,11 @@ class _ReaderScreenState extends State<ReaderScreen>
           _showChapterUnreachable();
           return;
         }
-        _goToChapter(target.index,
-            landOnLastPage: target.landOnLastPage, fromTts: target.fromTts);
+        _goToChapter(
+          target.index,
+          landOnLastPage: target.landOnLastPage,
+          fromTts: target.fromTts,
+        );
         return;
       }
     } finally {
@@ -785,8 +719,6 @@ class _ReaderScreenState extends State<ReaderScreen>
       );
       return;
     }
-    // A manual chapter change stops read-aloud; a TTS-driven advance keeps it.
-    if (!fromTts) ttsEngine.stop();
     _lastChapterChange = DateTime.now();
     _crossing.reset();
     // Crossing a chapter is a page turn too — and in scroll mode it is the
@@ -817,9 +749,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       widget.volume,
       ReadingProgress(
         chapterIndex: clamped,
-        blockIndex: landOnLastPage && blocks.isNotEmpty
-            ? blocks.length - 1
-            : 0,
+        blockIndex: landOnLastPage && blocks.isNotEmpty ? blocks.length - 1 : 0,
         chapterPath: book.chapters[clamped].zipPath,
         chapterCount: book.chapters.length,
       ),
@@ -949,8 +879,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// book). PageController.page tracks *spreads*, so all conversions between
   /// block-index and page-index go through this.
   int get _pageStride =>
-      _settings.tvMode ||
-          (_spreadFits && _settings.mode == ReadingMode.paged)
+      _settings.tvMode || (_spreadFits && _settings.mode == ReadingMode.paged)
       ? 2
       : 1;
 
@@ -994,21 +923,10 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   Future<void> _saveProgress() async {
     final blocks = _blocks ?? const <ContentBlock>[];
-    // While reading aloud, the authoritative position is the paragraph being
-    // spoken — not the scroll top (which trails it because the follow-scroll
-    // keeps the spoken line partway down the screen).
-    final ttsActive =
-        ttsEngine.state != TtsPlaybackState.stopped && speakingBlock != null;
     final int block;
     final int blockChar;
     final bool atEnd;
-    if (ttsActive) {
-      block = speakingBlock!.clamp(0, blocks.isEmpty ? 0 : blocks.length - 1);
-      blockChar = speakingStart;
-      atEnd = blocks.isNotEmpty && block >= blocks.length - 1;
-      // Record the word-level resume point (Kokoro can seek back to it).
-      _progressStore.saveResumeOffset(widget.volume, block, speakingStart);
-    } else if (_settings.focusParagraph) {
+    if (_settings.focusParagraph) {
       // Focus mode: the shown paragraph IS the position; no controllers.
       block = _focusBlock.clamp(0, blocks.isEmpty ? 0 : blocks.length - 1);
       blockChar = 0;
@@ -1068,7 +986,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     final pos = painter.getPositionForOffset(
       Offset(0, (yIn + 1).clamp(0.0, painter.height)),
     );
-    return painter.getLineBoundary(pos).start;
+    // Placeholder space out, run space in: a saved position is a character
+    // offset into the paragraph's own text.
+    return runOffsetFor(b.runs, painter.getLineBoundary(pos).start);
   }
 
   /// Character offset of the current page's first slice when it belongs to
@@ -1245,9 +1165,16 @@ class _ReaderScreenState extends State<ReaderScreen>
         // Land on the exact line the reader stopped at, not the paragraph
         // top — webnovel paragraphs can be a whole screen tall.
         final painter = layoutParagraph(b.runs, _lastContentWidth, _settings);
+        // The saved offset is in the paragraph's own text; the painter
+        // counts each footnote marker as a single placeholder character.
         offset += painter
             .getOffsetForCaret(
-              TextPosition(offset: char.clamp(0, runsLength(b.runs))),
+              TextPosition(
+                offset: placeholderOffsetFor(
+                  b.runs,
+                  char.clamp(0, runsLength(b.runs)),
+                ),
+              ),
               Rect.zero,
             )
             .dy;
@@ -1522,17 +1449,9 @@ class _ReaderScreenState extends State<ReaderScreen>
       );
     }
     final fontChanged = next.fontFamily != _settings.fontFamily;
-    final rateChanged = next.speechRate != _settings.speechRate;
-    final voiceChanged =
-        next.voiceName != _settings.voiceName ||
-        next.voiceLocale != _settings.voiceLocale;
     final autoScrollChanged =
         next.autoScroll != _settings.autoScroll || next.mode != _settings.mode;
     final orientationChanged = next.orientation != _settings.orientation;
-    final engineChanged =
-        next.ttsEngine != _settings.ttsEngine ||
-        next.ttsServerUrl != _settings.ttsServerUrl ||
-        next.ttsServerToken != _settings.ttsServerToken;
     final tvModeChanged = next.tvMode != _settings.tvMode;
     final keepAwakeChanged = next.keepAwake != _settings.keepAwake;
     // Centred-column toggle changes the content width, so paged mode must
@@ -1569,19 +1488,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     // Decode the clip on the way in, so the turn that follows switching the
     // setting on is the one that demonstrates it.
     if (next.pageTurnSound) PageTurnSound.instance.warmUp();
-    if (engineChanged) syncEngineToSettings();
-    if (rateChanged) ttsEngine.setRate(next.speechRate);
-    if (voiceChanged) {
-      ttsEngine.setVoice(next.voiceName, next.voiceLocale);
-      // Remember the chosen narrator for this whole series.
-      ReaderPreferences().saveSeriesVoice(
-        widget.volume.seriesOpdsId,
-        next.voiceName,
-        next.voiceLocale,
-      );
-    }
-    // The cache is keyed by voice/engine, so re-warm it when either changes.
-    if (voiceChanged || engineChanged) prepareAudio();
     if (fontChanged && mounted) {
       // Bundled fonts need no preload; bump the token so paged mode
       // re-paginates with the new family's metrics.
@@ -1699,7 +1605,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   void _playPageTurnSound() {
     if (!shouldPlayPageTurnSound(
       enabled: _settings.pageTurnSound,
-      speaking: ttsEngine.state != TtsPlaybackState.stopped,
+      speaking: false,
       autoTurn: _autoPageTimer != null,
       reseating: _reseating,
     )) {
@@ -1711,52 +1617,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
     _lastPageSound = now;
     PageTurnSound.instance.play();
-  }
-
-  /// Scrolls/pages so the block being read stays visible — only when the
-  /// block changes, so it doesn't fight the reader within a paragraph.
-  void _followSpeaking(int blockIndex) {
-    if (_settings.mode == ReadingMode.paged) {
-      if (!_pageController.hasClients) return;
-      // Follow by page (not block) so a paragraph split across pages is
-      // tracked as read-aloud moves through it.
-      final page = _pageForBlockAt(blockIndex, speakingStart);
-      final currentPage = _pageController.page?.round() ?? 0;
-      if (page != currentPage && page != _followedPage) {
-        _followedPage = page;
-        if (_reduceMotion) {
-          _pageController.jumpToPage(page);
-        } else {
-          _pageController.animateToPage(
-            page,
-            duration: const Duration(milliseconds: 300),
-            curve: Curves.easeInOut,
-          );
-        }
-      }
-      return;
-    }
-    // Scroll mode: only move when the block changes, so it doesn't fight the
-    // reader within a paragraph.
-    if (blockIndex == _followedBlock) return;
-    _followedBlock = blockIndex;
-    if (!_scrollController.hasClients) return;
-    // Keep the spoken line a little above the middle of the screen (~42% down)
-    // rather than pinned near the top, so it reads more like a teleprompter.
-    final topInset = MediaQuery.of(context).size.height * 0.42;
-    final target = (_blockOffset(blockIndex) - topInset).clamp(
-      0.0,
-      _scrollController.position.maxScrollExtent,
-    );
-    if (_reduceMotion) {
-      _scrollController.jumpTo(target);
-    } else {
-      _scrollController.animateTo(
-        target,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeInOut,
-      );
-    }
   }
 
   // ── auto-scroll ──────────────────────────────────────────────────────────
@@ -1841,86 +1701,25 @@ class _ReaderScreenState extends State<ReaderScreen>
       _stopAutoScroll();
       final book = _book;
       if (book != null && _chapterIndex < book.chapters.length - 1) {
-        _autoScrollHandoffTimer = Timer(
-          const Duration(milliseconds: 600),
-          () {
-            _autoScrollHandoffTimer = null;
-            // Re-read rather than assumed. 600 ms is long enough to switch
-            // auto-scroll off or change reading mode, and resuming on a
-            // setting the reader has just cleared is how it came back from
-            // the dead.
-            if (!mounted ||
-                !_settings.autoScroll ||
-                _settings.mode != ReadingMode.scroll) {
-              return;
-            }
-            _goToChapter(_chapterIndex + 1);
-            _startAutoScroll();
-          },
-        );
+        _autoScrollHandoffTimer = Timer(const Duration(milliseconds: 600), () {
+          _autoScrollHandoffTimer = null;
+          // Re-read rather than assumed. 600 ms is long enough to switch
+          // auto-scroll off or change reading mode, and resuming on a
+          // setting the reader has just cleared is how it came back from
+          // the dead.
+          if (!mounted ||
+              !_settings.autoScroll ||
+              _settings.mode != ReadingMode.scroll) {
+            return;
+          }
+          _goToChapter(_chapterIndex + 1);
+          _startAutoScroll();
+        });
       }
       return;
     }
     _scrollController.jumpTo(
       (pos.pixels + _autoScrollPxPerTick).clamp(0.0, pos.maxScrollExtent),
-    );
-  }
-
-  /// Speechify-style "skip while reading" menu: pick content the voice skips
-  /// over (parentheses, URLs, citations, headings, …). Applies on the next
-  /// read-aloud start.
-  void _openSkipMenu() {
-    showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      builder: (_) => StatefulBuilder(
-        builder: (context, setSheet) {
-          final theme = Theme.of(context);
-          return SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Skip while reading',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'The voice silently skips the selected content. Takes '
-                    'effect the next time read-aloud starts.',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.outline,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  for (final kind in TtsSkip.values)
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      dense: true,
-                      title: Text(kind.label),
-                      subtitle: Text(kind.description),
-                      value: _settings.ttsSkips.contains(kind),
-                      onChanged: (on) {
-                        final next = Set<TtsSkip>.of(_settings.ttsSkips);
-                        if (on) {
-                          next.add(kind);
-                        } else {
-                          next.remove(kind);
-                        }
-                        _applySettings(_settings.copyWith(ttsSkips: next));
-                        setSheet(() {});
-                      },
-                    ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
     );
   }
 
@@ -1936,7 +1735,6 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   Future<void> _openSettings() async {
-    final voices = await ttsEngine.availableVoices();
     final prefs = ReaderPreferences();
     final hasOverride = await prefs.hasOverride(widget.volume);
     if (!mounted) return;
@@ -1957,10 +1755,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       ),
       builder: (_) => ReaderSettingsSheet(
         initial: _settings,
-        voices: voices,
-        sleepOption: sleepOption,
         onChanged: _applySettings,
-        onSleepTimerChanged: setSleepTimer,
         hasOverride: hasOverride,
         onOverrideToggled: (enabled) async {
           if (enabled) {
@@ -2088,7 +1883,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     final parser = _parser;
     if (book == null || parser == null) return;
     final clamped = chapterIndex.clamp(0, book.chapters.length - 1);
-    ttsEngine.stop();
     _lastChapterChange = DateTime.now();
     _crossing.reset();
     final blocks = (clamped == _chapterIndex && _blocks != null)
@@ -2614,7 +2408,6 @@ class _ReaderScreenState extends State<ReaderScreen>
 
     final book = _book!;
     final preset = _settings.theme;
-    if (listenMode) return buildListenView(book, preset);
     final mq = MediaQuery.of(context);
     _spreadFits = shouldUseSpread(mq.size);
     _lastViewWidth = mq.size.width;
@@ -2728,16 +2521,12 @@ class _ReaderScreenState extends State<ReaderScreen>
                       title: book.chapters[_chapterIndex].title,
                       preset: preset,
                       onBack: () => Navigator.of(context).pop(),
-                      onToggleListen: toggleListen,
                       onOpenSettings: _openSettings,
                       onShowContents: _showTableOfContents,
                       onGoToSeries: _goToSeries,
                       onSearch: _openSearch,
                       onBookmarks: _openBookmarks,
                       onGlossary: _openGlossary,
-                      onOpenSkip: _openSkipMenu,
-                      onOpenPronunciations: openPronunciations,
-                      onPrepareOffline: prepareVolumeForOffline,
                     ),
                   ),
                 ),
@@ -2781,22 +2570,9 @@ class _ReaderScreenState extends State<ReaderScreen>
                         _chapterIndex + delta,
                         recordReturn: delta.abs() > 1,
                       ),
-                      isReading: ttsEngine.state != TtsPlaybackState.stopped,
-                      isPlaying: ttsEngine.state == TtsPlaybackState.playing,
-                      canSeek: ttsEngine is NetworkTtsService,
-                      onPlayPause: toggleTts,
-                      onBack15: () => nudgeTts(-15),
-                      onForward15: () => nudgeTts(15),
                     ),
                   ),
                 ),
-                if (ttsPrepTotal > 0 && ttsPrepDone < ttsPrepTotal)
-                  Positioned(
-                    top: topSpace + 8,
-                    left: 0,
-                    right: 0,
-                    child: _fadeChrome(Center(child: ttsPrepChip(preset))),
-                  ),
                 if (_settings.brightness < 1.0)
                   Positioned.fill(
                     child: IgnorePointer(
@@ -3021,8 +2797,6 @@ class _ReaderScreenState extends State<ReaderScreen>
           block: blocks[index],
           settings: _settings,
           preset: preset,
-          highlightStart: index == speakingBlock ? speakingStart : null,
-          highlightEnd: index == speakingBlock ? speakingEnd : null,
           highlightColor: _highlightedBlocks[index],
           ranges: ranges,
           reentry: reentryBlock == index,
@@ -3187,14 +2961,6 @@ class _ReaderScreenState extends State<ReaderScreen>
               settings: _settings,
               preset: preset,
               isLast: j == pageBlocks.length - 1,
-              // The highlight range is in parent-block coordinates;
-              // shift it into this slice's own coordinates.
-              highlightStart: pageBlocks[j].originIndex == speakingBlock
-                  ? speakingStart - pageBlocks[j].charOffset
-                  : null,
-              highlightEnd: pageBlocks[j].originIndex == speakingBlock
-                  ? speakingEnd - pageBlocks[j].charOffset
-                  : null,
               highlightColor: _highlightedBlocks[pageBlocks[j].originIndex],
               reentry: reentryBlock == pageBlocks[j].originIndex,
             ),

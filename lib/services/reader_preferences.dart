@@ -5,8 +5,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/reader_settings.dart';
 import '../models/volume.dart';
 import 'cloud_sync_service.dart';
-import 'tts_engine.dart';
-import 'tts_skip.dart';
 
 /// Loads and saves the reader's [ReaderSettings] via [SharedPreferences].
 ///
@@ -25,9 +23,6 @@ class ReaderPreferences {
   static const _kWordSpacing = 'reader_word_spacing';
   static const _kParagraphSpacing = 'reader_paragraph_spacing';
   static const _kMargin = 'reader_margin';
-  static const _kSpeechRate = 'reader_speech_rate';
-  static const _kVoiceName = 'reader_voice_name';
-  static const _kVoiceLocale = 'reader_voice_locale';
   static const _kBoldText = 'reader_bold_text';
   static const _kItalicText = 'reader_italic_text';
   static const _kBrightness = 'reader_brightness';
@@ -62,10 +57,6 @@ class ReaderPreferences {
   static const _kPageFold = 'reader_page_fold';
   static const _kDoubleTapAction = 'reader_double_tap_action';
   static const _kAutoPageSeconds = 'reader_auto_page_seconds';
-  static const _kTtsEngine = 'reader_tts_engine';
-  static const _kTtsServerUrl = 'reader_tts_server_url';
-  static const _kTtsServerToken = 'reader_tts_server_token';
-  static const _kTtsSkips = 'reader_tts_skips';
 
   /// Marker key telling us a per-volume override has been opted into.
   static const _kOverrideMarker = 'reader_override_marker';
@@ -85,9 +76,6 @@ class ReaderPreferences {
     _kLetterSpacing,
     _kWordSpacing,
     _kParagraphSpacing,
-    _kSpeechRate,
-    _kVoiceName,
-    _kVoiceLocale,
     _kBoldText,
     _kItalicText,
     _kBrightness,
@@ -117,10 +105,6 @@ class ReaderPreferences {
     _kPageFold,
     _kDoubleTapAction,
     _kAutoPageSeconds,
-    _kTtsEngine,
-    _kTtsServerUrl,
-    _kTtsServerToken,
-    _kTtsSkips,
   ];
 
   /// Settings that describe the DEVICE in hand rather than reading taste —
@@ -167,9 +151,6 @@ class ReaderPreferences {
       paragraphSpacing:
           prefs.getDouble('$p$_kParagraphSpacing') ?? d.paragraphSpacing,
       margin: prefs.getDouble('$p$_kMargin') ?? d.margin,
-      speechRate: prefs.getDouble('$p$_kSpeechRate') ?? d.speechRate,
-      voiceName: prefs.getString('$p$_kVoiceName') ?? d.voiceName,
-      voiceLocale: prefs.getString('$p$_kVoiceLocale') ?? d.voiceLocale,
       boldText: prefs.getBool('$p$_kBoldText') ?? d.boldText,
       italicText: prefs.getBool('$p$_kItalicText') ?? d.italicText,
       brightness: prefs.getDouble('$p$_kBrightness') ?? d.brightness,
@@ -214,14 +195,6 @@ class ReaderPreferences {
       ),
       autoPageSeconds:
           prefs.getInt('$p$_kAutoPageSeconds') ?? d.autoPageSeconds,
-      ttsEngine: TtsEngineKind.values.firstWhere(
-        (e) => e.name == prefs.getString('$p$_kTtsEngine'),
-        orElse: () => d.ttsEngine,
-      ),
-      ttsServerUrl: prefs.getString('$p$_kTtsServerUrl') ?? d.ttsServerUrl,
-      ttsServerToken:
-          prefs.getString('$p$_kTtsServerToken') ?? d.ttsServerToken,
-      ttsSkips: parseTtsSkips(prefs.getString('$p$_kTtsSkips')),
     );
   }
 
@@ -239,9 +212,6 @@ class ReaderPreferences {
     await prefs.setDouble('$p$_kWordSpacing', settings.wordSpacing);
     await prefs.setDouble('$p$_kParagraphSpacing', settings.paragraphSpacing);
     await prefs.setDouble('$p$_kMargin', settings.margin);
-    await prefs.setDouble('$p$_kSpeechRate', settings.speechRate);
-    await prefs.setString('$p$_kVoiceName', settings.voiceName);
-    await prefs.setString('$p$_kVoiceLocale', settings.voiceLocale);
     await prefs.setBool('$p$_kBoldText', settings.boldText);
     await prefs.setBool('$p$_kItalicText', settings.italicText);
     await prefs.setDouble('$p$_kBrightness', settings.brightness);
@@ -277,10 +247,6 @@ class ReaderPreferences {
       settings.doubleTapAction.name,
     );
     await prefs.setInt('$p$_kAutoPageSeconds', settings.autoPageSeconds);
-    await prefs.setString('$p$_kTtsEngine', settings.ttsEngine.name);
-    await prefs.setString('$p$_kTtsServerUrl', settings.ttsServerUrl);
-    await prefs.setString('$p$_kTtsServerToken', settings.ttsServerToken);
-    await prefs.setString('$p$_kTtsSkips', encodeTtsSkips(settings.ttsSkips));
     // Only global changes participate in iCloud sync; per-volume overrides
     // stay on the device that set them.
     if (p.isEmpty) {
@@ -347,30 +313,6 @@ class ReaderPreferences {
     }
     await prefs.setString(_kGlobalModified, cloudModified.toIso8601String());
     return true;
-  }
-
-  static const _kSeriesVoicePrefix = 'series_voice:';
-
-  /// The narrator chosen for a whole series (name, locale), or null if none.
-  Future<(String, String)?> seriesVoice(int seriesId) async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString('$_kSeriesVoicePrefix$seriesId');
-    if (raw == null || raw.isEmpty) return null;
-    final sep = raw.indexOf('|');
-    if (sep < 0) return (raw, '');
-    return (raw.substring(0, sep), raw.substring(sep + 1));
-  }
-
-  /// Remembers [name]/[locale] as the narrator for [seriesId]. Clearing to an
-  /// empty voice removes the per-series override.
-  Future<void> saveSeriesVoice(int seriesId, String name, String locale) async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = '$_kSeriesVoicePrefix$seriesId';
-    if (name.isEmpty) {
-      await prefs.remove(key);
-    } else {
-      await prefs.setString(key, '$name|$locale');
-    }
   }
 
   // ── migraine mode ────────────────────────────────────────────────────────

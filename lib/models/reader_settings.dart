@@ -1,5 +1,3 @@
-import '../services/tts_engine.dart';
-import '../services/tts_skip.dart';
 import 'reader_theme.dart';
 
 /// How chapter content is laid out in the reader.
@@ -41,9 +39,6 @@ class ReaderSettings {
     required this.wordSpacing,
     required this.paragraphSpacing,
     required this.margin,
-    required this.speechRate,
-    required this.voiceName,
-    required this.voiceLocale,
     required this.boldText,
     required this.italicText,
     required this.brightness,
@@ -73,10 +68,6 @@ class ReaderSettings {
     required this.pageFold,
     required this.doubleTapAction,
     required this.autoPageSeconds,
-    required this.ttsEngine,
-    required this.ttsServerUrl,
-    required this.ttsServerToken,
-    required this.ttsSkips,
   });
 
   final ReadingMode mode;
@@ -107,13 +98,6 @@ class ReaderSettings {
 
   /// Horizontal page margin in logical pixels.
   final double margin;
-
-  /// Read-aloud speech rate, 0–1 (flutter_tts scale; ~0.5 is normal).
-  final double speechRate;
-
-  /// Chosen read-aloud voice; empty strings mean the system default.
-  final String voiceName;
-  final String voiceLocale;
 
   /// When true, all body text is rendered in a heavier weight.
   final bool boldText;
@@ -246,21 +230,6 @@ class ReaderSettings {
   /// of auto-scroll). 0 disables it.
   final int autoPageSeconds;
 
-  /// Which read-aloud engine to use: the on-device iOS voices, or the
-  /// self-hosted Kokoro neural voice server.
-  final TtsEngineKind ttsEngine;
-
-  /// Base URL of the Kokoro voice server (e.g. `https://host`); empty until
-  /// configured. Used only when [ttsEngine] is [TtsEngineKind.kokoro].
-  final String ttsServerUrl;
-
-  /// Bearer token for the Kokoro voice server.
-  final String ttsServerToken;
-
-  /// Content categories the read-aloud voice skips over (parentheses, URLs,
-  /// citations, headings, …).
-  final Set<TtsSkip> ttsSkips;
-
   static const defaults = ReaderSettings(
     mode: ReadingMode.scroll,
     themeId: 'dark',
@@ -271,9 +240,6 @@ class ReaderSettings {
     wordSpacing: 0,
     paragraphSpacing: 0,
     margin: 20,
-    speechRate: 0.5,
-    voiceName: '',
-    voiceLocale: '',
     boldText: false,
     italicText: false,
     brightness: 1.0,
@@ -305,10 +271,6 @@ class ReaderSettings {
     pageFold: true,
     doubleTapAction: ReaderDoubleTap.none,
     autoPageSeconds: 0,
-    ttsEngine: TtsEngineKind.system,
-    ttsServerUrl: '',
-    ttsServerToken: '',
-    ttsSkips: <TtsSkip>{},
   );
 
   /// This settings set with the migraine-comfort preset applied.
@@ -359,9 +321,6 @@ class ReaderSettings {
     double? wordSpacing,
     double? paragraphSpacing,
     double? margin,
-    double? speechRate,
-    String? voiceName,
-    String? voiceLocale,
     bool? boldText,
     bool? italicText,
     double? brightness,
@@ -391,10 +350,6 @@ class ReaderSettings {
     bool? pageFold,
     ReaderDoubleTap? doubleTapAction,
     int? autoPageSeconds,
-    TtsEngineKind? ttsEngine,
-    String? ttsServerUrl,
-    String? ttsServerToken,
-    Set<TtsSkip>? ttsSkips,
   }) {
     return ReaderSettings(
       mode: mode ?? this.mode,
@@ -406,9 +361,6 @@ class ReaderSettings {
       wordSpacing: wordSpacing ?? this.wordSpacing,
       paragraphSpacing: paragraphSpacing ?? this.paragraphSpacing,
       margin: margin ?? this.margin,
-      speechRate: speechRate ?? this.speechRate,
-      voiceName: voiceName ?? this.voiceName,
-      voiceLocale: voiceLocale ?? this.voiceLocale,
       boldText: boldText ?? this.boldText,
       italicText: italicText ?? this.italicText,
       brightness: brightness ?? this.brightness,
@@ -439,10 +391,6 @@ class ReaderSettings {
       pageFold: pageFold ?? this.pageFold,
       doubleTapAction: doubleTapAction ?? this.doubleTapAction,
       autoPageSeconds: autoPageSeconds ?? this.autoPageSeconds,
-      ttsEngine: ttsEngine ?? this.ttsEngine,
-      ttsServerUrl: ttsServerUrl ?? this.ttsServerUrl,
-      ttsServerToken: ttsServerToken ?? this.ttsServerToken,
-      ttsSkips: ttsSkips ?? this.ttsSkips,
     );
   }
 }

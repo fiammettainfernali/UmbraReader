@@ -19,9 +19,6 @@ void main() {
       expect(copy.fontSize, base.fontSize);
       expect(copy.lineHeight, base.lineHeight);
       expect(copy.margin, base.margin);
-      expect(copy.speechRate, base.speechRate);
-      expect(copy.voiceName, base.voiceName);
-      expect(copy.voiceLocale, base.voiceLocale);
       expect(copy.boldText, base.boldText);
       expect(copy.italicText, base.italicText);
       expect(copy.brightness, base.brightness);

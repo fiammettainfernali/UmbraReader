@@ -4,7 +4,6 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../feature_flags.dart';
 import '../widgets/action_sheet.dart';
 import '../models/reader_theme.dart';
 import '../widgets/seek_button.dart';
@@ -17,9 +16,6 @@ enum ReaderMenu {
   search,
   bookmarks,
   glossary,
-  skip,
-  pronunciations,
-  prepareOffline,
   settings,
 }
 
@@ -30,23 +26,18 @@ class ReaderTopBar extends StatelessWidget {
     required this.title,
     required this.preset,
     required this.onBack,
-    required this.onToggleListen,
     required this.onOpenSettings,
     required this.onShowContents,
     required this.onGoToSeries,
     required this.onSearch,
     required this.onBookmarks,
     required this.onGlossary,
-    required this.onOpenSkip,
-    required this.onOpenPronunciations,
-    required this.onPrepareOffline,
   });
 
   final double height;
   final String title;
   final ReaderThemePreset preset;
   final VoidCallback onBack;
-  final VoidCallback onToggleListen;
   final VoidCallback onOpenSettings;
   final VoidCallback onShowContents;
 
@@ -56,9 +47,6 @@ class ReaderTopBar extends StatelessWidget {
   final VoidCallback onSearch;
   final VoidCallback onBookmarks;
   final VoidCallback onGlossary;
-  final VoidCallback onOpenSkip;
-  final VoidCallback onOpenPronunciations;
-  final VoidCallback onPrepareOffline;
 
   @override
   Widget build(BuildContext context) {
@@ -90,13 +78,6 @@ class ReaderTopBar extends StatelessWidget {
                   ),
                 ),
               ),
-              if (kReadAloudEnabled)
-                IconButton(
-                  icon: const Icon(Icons.headphones_outlined),
-                  color: preset.text,
-                  tooltip: 'Listen mode',
-                  onPressed: onToggleListen,
-                ),
               IconButton(
                 icon: Icon(Icons.more_horiz, color: preset.text),
                 tooltip: 'More',
@@ -143,27 +124,6 @@ class ReaderTopBar extends StatelessWidget {
                           ),
                         ],
                       ),
-                      if (kReadAloudEnabled)
-                        SheetGroup(
-                          title: 'Read aloud',
-                          actions: const [
-                            SheetAction(
-                              value: ReaderMenu.skip,
-                              icon: Icons.filter_alt_outlined,
-                              label: 'Skip while reading',
-                            ),
-                            SheetAction(
-                              value: ReaderMenu.pronunciations,
-                              icon: Icons.record_voice_over_outlined,
-                              label: 'Pronunciations',
-                            ),
-                            SheetAction(
-                              value: ReaderMenu.prepareOffline,
-                              icon: Icons.download_for_offline_outlined,
-                              label: 'Prepare for offline',
-                            ),
-                          ],
-                        ),
                       SheetGroup(
                         title: 'Reading',
                         actions: const [
@@ -190,12 +150,6 @@ class ReaderTopBar extends StatelessWidget {
                       onBookmarks();
                     case ReaderMenu.glossary:
                       onGlossary();
-                    case ReaderMenu.skip:
-                      onOpenSkip();
-                    case ReaderMenu.pronunciations:
-                      onOpenPronunciations();
-                    case ReaderMenu.prepareOffline:
-                      onPrepareOffline();
                     case ReaderMenu.settings:
                       onOpenSettings();
                   }
@@ -301,28 +255,12 @@ class ReaderChapterBar extends StatelessWidget {
     required this.onNext,
     required this.onSeek,
     required this.onJump,
-    required this.isReading,
-    required this.isPlaying,
-    required this.canSeek,
-    required this.onPlayPause,
-    required this.onBack15,
-    required this.onForward15,
   });
 
   final double height;
   final ReaderThemePreset preset;
   final int index;
   final int total;
-
-  /// True when read-aloud is playing or paused (shows pause + seek controls).
-  final bool isReading;
-  final bool isPlaying;
-
-  /// Whether the active engine supports 15-second seeking (Kokoro only).
-  final bool canSeek;
-  final VoidCallback onPlayPause;
-  final VoidCallback onBack15;
-  final VoidCallback onForward15;
 
   /// Fraction (0..1) of the current chapter that has been read.
   final double progress;
@@ -475,36 +413,6 @@ class ReaderChapterBar extends StatelessWidget {
                           forward: false,
                           bound: index,
                         ),
-                        if (kReadAloudEnabled && isReading && canSeek)
-                          SeekButton(
-                            seconds: -15,
-                            color: preset.text,
-                            size: 32,
-                            onTap: onBack15,
-                          ),
-                        if (kReadAloudEnabled)
-                          IconButton(
-                            iconSize: 40,
-                            // Default IconButton padding (8) makes the icon a
-                            // 56px box that overflows the compact player bar;
-                            // zero padding keeps the standard 48px tap target.
-                            padding: EdgeInsets.zero,
-                            color: preset.text,
-                            tooltip: isPlaying ? 'Pause' : 'Play',
-                            icon: Icon(
-                              isPlaying
-                                  ? Icons.pause_circle_filled
-                                  : Icons.play_circle_fill,
-                            ),
-                            onPressed: onPlayPause,
-                          ),
-                        if (kReadAloudEnabled && isReading && canSeek)
-                          SeekButton(
-                            seconds: 15,
-                            color: preset.text,
-                            size: 32,
-                            onTap: onForward15,
-                          ),
                         _ChapterStepButton(
                           icon: Icons.chevron_right,
                           preset: preset,

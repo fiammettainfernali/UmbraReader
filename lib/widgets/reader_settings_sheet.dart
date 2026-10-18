@@ -1,14 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../feature_flags.dart';
 import '../models/reader_settings.dart';
 import '../models/reader_theme.dart';
 import '../services/custom_theme_store.dart';
 import 'pro_sheet.dart';
-import '../services/network_tts_service.dart';
-import '../services/tts_engine.dart';
-import '../services/tts_service.dart';
 
 /// Font choices offered in the reader. An empty string is the system font.
 const List<String> kReaderFonts = [
@@ -43,46 +39,20 @@ String get _tvModeSubtitle {
 
 String _fontLabel(String family) => family.isEmpty ? 'System' : family;
 
-/// Sleep-timer choices for read-aloud. A null [duration] means either "off"
-/// or "stop when the current chapter ends".
-enum SleepTimerOption {
-  off('Off', null),
-  m15('15 min', Duration(minutes: 15)),
-  m30('30 min', Duration(minutes: 30)),
-  m45('45 min', Duration(minutes: 45)),
-  m60('60 min', Duration(minutes: 60)),
-  endOfChapter('End of chapter', null);
-
-  const SleepTimerOption(this.label, this.duration);
-
-  final String label;
-  final Duration? duration;
-}
-
 /// Bottom sheet for adjusting reader settings live: layout mode, colour
 /// theme, font, text size, line spacing and margins.
 class ReaderSettingsSheet extends StatefulWidget {
   const ReaderSettingsSheet({
     super.key,
     required this.initial,
-    required this.voices,
-    required this.sleepOption,
     required this.onChanged,
-    required this.onSleepTimerChanged,
     required this.hasOverride,
     required this.onOverrideToggled,
   });
 
   final ReaderSettings initial;
 
-  /// Installed read-aloud voices to choose from.
-  final List<TtsVoice> voices;
-
-  /// The currently active sleep-timer choice.
-  final SleepTimerOption sleepOption;
-
   final ValueChanged<ReaderSettings> onChanged;
-  final ValueChanged<SleepTimerOption> onSleepTimerChanged;
 
   /// True when the current book has its own typography settings stored —
   /// changes from this sheet only affect this volume, not the global defaults.
@@ -97,94 +67,18 @@ class ReaderSettingsSheet extends StatefulWidget {
 
 class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
   late ReaderSettings _settings;
-  late SleepTimerOption _sleepOption;
   late bool _hasOverride;
-
-  /// Voices for the currently-selected engine. Seeded with the engine that
-  /// was active when the sheet opened, then refreshed when the engine or
-  /// server config changes.
-  late List<TtsVoice> _voices;
-  bool _loadingVoices = false;
-  String? _voiceStatus;
-
-  late final TextEditingController _urlController;
-  late final TextEditingController _tokenController;
-
-  /// Reused service for auditioning Kokoro voices.
-  NetworkTtsService? _previewService;
 
   @override
   void initState() {
     super.initState();
     _settings = widget.initial;
-    _sleepOption = widget.sleepOption;
     _hasOverride = widget.hasOverride;
-    _voices = widget.voices;
-    _urlController = TextEditingController(text: _settings.ttsServerUrl);
-    _tokenController = TextEditingController(text: _settings.ttsServerToken);
   }
 
   @override
   void dispose() {
-    _urlController.dispose();
-    _tokenController.dispose();
-    _previewService?.dispose();
     super.dispose();
-  }
-
-  /// Loads the voice list for the active engine: the on-device voices, or the
-  /// Kokoro server's voices (also reporting reachability).
-  Future<void> _loadVoices() async {
-    setState(() {
-      _loadingVoices = true;
-      _voiceStatus = null;
-    });
-    var voices = const <TtsVoice>[];
-    String? status;
-    if (_settings.ttsEngine == TtsEngineKind.kokoro) {
-      if (_settings.ttsServerUrl.trim().isEmpty) {
-        status = 'Enter your server address, then Connect.';
-      } else {
-        final svc = NetworkTtsService(
-          baseUrl: _settings.ttsServerUrl,
-          token: _settings.ttsServerToken,
-        );
-        final ok = await svc.ping();
-        voices = ok ? await svc.availableVoices() : const [];
-        await svc.dispose();
-        status = ok
-            ? 'Connected — ${voices.length} voices'
-            : 'Could not reach the server. Check the address and token.';
-      }
-    } else {
-      voices = await TtsService().availableVoices();
-    }
-    if (!mounted) return;
-    setState(() {
-      _voices = voices;
-      _voiceStatus = status;
-      _loadingVoices = false;
-    });
-  }
-
-  /// Saves the typed server address/token and (re)loads its voices.
-  void _connect() {
-    _update(
-      _settings.copyWith(
-        ttsServerUrl: _urlController.text.trim(),
-        ttsServerToken: _tokenController.text.trim(),
-      ),
-    );
-    _loadVoices();
-  }
-
-  Future<void> _previewVoice(String voice) async {
-    final svc = _previewService ??= NetworkTtsService();
-    svc.configure(
-      baseUrl: _settings.ttsServerUrl,
-      token: _settings.ttsServerToken,
-    );
-    await svc.previewVoice(voice, rate: _settings.speechRate);
   }
 
   void _update(ReaderSettings next) {
@@ -486,8 +380,7 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                     'instead of sliding it. Instant turns still snap.',
                   ),
                   value: _settings.pageFold,
-                  onChanged: (on) =>
-                      _update(_settings.copyWith(pageFold: on)),
+                  onChanged: (on) => _update(_settings.copyWith(pageFold: on)),
                 ),
                 SwitchListTile.adaptive(
                   contentPadding: EdgeInsets.zero,
@@ -857,132 +750,6 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
                 ),
               ],
             ),
-            if (kReadAloudEnabled)
-              _section(
-                theme,
-                icon: Icons.graphic_eq,
-                title: 'Read aloud',
-                expanded: true,
-                children: [
-                  _label(theme, 'Engine'),
-                  SegmentedButton<TtsEngineKind>(
-                    segments: const [
-                      ButtonSegment(
-                        value: TtsEngineKind.system,
-                        label: Text('On-device'),
-                        icon: Icon(Icons.phone_iphone),
-                      ),
-                      ButtonSegment(
-                        value: TtsEngineKind.kokoro,
-                        label: Text('Natural'),
-                        icon: Icon(Icons.auto_awesome),
-                      ),
-                    ],
-                    selected: {_settings.ttsEngine},
-                    showSelectedIcon: false,
-                    onSelectionChanged: (selection) {
-                      _update(_settings.copyWith(ttsEngine: selection.first));
-                      _loadVoices();
-                    },
-                  ),
-                  if (_settings.ttsEngine == TtsEngineKind.kokoro) ...[
-                    const SizedBox(height: 6),
-                    Text(
-                      'Streams natural neural voices from your own desktop '
-                      'voice server over Tailscale. Include the http:// scheme '
-                      'and port, e.g. http://100.x.y.z:8080.',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.outline,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    TextField(
-                      controller: _urlController,
-                      keyboardType: TextInputType.url,
-                      autocorrect: false,
-                      decoration: const InputDecoration(
-                        labelText: 'Server address',
-                        hintText: 'http://100.x.y.z:8080',
-                        isDense: true,
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _tokenController,
-                      obscureText: true,
-                      autocorrect: false,
-                      enableSuggestions: false,
-                      decoration: const InputDecoration(
-                        labelText: 'Access token',
-                        isDense: true,
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        FilledButton.tonalIcon(
-                          onPressed: _loadingVoices ? null : _connect,
-                          icon: _loadingVoices
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Icon(Icons.link),
-                          label: const Text('Connect'),
-                        ),
-                        const SizedBox(width: 12),
-                        if (_voiceStatus != null)
-                          Expanded(
-                            child: Text(
-                              _voiceStatus!,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.outline,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
-                  const SizedBox(height: 12),
-
-                  _label(theme, 'Voice & speed'),
-                  _buildVoicePicker(theme),
-                  _slider(
-                    theme,
-                    label: 'Speed',
-                    value: _settings.speechRate.clamp(0.25, 1.5),
-                    min: 0.25,
-                    max: 1.5,
-                    divisions: 10,
-                    display: _speedMultiplier(_settings.speechRate),
-                    onChanged: (v) =>
-                        _update(_settings.copyWith(speechRate: v)),
-                  ),
-                  const SizedBox(height: 16),
-
-                  _label(theme, 'Sleep timer'),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final option in SleepTimerOption.values)
-                        ChoiceChip(
-                          label: Text(option.label),
-                          selected: option == _sleepOption,
-                          onSelected: (_) {
-                            setState(() => _sleepOption = option);
-                            widget.onSleepTimerChanged(option);
-                          },
-                        ),
-                    ],
-                  ),
-                ],
-              ),
           ],
         ),
       ),
@@ -1067,89 +834,6 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
     );
   }
 
-  /// Index of the saved voice within [_voices], or -1 for the default.
-  int _voiceIndex() {
-    for (var i = 0; i < _voices.length; i++) {
-      if (_voices[i].name == _settings.voiceName &&
-          _voices[i].locale == _settings.voiceLocale) {
-        return i;
-      }
-    }
-    return -1;
-  }
-
-  static const _voiceAccents = {
-    'a': 'American',
-    'b': 'British',
-    'e': 'Spanish',
-    'f': 'French',
-    'h': 'Hindi',
-    'i': 'Italian',
-    'j': 'Japanese',
-    'p': 'Portuguese',
-    'z': 'Mandarin',
-  };
-
-  /// A friendly label for a voice — the given name plus accent/gender for
-  /// Kokoro voices (e.g. `af_heart` → "Heart · American, Female").
-  String _friendlyVoiceLabel(TtsVoice voice) {
-    if (!voice.isKokoro) return '${voice.name} · ${voice.locale}';
-    final parts = voice.name.split('_');
-    if (parts.length == 2 && parts[0].length == 2 && parts[1].isNotEmpty) {
-      final accent = _voiceAccents[parts[0][0]] ?? '';
-      final gender = parts[0][1] == 'm'
-          ? 'Male'
-          : parts[0][1] == 'f'
-          ? 'Female'
-          : '';
-      final given = parts[1][0].toUpperCase() + parts[1].substring(1);
-      final tag = [accent, gender].where((s) => s.isNotEmpty).join(', ');
-      return tag.isEmpty ? given : '$given · $tag';
-    }
-    return voice.name;
-  }
-
-  Widget _buildVoicePicker(ThemeData theme) {
-    final selected = _voiceIndex();
-    final label = selected >= 0
-        ? _friendlyVoiceLabel(_voices[selected])
-        : 'System default';
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      title: const Text('Voice'),
-      subtitle: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: _voices.isEmpty ? null : _openVoiceSheet,
-    );
-  }
-
-  /// Opens the searchable voice list; applies the chosen voice on return.
-  Future<void> _openVoiceSheet() async {
-    final result = await showModalBottomSheet<int>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.8,
-      ),
-      builder: (_) => _VoiceSheet(
-        voices: _voices,
-        selectedIndex: _voiceIndex(),
-        labelFor: _friendlyVoiceLabel,
-        onPreview: _previewVoice,
-      ),
-    );
-    if (result == null) return;
-    if (result < 0) {
-      _update(_settings.copyWith(voiceName: '', voiceLocale: ''));
-    } else {
-      final voice = _voices[result];
-      _update(
-        _settings.copyWith(voiceName: voice.name, voiceLocale: voice.locale),
-      );
-    }
-  }
-
   /// Opens the colour-editor dialog and, on save, persists the new custom
   /// theme + selects it as the active one.
   Future<void> _createCustomTheme() async {
@@ -1197,16 +881,6 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
     }
   }
 
-  /// Read-aloud speed as a playback multiplier, e.g. "1.5×".
-  String _speedMultiplier(double rate) {
-    final m = rate * 2;
-    var s = m.toStringAsFixed(2);
-    if (s.contains('.')) {
-      s = s.replaceAll(RegExp(r'0+$'), '').replaceAll(RegExp(r'\.$'), '');
-    }
-    return '$s×';
-  }
-
   Widget _slider(
     ThemeData theme, {
     required String label,
@@ -1240,108 +914,6 @@ class _ReaderSettingsSheetState extends State<ReaderSettingsSheet> {
           onChanged: onChanged,
         ),
       ],
-    );
-  }
-}
-
-/// A searchable list of read-aloud voices, with per-voice preview. Pops the
-/// chosen voice index (or -1 for "System default"); null when dismissed.
-class _VoiceSheet extends StatefulWidget {
-  const _VoiceSheet({
-    required this.voices,
-    required this.selectedIndex,
-    required this.labelFor,
-    required this.onPreview,
-  });
-
-  final List<TtsVoice> voices;
-  final int selectedIndex;
-  final String Function(TtsVoice) labelFor;
-  final Future<void> Function(String voice) onPreview;
-
-  @override
-  State<_VoiceSheet> createState() => _VoiceSheetState();
-}
-
-class _VoiceSheetState extends State<_VoiceSheet> {
-  String _query = '';
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final q = _query.trim().toLowerCase();
-    final matches = <int>[
-      for (var i = 0; i < widget.voices.length; i++)
-        if (q.isEmpty ||
-            widget.labelFor(widget.voices[i]).toLowerCase().contains(q) ||
-            widget.voices[i].name.toLowerCase().contains(q))
-          i,
-    ];
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Choose a voice',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              autofocus: false,
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                hintText: 'Search voices',
-                isDense: true,
-                border: OutlineInputBorder(),
-              ),
-              onChanged: (v) => setState(() => _query = v),
-            ),
-            const SizedBox(height: 8),
-            Flexible(
-              child: ListView(
-                shrinkWrap: true,
-                children: [
-                  if (q.isEmpty)
-                    ListTile(
-                      title: const Text('System default'),
-                      selected: widget.selectedIndex < 0,
-                      trailing: widget.selectedIndex < 0
-                          ? const Icon(Icons.check)
-                          : null,
-                      onTap: () => Navigator.of(context).pop(-1),
-                    ),
-                  for (final i in matches)
-                    ListTile(
-                      title: Text(widget.labelFor(widget.voices[i])),
-                      selected: i == widget.selectedIndex,
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (widget.voices[i].isKokoro)
-                            IconButton(
-                              icon: const Icon(Icons.play_circle_outline),
-                              tooltip: 'Preview',
-                              onPressed: () =>
-                                  widget.onPreview(widget.voices[i].name),
-                            ),
-                          if (i == widget.selectedIndex)
-                            const Icon(Icons.check),
-                        ],
-                      ),
-                      onTap: () => Navigator.of(context).pop(i),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
