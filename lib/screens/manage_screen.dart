@@ -11,6 +11,7 @@ import '../services/settings_service.dart';
 import '../widgets/action_sheet.dart';
 import '../widgets/duplicate_sheet.dart';
 import '../widgets/section_header.dart';
+import '../widgets/text_prompt.dart';
 import 'browse_screen.dart';
 import 'novel_search_screen.dart';
 import 'series_detail_screen.dart';
@@ -390,35 +391,15 @@ class _ManageScreenState extends State<ManageScreen>
   }
 
   Future<void> _addByUrl() async {
-    final controller = TextEditingController();
-    final url = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Add novel by URL'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.url,
-          autocorrect: false,
-          decoration: const InputDecoration(
-            hintText: 'https://…',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-            child: const Text('Add'),
-          ),
-        ],
-      ),
+    final url = await promptForText(
+      context,
+      title: 'Add novel by URL',
+      hint: 'https://…',
+      confirmLabel: 'Add',
+      keyboardType: TextInputType.url,
+      autocorrect: false,
     );
-    controller.dispose();
-    if (url == null || url.isEmpty) return;
+    if (url == null) return;
     await _addUrl(url);
   }
 

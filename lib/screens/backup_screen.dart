@@ -6,6 +6,7 @@ import '../services/annotations_export.dart';
 import '../widgets/pro_sheet.dart';
 import '../services/backup_service.dart';
 import '../widgets/section_header.dart';
+import '../widgets/text_prompt.dart';
 
 /// Backup & restore screen — lets the user export every locally-stored
 /// SharedPreferences value as a JSON file via the share sheet, and import
@@ -145,35 +146,16 @@ class _BackupScreenState extends State<BackupScreen> {
   }
 
   Future<void> _restoreFromText() async {
-    final controller = TextEditingController();
-    final pasted = await showDialog<String>(
-      context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: const Text('Paste backup JSON'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          minLines: 6,
-          maxLines: 12,
-          decoration: const InputDecoration(
-            hintText: 'Paste the contents of your backup file here',
-            border: OutlineInputBorder(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(controller.text),
-            child: const Text('Restore'),
-          ),
-        ],
-      ),
+    final pasted = await promptForText(
+      context,
+      title: 'Paste backup JSON',
+      hint: 'Paste the contents of your backup file here',
+      confirmLabel: 'Restore',
+      autocorrect: false,
+      minLines: 6,
+      maxLines: 12,
     );
-    controller.dispose();
-    if (pasted == null || pasted.trim().isEmpty) return;
+    if (pasted == null) return;
     await _restore(pasted);
   }
 

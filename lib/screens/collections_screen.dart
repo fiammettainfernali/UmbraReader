@@ -6,6 +6,7 @@ import '../models/collection.dart';
 import '../services/collection_store.dart';
 import '../services/settings_service.dart';
 import 'collection_detail_screen.dart';
+import '../widgets/text_prompt.dart';
 
 /// User's library shelves — list of every collection they've created.
 class CollectionsScreen extends StatefulWidget {
@@ -192,34 +193,10 @@ Future<String?> _promptName(
   required String title,
   String initial = '',
 }) async {
-  final controller = TextEditingController(text: initial);
-  final result = await showDialog<String>(
-    context: context,
-    builder: (dialogCtx) => AlertDialog(
-      title: Text(title),
-      content: TextField(
-        controller: controller,
-        autofocus: true,
-        decoration: const InputDecoration(
-          hintText: 'e.g. Favourites',
-          border: OutlineInputBorder(),
-        ),
-        textInputAction: TextInputAction.done,
-        onSubmitted: (value) => Navigator.of(dialogCtx).pop(value.trim()),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(dialogCtx).pop(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(dialogCtx).pop(controller.text.trim()),
-          child: const Text('Save'),
-        ),
-      ],
-    ),
+  return promptForText(
+    context,
+    title: title,
+    initial: initial,
+    hint: 'e.g. Favourites',
   );
-  controller.dispose();
-  if (result == null || result.isEmpty) return null;
-  return result;
 }

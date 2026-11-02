@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/collection.dart';
 import '../services/collection_store.dart';
+import 'text_prompt.dart';
 
 /// Bottom sheet that toggles a series's membership in each of the user's
 /// collections, with a "New collection" inline create at the top.
@@ -46,36 +47,13 @@ class _AddToCollectionSheetState extends State<AddToCollectionSheet> {
   }
 
   Future<void> _createInline() async {
-    final controller = TextEditingController();
-    final name = await showDialog<String>(
-      context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: const Text('New collection'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            hintText: 'e.g. Favourites',
-            border: OutlineInputBorder(),
-          ),
-          textInputAction: TextInputAction.done,
-          onSubmitted: (value) => Navigator.of(dialogCtx).pop(value.trim()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () =>
-                Navigator.of(dialogCtx).pop(controller.text.trim()),
-            child: const Text('Create'),
-          ),
-        ],
-      ),
+    final name = await promptForText(
+      context,
+      title: 'New collection',
+      hint: 'e.g. Favourites',
+      confirmLabel: 'Create',
     );
-    controller.dispose();
-    if (name == null || name.isEmpty) return;
+    if (name == null) return;
     final created = await _store.create(name);
     // Add the current series to the brand-new collection automatically —
     // that's almost always what the user wants.

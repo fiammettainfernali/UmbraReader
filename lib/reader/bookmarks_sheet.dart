@@ -118,74 +118,13 @@ class _BookmarksSheetState extends State<BookmarksSheet> {
     required String initialNote,
     required HighlightColor initialColor,
   }) async {
-    final controller = TextEditingController(text: initialNote);
-    var color = initialColor;
-    final result = await showDialog<_HighlightFields>(
+    return showDialog<_HighlightFields>(
       context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: const Text('Highlight'),
-        content: StatefulBuilder(
-          builder: (ctx, setLocal) => Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: controller,
-                autofocus: true,
-                minLines: 2,
-                maxLines: 5,
-                decoration: const InputDecoration(
-                  hintText: 'Optional note for this passage',
-                ),
-              ),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 10,
-                children: [
-                  for (final c in HighlightColor.values)
-                    Semantics(
-                      button: true,
-                      selected: color == c,
-                      label: '${c.name} highlight',
-                      child: GestureDetector(
-                        onTap: () => setLocal(() => color = c),
-                        child: Container(
-                          width: 36,
-                          height: 36,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: highlightPaintFor(c),
-                            border: Border.all(
-                              color: color == c
-                                  ? Theme.of(ctx).colorScheme.primary
-                                  : Colors.transparent,
-                              width: 3,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogCtx).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(
-              dialogCtx,
-            ).pop(_HighlightFields(controller.text.trim(), color)),
-            child: const Text('Save'),
-          ),
-        ],
+      builder: (_) => _HighlightDialog(
+        initialNote: initialNote,
+        initialColor: initialColor,
       ),
     );
-    controller.dispose();
-    return result;
   }
 
   @override
@@ -395,6 +334,105 @@ class _BookmarksSheetState extends State<BookmarksSheet> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The highlight editor: a note and a colour.
+///
+/// A widget rather than an AlertDialog built inline, because it owns the
+/// text controller. A controller created by the caller and disposed as soon
+/// as showDialog returns is disposed while the dialog is still closing and
+/// the field is still painting — which crashes with "_dependents.isEmpty".
+/// Owned here, the framework disposes it after the animation instead.
+///
+/// The colour lived in a StatefulBuilder before, which handled the colour
+/// correctly and left the controller with nobody to own it.
+class _HighlightDialog extends StatefulWidget {
+  const _HighlightDialog({
+    required this.initialNote,
+    required this.initialColor,
+  });
+
+  final String initialNote;
+  final HighlightColor initialColor;
+
+  @override
+  State<_HighlightDialog> createState() => _HighlightDialogState();
+}
+
+class _HighlightDialogState extends State<_HighlightDialog> {
+  late final TextEditingController _note = TextEditingController(
+    text: widget.initialNote,
+  );
+  late HighlightColor _color = widget.initialColor;
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Highlight'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _note,
+            autofocus: true,
+            minLines: 2,
+            maxLines: 5,
+            decoration: const InputDecoration(
+              hintText: 'Optional note for this passage',
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 10,
+            children: [
+              for (final c in HighlightColor.values)
+                Semantics(
+                  button: true,
+                  selected: _color == c,
+                  label: '${c.name} highlight',
+                  child: GestureDetector(
+                    onTap: () => setState(() => _color = c),
+                    child: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: highlightPaintFor(c),
+                        border: Border.all(
+                          color: _color == c
+                              ? Theme.of(context).colorScheme.primary
+                              : Colors.transparent,
+                          width: 3,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(
+            context,
+          ).pop(_HighlightFields(_note.text.trim(), _color)),
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

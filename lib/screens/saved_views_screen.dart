@@ -5,6 +5,7 @@ import '../services/saved_view_store.dart';
 import '../widgets/action_sheet.dart';
 import '../widgets/undo_snack.dart';
 import 'library_cards.dart';
+import '../widgets/text_prompt.dart';
 
 /// The user's named library arrangements. Tapping one returns it to the
 /// library, which applies it.
@@ -79,30 +80,12 @@ class _SavedViewsScreenState extends State<SavedViewsScreen> {
   }
 
   Future<void> _rename(SavedView view) async {
-    final controller = TextEditingController(text: view.name);
-    final name = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Rename view'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(border: OutlineInputBorder()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+    final name = await promptForText(
+      context,
+      title: 'Rename view',
+      initial: view.name,
     );
-    controller.dispose();
-    if (name == null || name.isEmpty) return;
+    if (name == null) return;
     final next = await _store.rename(view.id, name);
     if (mounted) setState(() => _views = next);
   }
