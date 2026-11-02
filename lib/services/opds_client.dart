@@ -45,10 +45,12 @@ class OpdsClient {
           'library, not the library itself — the request never reached it. '
           'If the server is up, check the proxy (Tailscale Serve, Caddy, '
           'nginx) on that machine.',
-    403 => 'The server understood but refused. A hub in serve-only mode '
-        'answers this way for downloads and update checks.',
-    404 => 'Nothing at that address. Check the server address has no '
-        'trailing path.',
+    403 =>
+      'The server understood but refused. A hub in serve-only mode '
+          'answers this way for downloads and update checks.',
+    404 =>
+      'Nothing at that address. Check the server address has no '
+          'trailing path.',
     _ => '',
   };
 

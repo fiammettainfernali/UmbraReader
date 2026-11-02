@@ -135,7 +135,8 @@ class ContinueCard extends StatelessWidget {
         : 'Chapter ${progress.chapterIndex + 1}';
     return Semantics(
       button: true,
-      label: 'Continue reading $title, $chapterLabel'
+      label:
+          'Continue reading $title, $chapterLabel'
           '${hasUpdate ? ', new chapters available' : ''}',
       excludeSemantics: true,
       child: GestureDetector(
@@ -167,8 +168,10 @@ class ContinueCard extends StatelessWidget {
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(8),
                           child: series != null
-                              ? CoverImage(series: series!,
-                                  headers: imageHeaders)
+                              ? CoverImage(
+                                  series: series!,
+                                  headers: imageHeaders,
+                                )
                               : TitleCover(title: entry.volume.title),
                         ),
                       ),
@@ -194,7 +197,9 @@ class ContinueCard extends StatelessWidget {
                           ),
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 7, vertical: 2),
+                              horizontal: 7,
+                              vertical: 2,
+                            ),
                             child: Text(
                               'New',
                               style: theme.textTheme.labelSmall?.copyWith(

@@ -44,8 +44,7 @@ class OpdsSettings {
   ///
   /// Falls back to [baseUrl], which is the whole configuration for anyone
   /// whose one server both stores and downloads.
-  String get controlUrl =>
-      downloaderUrl.isNotEmpty ? downloaderUrl : baseUrl;
+  String get controlUrl => downloaderUrl.isNotEmpty ? downloaderUrl : baseUrl;
 
   /// True when reading and downloading are two different machines.
   bool get downloaderIsElsewhere =>

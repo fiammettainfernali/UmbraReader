@@ -60,10 +60,7 @@ class StreamedCountRefresh {
   /// their saved position. Returns how many were updated.
   ///
   /// Never throws: a shelf that cannot refresh a number is still a shelf.
-  Future<int> run(
-    List<ReadingEntry> entries,
-    List<Series> library,
-  ) async {
+  Future<int> run(List<ReadingEntry> entries, List<Series> library) async {
     final rebuiltAt = <int, DateTime?>{
       for (final s in library) s.opdsId: s.updatedAt,
     };

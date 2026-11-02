@@ -41,8 +41,7 @@ class EdgeCrossDetector {
   double _refused = 0;
 
   /// Travel recorded so far, signed, from whichever physics is reporting.
-  double get travel =>
-      _bounced.abs() >= _refused.abs() ? _bounced : _refused;
+  double get travel => _bounced.abs() >= _refused.abs() ? _bounced : _refused;
 
   /// Forget this gesture. Called at the start of a drag, and whenever a
   /// chapter change makes any travel recorded so far meaningless.

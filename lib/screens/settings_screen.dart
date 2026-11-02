@@ -37,8 +37,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _urlController = TextEditingController(text: widget.initial.baseUrl);
-    _downloaderController =
-        TextEditingController(text: widget.initial.downloaderUrl);
+    _downloaderController = TextEditingController(
+      text: widget.initial.downloaderUrl,
+    );
     _usernameController = TextEditingController(text: widget.initial.username);
     _passwordController = TextEditingController(text: widget.initial.password);
     _loadDownloadPrefs();

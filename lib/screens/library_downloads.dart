@@ -481,7 +481,8 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
     } else if (failures > 0) {
       message = 'Library download finished — $saved saved, $failures failed.';
     } else {
-      message = 'Library downloaded — $saved volumes saved for offline reading.';
+      message =
+          'Library downloaded — $saved volumes saved for offline reading.';
     }
     showSnack(message);
   }

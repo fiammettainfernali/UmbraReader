@@ -16,13 +16,15 @@ class WebSeriesCard extends StatelessWidget {
     required this.series,
     this.onTap,
     this.onLongPress,
-    this.width = 120,
+    this.width,
   });
 
   final WebSeries series;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
-  final double width;
+
+  /// Null to fill whatever it is given — which is what a grid cell wants.
+  final double? width;
 
   /// "Chapter 212 of 260", or as much of that as is actually known.
   ///

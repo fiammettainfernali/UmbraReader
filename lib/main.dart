@@ -94,10 +94,8 @@ class UmbraReaderApp extends StatelessWidget {
     // app looks like a different one. Lora is already bundled for the reader,
     // so naming it here costs no bytes and leaves iOS on Georgia untouched.
     const headingFallback = ['Lora'];
-    TextStyle? h(TextStyle? s) => s?.copyWith(
-      fontFamily: heading,
-      fontFamilyFallback: headingFallback,
-    );
+    TextStyle? h(TextStyle? s) =>
+        s?.copyWith(fontFamily: heading, fontFamilyFallback: headingFallback);
     final t = base.textTheme;
     final textTheme = t.copyWith(
       displayLarge: h(t.displayLarge),

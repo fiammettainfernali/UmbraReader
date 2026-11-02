@@ -146,10 +146,12 @@ class RemoteEpubSource implements EpubSource {
       // bytes and says the book is not a valid EPUB, which sends the reader
       // hunting a fault in a file that was never opened.
       _lastFailure = switch (res.statusCode) {
-        401 || 403 => 'The server refused the request (HTTP '
-            '${res.statusCode}) — check the username and password.',
-        502 || 503 || 504 => 'The server could not be reached through its '
-            'proxy (HTTP ${res.statusCode}). It may be starting up.',
+        401 || 403 =>
+          'The server refused the request (HTTP '
+              '${res.statusCode}) — check the username and password.',
+        502 || 503 || 504 =>
+          'The server could not be reached through its '
+              'proxy (HTTP ${res.statusCode}). It may be starting up.',
         _ => 'The server answered HTTP ${res.statusCode}.',
       };
       return _worthRetrying.contains(res.statusCode);
@@ -197,8 +199,8 @@ class RemoteEpubSource implements EpubSource {
       final tag = m.group(0)!;
       final href = _firstMatch(tag, RegExp(r'href\s*=\s*"([^"]+)"'));
       if (href == null) continue;
-      final isNav = tag.contains('properties="nav"') ||
-          tag.contains("properties='nav'");
+      final isNav =
+          tag.contains('properties="nav"') || tag.contains("properties='nav'");
       if (isNav || href.toLowerCase().endsWith('.ncx')) {
         wanted.add(_join(dir, href));
       }
