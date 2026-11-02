@@ -155,23 +155,26 @@ mixin ReaderSelection<T extends StatefulWidget> on State<T> {
             readerSettings.theme.text,
           )
         : paragraphStyle(readerSettings, readerSettings.theme.text);
-    final painter = TextPainter(
+    final painter = layoutRuns(
       // Fixation anchors widen line wrapping, so hit-test with the same runs
       // that were rendered or the tapped word won't line up.
-      text: runSpan(effectiveRuns(paragraph.runs, readerSettings), style),
-      textDirection: TextDirection.ltr,
-      textScaler: TextScaler.noScaling,
-    )..layout(maxWidth: width);
+      effectiveRuns(paragraph.runs, readerSettings),
+      width,
+      style,
+    );
     if (localY < 0 || localY > painter.height) return null;
 
     final pos = painter.getPositionForOffset(Offset(localX, localY));
     final text = paragraph.runs.map((r) => r.text).join();
     final range = painter.getWordBoundary(pos);
+    // The painter counts a footnote marker as one placeholder character
+    // where [text] holds the marker's own text, so every offset it hands
+    // back has to be mapped before it can index into [text].
     return (
       block: blockIndex,
-      offset: pos.offset.clamp(0, text.length),
-      wordStart: range.start,
-      wordEnd: range.end,
+      offset: runOffsetFor(paragraph.runs, pos.offset).clamp(0, text.length),
+      wordStart: runOffsetFor(paragraph.runs, range.start),
+      wordEnd: runOffsetFor(paragraph.runs, range.end),
       text: text,
     );
   }

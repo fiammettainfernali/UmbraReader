@@ -6,7 +6,7 @@
 // layoutParagraph, so it compares the measurer with itself and cannot see
 // the two paths diverge.
 //
-// Two things make that divergence possible, and both are here:
+// Three things make that divergence possible, and all three are here:
 //
 //   * a page is rendered inside a SingleChildScrollView, so an overflowing
 //     page quietly becomes a scrollable one instead of throwing. Nothing
@@ -16,6 +16,11 @@
 //     fontWeight is null inherits that at the engine level. The TextPainter
 //     pagination measures with has no such root, so the screen rendered
 //     Literata 7.3% wider than it was measured and pages spilled.
+//   * a footnote marker renders as an inline WidgetSpan, which is sized by
+//     its child and takes no part in text measurement. Measured as ordinary
+//     text it is the wrong width, and left unstyled its middle alignment
+//     grew the line it sat on by ~2px. Both are the measurer's job now, and
+//     these pages hold markers so that stays true.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,24 +33,6 @@ import 'package:umbra_reader/reader/reader_layout.dart';
 import 'helpers/reader_fonts.dart';
 
 const _pageKey = ValueKey('page');
-
-/// Footnote markers drawn on [page] — each one is a WidgetSpan, and each
-/// costs a couple of pixels the text measurement cannot see.
-int _markersOn(List<PageBlock> page) {
-  var n = 0;
-  for (final slice in page) {
-    final block = slice.block;
-    final runs = switch (block) {
-      ParagraphBlock p => p.runs,
-      HeadingBlock h => h.runs,
-      _ => const <TextRun>[],
-    };
-    for (final run in runs) {
-      if (run.footnoteBody != null) n++;
-    }
-  }
-  return n;
-}
 
 /// The rendered height of one packed page, laid out the way
 /// _buildPagedColumn lays it out, minus the scroll view that would hide an
@@ -94,46 +81,23 @@ Future<double> _pageHeight(
   return tester.getSize(find.byKey(_pageKey)).height;
 }
 
-/// What one footnote marker costs, in pixels the measurer cannot see.
-///
-/// Measured rather than written down: it comes out of the font's ascent and
-/// descent, so it moves with the font size and would be a magic number at
-/// any one of them. A plain paragraph is checked alongside it and must
-/// drift by nothing at all — if it ever does, the number this returns is
-/// measuring something else and the tests using it are worthless.
-Future<double> _markerCost(
+/// How far one paragraph's rendered height runs ahead of its measurement.
+Future<double> _drift(
   WidgetTester tester,
+  ParagraphBlock block,
   double width,
   ReaderSettings settings,
 ) async {
-  Future<double> drift(ParagraphBlock block) async {
-    final rendered = await _pageHeight(
-      tester,
-      [PageBlock(block: block, originIndex: 0)],
-      width,
-      settings,
-    );
-    // isLast drops the trailing gap that measureBlockHeight includes.
-    final measured =
-        measureBlockHeight(block, width, settings) - paragraphGap(settings);
-    return rendered - measured;
-  }
-
-  final plain = await drift(ParagraphBlock([TextRun(_prose(1, 60))]));
-  expect(
-    plain,
-    lessThanOrEqualTo(0.5),
-    reason:
-        'a paragraph with no marker in it already drifts ${plain}px; '
-        'the marker allowance below would be measuring that instead',
+  final rendered = await _pageHeight(
+    tester,
+    [PageBlock(block: block, originIndex: 0)],
+    width,
+    settings,
   );
-  return drift(
-    ParagraphBlock([
-      TextRun(_prose(1, 30)),
-      const TextRun('[1]', footnoteBody: 'note'),
-      TextRun(' ${_prose(2, 30)}'),
-    ]),
-  );
+  // isLast drops the trailing gap that measureBlockHeight includes.
+  final measured =
+      measureBlockHeight(block, width, settings) - paragraphGap(settings);
+  return rendered - measured;
 }
 
 /// Prose-shaped filler: deterministic, mixed word lengths, so lines break
@@ -190,8 +154,8 @@ List<ContentBlock> _chapter() => <ContentBlock>[
   HeadingBlock(2, [TextRun('Chapter 412: A Title Long Enough To Wrap Once')]),
   for (var i = 0; i < 40; i++) ...[
     // Every seventh paragraph carries a translator note. Markers render as
-    // inline WidgetSpans, which is the one part of a paragraph the measurer
-    // approximates rather than reproduces.
+    // inline WidgetSpans — the one part of a paragraph the measurer has to
+    // reproduce by standing something else in for it.
     if (i % 7 == 6)
       ParagraphBlock([
         TextRun(_prose(i, 40)),
@@ -251,6 +215,44 @@ void main() {
 
   for (final entry in settingsCases.entries) {
     for (final width in widths) {
+      // A footnote marker used to cost a couple of pixels a page: it renders
+      // as a WidgetSpan, which takes no part in text measurement and whose
+      // middle alignment grows its line. The measurer now stands a
+      // placeholder of the marker's own size in for it, so a paragraph
+      // carrying one must drift no more than a paragraph without — which is
+      // to say, not at all. Pinned separately from the page tests below
+      // because it names the cause; a page overflowing by 2px does not.
+      testWidgets('a footnote marker costs the measurer nothing: '
+          '${entry.key} at ${width.round()}', (tester) async {
+        final settings = entry.value;
+        final plain = await _drift(
+          tester,
+          ParagraphBlock([TextRun(_prose(1, 60))]),
+          width,
+          settings,
+        );
+        final marked = await _drift(
+          tester,
+          ParagraphBlock([
+            TextRun(_prose(1, 30)),
+            const TextRun('[1]', footnoteBody: 'note'),
+            TextRun(' ${_prose(2, 30)}'),
+          ]),
+          width,
+          settings,
+        );
+        expect(
+          plain.abs(),
+          lessThanOrEqualTo(0.5),
+          reason: 'a paragraph with no marker in it drifts ${plain}px',
+        );
+        expect(
+          marked.abs(),
+          lessThanOrEqualTo(0.5),
+          reason: 'a paragraph with one marker in it drifts ${marked}px',
+        );
+      });
+
       for (final height in heights) {
         // Every case runs twice: once as the reader is normally used, and
         // once with the platform's "Bold text" accessibility setting on.
@@ -259,7 +261,6 @@ void main() {
           testWidgets('pages fit: ${entry.key}$label at '
               '${width.round()}x${height.round()}', (tester) async {
             final settings = entry.value;
-            final markerCost = await _markerCost(tester, width, settings);
             final pages = paginateBlocks(blocks, width, height, settings);
             final overflows = <String>[];
             for (var p = 0; p < pages.length; p++) {
@@ -270,16 +271,10 @@ void main() {
                 settings,
                 boldText: systemBold,
               );
-              // Each footnote marker on the page costs a couple of pixels
-              // the text measurement cannot see — BlockView draws one as a
-              // WidgetSpan, which is sized by its child and takes no part
-              // in that measurement. The cost is measured rather than
-              // guessed, because it scales with the font. Bounded here
-              // rather than removed (see the note on that WidgetSpan for
-              // why removing it is not cheap), and a real overflow is a
-              // whole line — an order of magnitude more than this — so
-              // allowing it hides nothing.
-              final budget = height + 0.5 + markerCost * _markersOn(pages[p]);
+              // A strict fit: a page carrying footnote markers gets no
+              // allowance for them, because the measurer stands a
+              // correctly-sized placeholder in for each one.
+              final budget = height + 0.5;
               if (rendered > budget) {
                 overflows.add(
                   'page $p by ${(rendered - budget).toStringAsFixed(1)}px',

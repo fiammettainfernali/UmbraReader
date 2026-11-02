@@ -14,6 +14,8 @@ import 'package:umbra_reader/models/reader_theme.dart';
 import 'package:umbra_reader/reader/block_view.dart';
 import 'package:umbra_reader/reader/reader_layout.dart';
 
+import 'helpers/reader_fonts.dart';
+
 Future<double> _renderedHeight(
   WidgetTester tester,
   ContentBlock block,
@@ -45,10 +47,17 @@ Future<double> _renderedHeight(
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  // The font `flutter test` falls back to has one set of metrics for every
+  // weight, so a comparison run on it cannot see the two paths drift — see
+  // helpers/reader_fonts.dart.
+  setUpAll(loadReaderFonts);
+
   const width = 465.0;
   final settings = ReaderSettings.defaults.copyWith(
     fontSize: 18,
     lineHeight: 1.6,
+    fontFamily: kTestReaderFont,
   );
 
   final long = List.generate(
@@ -85,7 +94,7 @@ void main() {
       final measured = measureBlockHeight(block, width, settings);
       expect(
         (rendered - measured).abs(),
-        lessThanOrEqualTo(1.0),
+        lessThanOrEqualTo(0.5),
         reason:
             '${entry.key}: rendered $rendered vs measured $measured '
             '(drift ${(rendered - measured).toStringAsFixed(1)}px)',

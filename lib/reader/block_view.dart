@@ -219,30 +219,30 @@ class BlockView extends StatelessWidget {
           WidgetSpan(
             alignment: PlaceholderAlignment.middle,
             baseline: TextBaseline.alphabetic,
-            // A marker makes its line ~2px taller than the TextPainter
-            // pagination measures with predicts, because a WidgetSpan is
-            // sized by its child and takes no part in the text measurement
-            // at all. Measuring it faithfully means putting the placeholder
-            // into the measuring span too — and a placeholder counts as one
-            // character where the marker's text counts as three, which
-            // would shift every character offset paged splitting and
-            // highlighting are built on. Pinning the child's height instead
-            // does not help: middle alignment grows the line by an amount
-            // that follows the font's own ascent and descent, and forcing
-            // the box to a full line box measured 4px rather than 2px.
+            // Every part of this span is mirrored by [layoutRuns], which
+            // measures the marker as a placeholder of exactly the size the
+            // child below lays out to. Change the alignment, the style or
+            // the marker's own styling here and pagination goes wrong by a
+            // couple of pixels a page — so change them there too.
             //
-            // So this is left as it is and the drift is bounded rather than
-            // removed: page_overflow_render_test allows exactly this much
-            // per marker on a page and fails if it grows.
+            // The style is named rather than left to inherit: a placeholder
+            // with no style of its own is measured against the enclosing
+            // paragraph's root style, which under [Text.rich] is the ambient
+            // Material DefaultTextStyle, and middle alignment sizes the line
+            // from that style's ascent and descent.
+            style: style,
             child: GestureDetector(
               onTap: () => _showFootnote(context, run.text, footnote),
               behavior: HitTestBehavior.opaque,
               child: Text(
                 run.text,
-                style: style.copyWith(
+                // The reader carries its own font-size control and measures
+                // with [TextScaler.noScaling]; an inner Text left on the
+                // MediaQuery scaler would grow with the platform font
+                // setting and render wider than it was measured.
+                textScaler: TextScaler.noScaling,
+                style: footnoteMarkerStyle(style).copyWith(
                   color: preset.text.withValues(alpha: 0.85),
-                  fontSize: (style.fontSize ?? 16) * 0.85,
-                  decoration: TextDecoration.underline,
                   decorationColor: preset.text.withValues(alpha: 0.45),
                 ),
               ),

@@ -186,44 +186,171 @@ List<TextRun> fixationRuns(List<TextRun> runs) {
 List<TextRun> effectiveRuns(List<TextRun> runs, ReaderSettings s) =>
     s.fixationAnchors ? fixationRuns(runs) : runs;
 
-/// Builds a styled [TextSpan] for a run list, applying bold/italic per run.
-TextSpan runSpan(List<TextRun> runs, TextStyle base) {
-  return TextSpan(
-    children: [
-      for (final run in runs)
-        TextSpan(
-          text: run.text,
-          style: base.copyWith(
-            fontWeight: run.bold ? FontWeight.bold : null,
-            fontStyle: run.italic ? FontStyle.italic : null,
-          ),
-        ),
-    ],
+/// How much smaller than the text around it a footnote marker is drawn.
+const double kFootnoteMarkerScale = 0.85;
+
+/// The style a footnote marker is drawn in, given the style of the run it
+/// belongs to: smaller, and underlined so it reads as tappable. Colour is
+/// layered on by the renderer and moves no metric, so measurement and render
+/// share this one definition — and they must, because the marker's size is
+/// what pagination stands a placeholder in for.
+TextStyle footnoteMarkerStyle(TextStyle base) => base.copyWith(
+  fontSize: (base.fontSize ?? 16) * kFootnoteMarkerScale,
+  decoration: TextDecoration.underline,
+);
+
+/// The size the marker widget lays out to inside a paragraph [width] wide —
+/// the size the placeholder standing in for it must be given.
+///
+/// [BlockView] draws the marker as a [Text] inside a [WidgetSpan], and
+/// RenderParagraph lays an inline child out under
+/// `BoxConstraints(maxWidth: paragraphWidth)`. Same painter, same
+/// constraint, same size.
+Size _footnoteMarkerSize(String text, double width, TextStyle style) {
+  final painter = TextPainter(
+    text: TextSpan(text: text, style: footnoteMarkerStyle(style)),
+    textDirection: TextDirection.ltr,
+    textScaler: TextScaler.noScaling,
+  )..layout(maxWidth: width);
+  return painter.size;
+}
+
+/// Lays [runs] out at [width] the way [BlockView] draws them: bold/italic
+/// per run, and every footnote marker as an inline placeholder sized from
+/// the marker widget rather than as ordinary full-size text.
+///
+/// This is the ONLY place the reader turns runs into a laid-out paragraph.
+/// Block measurement, page packing and hit-testing all come through here,
+/// because the moment one of them builds its own span the paths diverge. A
+/// marker renders as a [WidgetSpan], which is sized by its child and takes
+/// no part in text measurement, and a span that spells the marker out as
+/// ordinary text gets it wrong twice over:
+///
+///  * it is the wrong WIDTH. The marker draws at
+///    [kFootnoteMarkerScale] of the body size, so full-size text wraps a
+///    word the render keeps on the line before — a whole line of drift,
+///    found at 5 of 221 column widths swept on one paragraph.
+///  * it was the wrong HEIGHT, by 2px at fontSize 18 and more above it,
+///    because the placeholder's middle alignment grows its line from the
+///    ascent and descent of whatever style is in effect at it. That one is
+///    settled by naming the style below rather than by the placeholder.
+///
+/// Paged mode packed the difference onto every page carrying a marker, and
+/// an overfull page doesn't throw — it quietly becomes a scrolling page
+/// with its last line cut off.
+///
+/// Offsets from the returned painter are in PLACEHOLDER SPACE: each marker
+/// is a single U+FFFC character there, where its own text is several. Put
+/// every offset that comes out through [runOffsetFor] before indexing into
+/// the runs, and every offset that goes back in through
+/// [placeholderOffsetFor].
+TextPainter layoutRuns(List<TextRun> runs, double width, TextStyle base) {
+  final children = <InlineSpan>[];
+  final placeholders = <PlaceholderDimensions>[];
+  for (final run in runs) {
+    final style = base.copyWith(
+      fontWeight: run.bold ? FontWeight.bold : null,
+      fontStyle: run.italic ? FontStyle.italic : null,
+    );
+    if (run.footnoteBody == null) {
+      children.add(TextSpan(text: run.text, style: style));
+      continue;
+    }
+    children.add(
+      WidgetSpan(
+        alignment: PlaceholderAlignment.middle,
+        baseline: TextBaseline.alphabetic,
+        // Pinned for the reason [paragraphStyle] pins its own fields. A
+        // placeholder carrying no style of its own is measured against the
+        // enclosing paragraph's root style, and under [Text.rich] that root
+        // is the ambient Material DefaultTextStyle — with whatever weight
+        // the platform "Bold text" setting merges into it. Middle alignment
+        // sizes the line from that style's ascent and descent, so an
+        // unstyled marker would grow the line by an amount neither path
+        // controls. Naming the style here makes the growth a function of
+        // the reader's own typography, which is the only typography
+        // pagination knows about.
+        style: style,
+        // Never built. A [TextPainter] measures a placeholder from the
+        // dimensions below; the widget exists only on the render side.
+        child: const SizedBox.shrink(),
+      ),
+    );
+    placeholders.add(
+      PlaceholderDimensions(
+        size: _footnoteMarkerSize(run.text, width, style),
+        alignment: PlaceholderAlignment.middle,
+        baseline: TextBaseline.alphabetic,
+      ),
+    );
+  }
+  final painter = TextPainter(
+    text: TextSpan(children: children),
+    textDirection: TextDirection.ltr,
+    textScaler: TextScaler.noScaling,
   );
+  if (placeholders.isNotEmpty) painter.setPlaceholderDimensions(placeholders);
+  return painter..layout(maxWidth: width);
+}
+
+/// Converts a placeholder-space offset from a [layoutRuns] painter into an
+/// offset in the runs' own joined text.
+///
+/// A marker is atomic — a line cannot break inside a placeholder — so an
+/// offset landing on one resolves to the start of its text.
+///
+/// Fixation anchors only subdivide runs, leaving markers and the joined text
+/// untouched, so callers may pass the raw runs or [effectiveRuns] of them
+/// interchangeably: both spaces come out identical either way.
+int runOffsetFor(List<TextRun> runs, int offset) {
+  var placeholderSpace = 0;
+  var runSpace = 0;
+  for (final run in runs) {
+    final marker = run.footnoteBody != null;
+    final span = marker ? 1 : run.text.length;
+    if (offset < placeholderSpace + span) {
+      return marker ? runSpace : runSpace + (offset - placeholderSpace);
+    }
+    placeholderSpace += span;
+    runSpace += run.text.length;
+  }
+  return runSpace;
+}
+
+/// The inverse of [runOffsetFor]: a run-space offset expressed in the
+/// placeholder space a [layoutRuns] painter speaks. An offset inside a
+/// marker's text resolves to the placeholder standing in for it.
+int placeholderOffsetFor(List<TextRun> runs, int offset) {
+  var placeholderSpace = 0;
+  var runSpace = 0;
+  for (final run in runs) {
+    if (offset < runSpace + run.text.length) {
+      return run.footnoteBody != null
+          ? placeholderSpace
+          : placeholderSpace + (offset - runSpace);
+    }
+    placeholderSpace += run.footnoteBody != null ? 1 : run.text.length;
+    runSpace += run.text.length;
+  }
+  return placeholderSpace;
 }
 
 /// Measures the rendered height of a block at [width] — used for pagination.
 double measureBlockHeight(ContentBlock block, double width, ReaderSettings s) {
   switch (block) {
     case ParagraphBlock paragraph:
-      final painter = TextPainter(
-        text: runSpan(
-          effectiveRuns(paragraph.runs, s),
-          paragraphStyle(s, const Color(0xFF000000)),
-        ),
-        textDirection: TextDirection.ltr,
-        textScaler: TextScaler.noScaling,
-      )..layout(maxWidth: width);
+      final painter = layoutRuns(
+        effectiveRuns(paragraph.runs, s),
+        width,
+        paragraphStyle(s, const Color(0xFF000000)),
+      );
       return painter.height + paragraphGap(s);
     case HeadingBlock heading:
-      final painter = TextPainter(
-        text: runSpan(
-          effectiveRuns(heading.runs, s),
-          headingStyle(s, heading.level, const Color(0xFF000000)),
-        ),
-        textDirection: TextDirection.ltr,
-        textScaler: TextScaler.noScaling,
-      )..layout(maxWidth: width);
+      final painter = layoutRuns(
+        effectiveRuns(heading.runs, s),
+        width,
+        headingStyle(s, heading.level, const Color(0xFF000000)),
+      );
       return painter.height + kHeadingTopGap + kHeadingBottomGap;
     case DividerBlock _:
       return kDividerHeight;
@@ -266,25 +393,28 @@ int runsLength(List<TextRun> runs) {
   return total;
 }
 
-/// Lays out a paragraph's runs at [width] for measurement.
+/// Lays out a paragraph's runs at [width] for measurement. Offsets from the
+/// returned painter are in placeholder space — see [layoutRuns].
 TextPainter layoutParagraph(
   List<TextRun> runs,
   double width,
   ReaderSettings s,
 ) {
-  return TextPainter(
-    text: runSpan(
-      effectiveRuns(runs, s),
-      paragraphStyle(s, const Color(0xFF000000)),
-    ),
-    textDirection: TextDirection.ltr,
-    textScaler: TextScaler.noScaling,
-  )..layout(maxWidth: width);
+  return layoutRuns(
+    effectiveRuns(runs, s),
+    width,
+    paragraphStyle(s, const Color(0xFF000000)),
+  );
 }
 
 /// Splits a run list into the runs before [offset] and the runs from [offset]
 /// onward, cutting a straddling run in two. Character-exact: the two halves
 /// concatenated equal the input.
+///
+/// [offset] is in run space. A footnote marker is one placeholder to the
+/// painter that produces these offsets, so a line boundary never lands inside
+/// one and a marker run always moves whole — which is why the cut halves here
+/// need not carry `footnoteBody`.
 (List<TextRun>, List<TextRun>) splitRuns(List<TextRun> runs, int offset) {
   final head = <TextRun>[];
   final tail = <TextRun>[];
@@ -310,7 +440,9 @@ TextPainter layoutParagraph(
   return (head, tail);
 }
 
-/// Character offset at which the line centred on [centreY] begins.
+/// Character offset at which the line centred on [centreY] begins, in the
+/// painter's own placeholder space — put it through [runOffsetFor] before
+/// indexing runs with it.
 int lineStartOffsetAt(TextPainter painter, double centreY) {
   final pos = painter.getPositionForOffset(Offset(1, centreY));
   return painter.getLineBoundary(pos).start;
@@ -406,7 +538,14 @@ List<List<PageBlock>> paginateBlocks(
 
       // Split after the last line that fits.
       final centreY = fitHeight + lines[fitLines].height / 2;
-      final splitOffset = lineStartOffsetAt(painter, centreY);
+      // The painter counts each footnote marker as one placeholder
+      // character; [splitRuns] counts the marker's own text. Convert before
+      // the two meet, or a paragraph carrying a marker splits in the wrong
+      // place — and further into the paragraph, in the wrong place by more.
+      final splitOffset = runOffsetFor(
+        runs,
+        lineStartOffsetAt(painter, centreY),
+      );
       if (splitOffset <= 0 || splitOffset >= runsLength(runs)) {
         // No usable split point — move the whole fragment to a fresh page.
         if (used == 0) {
