@@ -8,6 +8,43 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:umbra_reader/services/settings_service.dart';
 
 void main() {
+  test('saving tells whoever is holding the old settings', () async {
+    // The shell keeps its tabs alive for the life of the app, so a tab that
+    // read the settings once has no other way to hear about a new server.
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final before = SettingsService.revision.value;
+
+    await SettingsService().save(
+      const OpdsSettings(
+        baseUrl: 'http://100.116.150.114:8765',
+        username: 'reader',
+        password: 'hunter2',
+      ),
+    );
+
+    expect(SettingsService.revision.value, before + 1);
+    final loaded = await SettingsService().load();
+    expect(loaded.baseUrl, 'http://100.116.150.114:8765');
+  });
+
+  test('sameConnection notices every field that changes where requests go', () {
+    const base = OpdsSettings(
+      baseUrl: 'http://a:8765',
+      username: 'reader',
+      password: 'hunter2',
+      downloaderUrl: 'http://b:8765',
+    );
+
+    expect(base.sameConnection(base.copyWith()), isTrue);
+    expect(base.sameConnection(base.copyWith(baseUrl: 'http://c')), isFalse);
+    expect(
+      base.sameConnection(base.copyWith(downloaderUrl: 'http://c')),
+      isFalse,
+    );
+    expect(base.sameConnection(base.copyWith(username: 'other')), isFalse);
+    expect(base.sameConnection(base.copyWith(password: 'other')), isFalse);
+  });
+
   test('a password that was saved but no longer reads back is reported lost', () async {
     // The shape a restore leaves behind: server and username present, the
     // marker saying a password once existed, and no password anywhere.

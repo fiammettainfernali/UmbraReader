@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -49,6 +50,16 @@ class OpdsSettings {
   /// True when reading and downloading are two different machines.
   bool get downloaderIsElsewhere =>
       downloaderUrl.isNotEmpty && downloaderUrl != baseUrl;
+
+  /// True when [other] would reach the same servers as the same person.
+  ///
+  /// What a screen holding open a client or an event stream has to ask: if
+  /// this is false, what it holds is talking to the wrong place.
+  bool sameConnection(OpdsSettings other) =>
+      baseUrl == other.baseUrl &&
+      downloaderUrl == other.downloaderUrl &&
+      username == other.username &&
+      password == other.password;
 
   static const empty = OpdsSettings(baseUrl: '', username: '', password: '');
 
@@ -107,6 +118,15 @@ class SettingsService {
   static const _kAutoDownloadWifiOnly = 'auto_download_wifi_only';
   static const _kAutoDeleteFinished = 'auto_delete_finished';
 
+  /// Bumped whenever connection settings are saved.
+  ///
+  /// The shell loads settings once and keeps its tabs alive for the life of
+  /// the app, so without this the Server tab went on using the address it
+  /// started with. Moving to a new server left it timing out against the old
+  /// one until the app was force-stopped, while the library, which reloads
+  /// for itself, looked perfectly healthy.
+  static final ValueNotifier<int> revision = ValueNotifier<int>(0);
+
   // first_unlock: readable after the first unlock following a reboot, so
   // background refresh/downloads don't lose auth while the phone is locked.
   static const _secure = FlutterSecureStorage(
@@ -163,6 +183,7 @@ class SettingsService {
       // SharedPreferences behaviour so settings still round-trip.
       await prefs.setString(_kPassword, settings.password);
     }
+    revision.value++;
   }
 
   /// Reads [key] from secure storage; null when unset or unavailable.
