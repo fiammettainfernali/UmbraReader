@@ -161,16 +161,22 @@ void main() {
     tearDown(AppDatabase.reset);
 
     /// Counts calls, so "did this book get embedded again" is answerable.
-    ({SeriesIndexer indexer, List<String> seen}) build() {
+    /// Log lines are captured rather than printed: they belong to the one
+    /// test that is about them, and nowhere else.
+    ({SeriesIndexer indexer, List<String> seen, List<String> logged}) build() {
       final seen = <String>[];
+      final logged = <String>[];
       return (
         indexer: SeriesIndexer(
           embed: (text) async {
             seen.add(text);
+            logged.add('<inference>');
             return _at(text.length.toDouble(), 1);
           },
+          log: logged.add,
         ),
         seen: seen,
+        logged: logged,
       );
     }
 
@@ -250,12 +256,50 @@ void main() {
     });
 
     test('a book the model cannot embed is counted, not crashed on', () async {
-      final indexer = SeriesIndexer(embed: (_) async => null);
+      final logged = <String>[];
+      final indexer = SeriesIndexer(embed: (_) async => null, log: logged.add);
 
       final outcome = await indexer.indexLibrary([_series(id: 1)]);
 
       expect(outcome.failed, 1);
       expect(outcome.embedded, 0);
+      expect(logged.any((l) => l.contains('no vector for 1')), isTrue);
+    });
+
+    test('each book is named in the log before it is embedded', () async {
+      // The ordering is the whole point. Inference runs in a native
+      // runtime, and when that aborts there is no exception, no stack and
+      // no further output — the process is simply gone. A line written
+      // after the call would never exist for the book that caused it, so
+      // the last line in the log has to be the one that names it.
+      final b = build();
+
+      await b.indexer.indexLibrary([_series(id: 4, title: 'Nine Star Hegemon')]);
+
+      final named = b.logged.indexWhere((l) => l.contains('Nine Star Hegemon'));
+      final inference = b.logged.indexOf('<inference>');
+      expect(named, isNonNegative);
+      expect(named, lessThan(inference));
+    });
+
+    test('a pass reports the same counts it returns', () async {
+      // A log that disagrees with the outcome is worse than no log: it is
+      // what gets believed when the shelves look wrong.
+      final b = build();
+      await b.indexer.indexLibrary([_series(id: 1), _series(id: 2)]);
+      b.logged.clear();
+
+      final outcome = await b.indexer.indexLibrary(
+        [_series(id: 2), _series(id: 3), _series(id: 4)],
+        budget: 1,
+      );
+
+      final summary = b.logged.lastWhere((l) => l.startsWith('pass done'));
+      expect(outcome, isA<IndexOutcome>().having((o) => o.embedded, 'embedded', 1));
+      expect(summary, contains('embedded ${outcome.embedded}'));
+      expect(summary, contains('failed ${outcome.failed}'));
+      expect(summary, contains('pruned ${outcome.pruned}'));
+      expect(summary, contains('${outcome.remaining} left'));
     });
 
     test('vectors survive a round trip through the database', () async {

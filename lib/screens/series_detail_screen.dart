@@ -15,6 +15,7 @@ import '../services/recommendation_engine.dart';
 import '../services/control_client.dart';
 import '../services/open_in_app.dart';
 import '../services/recommendation_feedback_store.dart';
+import '../services/semantic_log.dart';
 import '../services/semantic_recommender.dart';
 import '../services/series_vector_store.dart';
 import '../services/series_status_store.dart';
@@ -133,6 +134,16 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
             feedback: feedback,
             signals: RecSignals(statusOverrides: statusOverrides),
           );
+    // Which of the two paths answered, in the log. The difference is only
+    // visible in-app as the wording under a pick, which is a thin thing to
+    // hang "is this feature working" on.
+    semanticLog(semantic.isEmpty
+        ? 'more like this for "${widget.series.title}": no vector for it, '
+            '${vectors.length} in the index — ranking on metadata instead'
+        : 'more like this for "${widget.series.title}": ${semantic.length} '
+            'by meaning, closest '
+            '${semantic.first.similarity.toStringAsFixed(2)}');
+
     final status = await _statusStore.statusFor(widget.series.opdsId);
     setState(() {
       _store = store;

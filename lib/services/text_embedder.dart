@@ -180,9 +180,21 @@ class TextEmbedder {
     final length = encoding.ids.length;
     if (length == 0) return null;
 
-    final ids = List<int>.generate(length, (i) => encoding.ids[i]);
-    final mask = List<int>.generate(length, (i) => encoding.attentionMask[i]);
-    final types = List<int>.generate(length, (i) => encoding.typeIds[i]);
+    // int64, spelled out. The exported graph declares all three inputs as
+    // int64, and the plugin infers a tensor type from the Dart type it is
+    // handed: a List<int> of token ids all fit in int32, so it built int32
+    // tensors and the runtime refused the call at its first argument check
+    // — ORT_INVALID_ARGUMENT, every book, every pass. This one line is why
+    // the index held zero vectors for a day while every surface quietly
+    // fell back to metadata ranking and looked like it was working.
+    final ids = Int64List(length);
+    final mask = Int64List(length);
+    final types = Int64List(length);
+    for (var i = 0; i < length; i++) {
+      ids[i] = encoding.ids[i];
+      mask[i] = encoding.attentionMask[i];
+      types[i] = encoding.typeIds[i];
+    }
 
     final outputs = await _session!.run({
       'input_ids': await OrtValue.fromList(ids, [1, length]),

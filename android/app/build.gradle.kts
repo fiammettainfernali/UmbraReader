@@ -47,6 +47,15 @@ android {
             // is sideloaded onto one device. A real upload keystore is Phase 3
             // (see docs/ANDROID_PORT_PLAN.md) and must land before Play.
             signingConfig = signingConfigs.getByName("debug")
+            // Without this the shrinker removes ONNX Runtime's Java classes,
+            // which its native library looks up by name through JNI — and a
+            // failed lookup there aborts the process instead of throwing.
+            // See proguard-rules.pro; the symptom was an app that would not
+            // open, in release builds only.
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }
