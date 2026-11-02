@@ -44,7 +44,7 @@ class ManageScreen extends StatefulWidget {
 
 class _ManageScreenState extends State<ManageScreen>
     with WidgetsBindingObserver {
-  late final ControlClient _client = ControlClient(widget.settings);
+  late ControlClient _client = ControlClient(widget.settings);
 
   ControlStatus? _status;
   AutoUpdateSchedule? _schedule;
@@ -103,6 +103,21 @@ class _ManageScreenState extends State<ManageScreen>
   }
 
   @override
+  void didUpdateWidget(ManageScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.settings.sameConnection(oldWidget.settings)) return;
+    // This tab outlives any change of server, so what it holds has to be
+    // replaced rather than kept: the client, the status it fetched, and the
+    // event stream, all of which still belong to the old address.
+    _client = ControlClient(widget.settings);
+    _status = null;
+    _schedule = null;
+    _progress = null;
+    _refresh();
+    _subscribe();
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed || !mounted) return;
     // iOS freezes the process on suspend: the socket dies and the
@@ -129,15 +144,18 @@ class _ManageScreenState extends State<ManageScreen>
       _loading = true;
       _error = null;
     });
+    // A request to the old server can still be waiting out its timeout when
+    // the address changes. Its answer must not land on top of the new one.
+    final client = _client;
     try {
-      final status = await _client.status();
+      final status = await client.status();
       AutoUpdateSchedule? schedule;
       try {
-        schedule = await _client.schedule();
+        schedule = await client.schedule();
       } on ControlException {
         schedule = null; // older server without the schedule endpoint
       }
-      if (!mounted) return;
+      if (!mounted || !identical(client, _client)) return;
       setState(() {
         _status = status;
         _schedule = schedule;
@@ -147,7 +165,7 @@ class _ManageScreenState extends State<ManageScreen>
       // the moment anything queued offline can finally go.
       await _flushPending();
     } on ControlException catch (e) {
-      if (!mounted) return;
+      if (!mounted || !identical(client, _client)) return;
       setState(() {
         _error = e.message;
         _loading = false;
@@ -186,9 +204,12 @@ class _ManageScreenState extends State<ManageScreen>
 
   /// Re-fetch status without flipping the screen into the loading state.
   Future<void> _refreshQuiet() async {
+    final client = _client;
     try {
-      final status = await _client.status();
-      if (mounted) setState(() => _status = status);
+      final status = await client.status();
+      if (mounted && identical(client, _client)) {
+        setState(() => _status = status);
+      }
     } on ControlException {
       // ignore — keep showing the last good status
     }

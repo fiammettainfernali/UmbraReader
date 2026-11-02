@@ -43,6 +43,17 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
+    _loadSettings();
+    SettingsService.revision.addListener(_loadSettings);
+  }
+
+  @override
+  void dispose() {
+    SettingsService.revision.removeListener(_loadSettings);
+    super.dispose();
+  }
+
+  void _loadSettings() {
     SettingsService().load().then((s) {
       if (mounted) setState(() => _settings = s);
     });
