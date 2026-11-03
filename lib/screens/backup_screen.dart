@@ -38,7 +38,7 @@ class _BackupScreenState extends State<BackupScreen> {
       await SharePlus.instance.share(
         ShareParams(
           files: [XFile(file.path, mimeType: 'application/json')],
-          subject: 'Umbra Reader backup',
+          subject: 'Hawthorne Codex backup',
           sharePositionOrigin: box != null
               ? box.localToGlobal(Offset.zero) & box.size
               : null,
@@ -72,7 +72,7 @@ class _BackupScreenState extends State<BackupScreen> {
       await SharePlus.instance.share(
         ShareParams(
           files: [XFile(file.path, mimeType: 'text/markdown')],
-          subject: 'Umbra Reader annotations (Markdown)',
+          subject: 'Hawthorne Codex annotations (Markdown)',
           sharePositionOrigin: box != null
               ? box.localToGlobal(Offset.zero) & box.size
               : null,
@@ -98,7 +98,7 @@ class _BackupScreenState extends State<BackupScreen> {
       await SharePlus.instance.share(
         ShareParams(
           files: [XFile(file.path, mimeType: 'application/json')],
-          subject: 'Umbra Reader annotations',
+          subject: 'Hawthorne Codex annotations',
           sharePositionOrigin: box != null
               ? box.localToGlobal(Offset.zero) & box.size
               : null,
@@ -221,7 +221,7 @@ class _BackupScreenState extends State<BackupScreen> {
             padding: EdgeInsets.only(bottom: 8),
           ),
           Text(
-            'Umbra Reader stores reading progress, bookmarks, collections, '
+            'Hawthorne Codex stores reading progress, bookmarks, collections, '
             'recommendation feedback and settings on this device. Export a '
             'backup occasionally so you can restore everything after an app '
             'reinstall or when moving to a new device.',

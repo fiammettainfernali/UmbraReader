@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Umbra Reader</string>
+	<string>Hawthorne Codex</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -29,18 +29,18 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Umbra Reader connects to your Novel Grabber library on your local network to sync and download your books.</string>
+	<string>Hawthorne Codex connects to your Novel Grabber library on your local network to sync and download your books.</string>
 	<!-- The file-import picker bundles photo-library and camera APIs that
 	     Apple requires purpose strings for, even though Umbra Reader only
 	     ever opens the document picker and never invokes either. -->
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Umbra Reader does not access your photo library. This permission is required by the file-import component but is never used.</string>
+	<string>Hawthorne Codex does not access your photo library. This permission is required by the file-import component but is never used.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Umbra Reader does not use the camera. This permission is required by the file-import component but is never used.</string>
+	<string>Hawthorne Codex does not use the camera. This permission is required by the file-import component but is never used.</string>
 	<!-- just_audio's AVAudioSession (used for the natural Kokoro voices)
 	     references the microphone API; Umbra Reader only plays audio. -->
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Umbra Reader does not use the microphone. This permission is required by the audio playback component but is never used.</string>
+	<string>Hawthorne Codex does not use the microphone. This permission is required by the audio playback component but is never used.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- Novel Grabber's OPDS server runs over plain HTTP on the LAN.

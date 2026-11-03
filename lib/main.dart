@@ -56,7 +56,7 @@ class UmbraReaderApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Umbra Reader',
+      title: 'Hawthorne Codex',
       debugShowCheckedModeBanner: false,
       theme: _buildTheme(),
       home: const _RootGate(),

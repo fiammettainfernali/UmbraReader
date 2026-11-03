@@ -1328,7 +1328,7 @@ class _LibraryScreenState extends State<LibraryScreen>
             icon: Icons.auto_stories_outlined,
             title: 'Add your first books',
             message:
-                'Connect Umbra Reader to your library server, or import '
+                'Connect Hawthorne Codex to your library server, or import '
                 'EPUB files straight from Files / iCloud Drive — no server '
                 'needed.',
             actionLabel: 'Connect a server',

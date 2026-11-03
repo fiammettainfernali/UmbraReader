@@ -343,7 +343,7 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
       builder: (ctx) => AlertDialog(
         title: const Text('Download whole library?'),
         content: Text(
-          'Umbra Reader will download every volume of all $count series for '
+          'Hawthorne Codex will download every volume of all $count series for '
           'offline reading. This can take a while and use a lot of storage '
           'and data. Books already downloaded are skipped.',
         ),

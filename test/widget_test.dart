@@ -69,6 +69,6 @@ void main() {
     await tester.pumpWidget(const UmbraReaderApp());
     await _pumpRootGate(tester);
 
-    expect(find.text('Welcome to Umbra Reader'), findsOneWidget);
+    expect(find.text('Welcome to Hawthorne Codex'), findsOneWidget);
   });
 }

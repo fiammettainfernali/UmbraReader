@@ -106,14 +106,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Icon(
-                Icons.menu_book_rounded,
-                size: 72,
-                color: theme.colorScheme.primary,
+              Center(
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(24),
+                  child: Image.asset(
+                    'assets/logo/hawthorne_emblem.png',
+                    width: 112,
+                    height: 112,
+                    excludeFromSemantics: true,
+                  ),
+                ),
               ),
               const SizedBox(height: 16),
               Text(
-                'Welcome to Umbra Reader',
+                'Welcome to Hawthorne Codex',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.w700,

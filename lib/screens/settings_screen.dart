@@ -71,7 +71,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Notifications are off for Umbra. You can turn them on in the '
+            'Notifications are off for Hawthorne Codex. You can turn them on in the '
             'iOS Settings app.',
           ),
         ),

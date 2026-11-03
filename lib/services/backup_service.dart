@@ -78,7 +78,7 @@ class BackupService {
         .replaceAll(':', '-')
         .split('.')
         .first;
-    final file = File('${dir.path}/umbra-reader-backup-$stamp.json');
+    final file = File('${dir.path}/hawthorne-codex-backup-$stamp.json');
     await file.writeAsString(json);
     return file;
   }
@@ -118,7 +118,7 @@ class BackupService {
       final decoded = jsonDecode(trimmed);
       if (decoded is! Map<String, dynamic>) {
         throw BackupException(
-          'That doesn\'t look like an Umbra Reader '
+          'That doesn\'t look like a Hawthorne Codex '
           'backup file.',
         );
       }
@@ -131,7 +131,7 @@ class BackupService {
     }
     if (!envelope.containsKey(_signature)) {
       throw BackupException(
-        'Not an Umbra Reader backup — missing the '
+        'Not a Hawthorne Codex backup — missing the '
         'expected "$_signature" marker.',
       );
     }
@@ -186,7 +186,7 @@ class BackupService {
         .replaceAll(':', '-')
         .split('.')
         .first;
-    final file = File('${dir.path}/umbra-reader-annotations-$stamp.json');
+    final file = File('${dir.path}/hawthorne-codex-annotations-$stamp.json');
     await file.writeAsString(json);
     return file;
   }
@@ -215,7 +215,7 @@ class BackupService {
       final decoded = jsonDecode(trimmed);
       if (decoded is! Map<String, dynamic>) {
         throw BackupException(
-          'That doesn\'t look like an Umbra Reader '
+          'That doesn\'t look like a Hawthorne Codex '
           'annotations file.',
         );
       }
@@ -229,7 +229,7 @@ class BackupService {
     if (!envelope.containsKey(_annotationSignature) &&
         !envelope.containsKey(_signature)) {
       throw BackupException(
-        'Not an Umbra Reader file — missing the expected '
+        'Not a Hawthorne Codex file — missing the expected '
         'marker.',
       );
     }

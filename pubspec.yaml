@@ -146,6 +146,8 @@ flutter:
     # The embedding model: 23MB, and the only thing in the app that knows
     # what a book is ABOUT rather than what its metadata says.
     - assets/models/minilm/
+    # The welcome screen's logo.
+    - assets/logo/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
