@@ -100,7 +100,9 @@ class _HomeShellState extends State<HomeShell> {
                 data: theme.copyWith(
                   scaffoldBackgroundColor: Colors.transparent,
                   appBarTheme: theme.appBarTheme.copyWith(
-                    backgroundColor: const Color(0xB8060304),
+                    // Nearly solid: a cover's own title showing through made
+                    // the heading on top of it hard to read.
+                    backgroundColor: const Color(0xF2060304),
                     scrolledUnderElevation: 0,
                   ),
                 ),

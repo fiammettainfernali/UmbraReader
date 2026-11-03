@@ -104,17 +104,15 @@ class UmbraReaderApp extends StatelessWidget {
     final base = ThemeData(
       colorScheme: scheme,
       brightness: Brightness.dark,
+      fontFamily: 'Manrope',
       scaffoldBackgroundColor: const Color(0xFF060304),
     );
 
-    // A warm book serif for headings/titles (the dark-academia library feel),
-    // using an iOS system font so it needs no download and works offline; body
-    // and labels stay in the clean default for legibility.
-    const heading = 'Georgia';
-    // Android ships no Georgia, and an unresolvable family falls back to the
-    // default sans without complaint — the serif simply disappears and the
-    // app looks like a different one. Lora is already bundled for the reader,
-    // so naming it here costs no bytes and leaves iOS on Georgia untouched.
+    // Cinzel for headings and Manrope for everything else, the desktop's own
+    // pair. Long titles stay in Manrope: Cinzel runs wide, and a novel's name
+    // in a list needs the room. Neither reaches the reader's page, whose text
+    // styles don't inherit from the theme.
+    const heading = 'Cinzel';
     const headingFallback = ['Lora'];
     TextStyle? h(TextStyle? s) =>
         s?.copyWith(fontFamily: heading, fontFamilyFallback: headingFallback);
@@ -126,8 +124,8 @@ class UmbraReaderApp extends StatelessWidget {
       headlineLarge: h(t.headlineLarge),
       headlineMedium: h(t.headlineMedium),
       headlineSmall: h(t.headlineSmall),
-      titleLarge: h(t.titleLarge)?.copyWith(fontWeight: FontWeight.w600),
-      titleMedium: h(t.titleMedium)?.copyWith(fontWeight: FontWeight.w600),
+      titleLarge: h(t.titleLarge)?.copyWith(fontWeight: FontWeight.w700),
+      titleMedium: t.titleMedium?.copyWith(fontWeight: FontWeight.w700),
     );
 
     return base.copyWith(
@@ -140,7 +138,7 @@ class UmbraReaderApp extends StatelessWidget {
           fontFamily: heading,
           fontFamilyFallback: headingFallback,
           fontSize: 24,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w800,
           color: scheme.onSurface,
         ),
       ),

@@ -160,6 +160,14 @@ flutter:
   # when these were fetched via google_fonts keep working; bundling means
   # they render correctly offline from the very first launch.
   fonts:
+    # The app's own look, matching the desktop program. One variable file
+    # each, so every weight is there; Flutter picks it from fontWeight.
+    - family: Cinzel
+      fonts:
+        - asset: assets/fonts/Cinzel-Variable.ttf
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/Manrope-Variable.ttf
     - family: Literata
       fonts:
         - asset: assets/fonts/Literata-Regular.ttf
