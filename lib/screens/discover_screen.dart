@@ -352,7 +352,7 @@ class DiscoverScreenState extends State<DiscoverScreen>
               theme,
               icon: Icons.language,
               label: 'Browse the sites',
-              subtitle: 'Look around and send anything to Novel Grabber',
+              subtitle: 'Look around and send anything to your computer',
               onTap: _openBrowser,
             ),
           ],

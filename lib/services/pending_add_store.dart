@@ -90,7 +90,7 @@ class FlushReport {
   String? get summary {
     if (!didAnything) return null;
     final parts = <String>[
-      if (sent > 0) '$sent sent to Novel Grabber',
+      if (sent > 0) '$sent sent to your computer',
       if (alreadyHad > 0) '$alreadyHad already in your library',
       if (failed > 0) '$failed rejected',
     ];

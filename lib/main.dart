@@ -5,9 +5,11 @@ import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'screens/home_shell.dart';
 import 'screens/onboarding_screen.dart';
+import 'services/app_motion.dart';
 import 'services/cloud_sync_service.dart';
 import 'services/custom_theme_store.dart';
 import 'services/pro_service.dart';
+import 'services/reader_preferences.dart';
 import 'services/reminder_service.dart';
 import 'services/settings_service.dart';
 
@@ -22,6 +24,9 @@ Future<void> main() async {
   // Load user-defined reading themes into the in-memory registry so
   // readerThemeById can find them synchronously.
   await CustomThemeStore().initialize();
+  // Known before the first frame, so nothing moves once if it's switched off.
+  AppMotion.reduceAnimations.value =
+      (await ReaderPreferences().load()).reduceAnimations;
   // Load the Pro entitlement (build-flag or persisted purchase).
   await ProService().initialize();
   // Wire iCloud sync (reading progress / collections / rec feedback). The
@@ -63,26 +68,43 @@ class UmbraReaderApp extends StatelessWidget {
     );
   }
 
-  /// The app's "comfy witchy library" theme: a deep dusk-plum dark scheme
-  /// with a warm candlelight-amber accent, an elegant serif for headings, and
-  /// soft rounded surfaces. (This is the app chrome — the *reader* still uses
-  /// its own page themes.)
+  /// The Hawthorne Codex look, matching the desktop program: mostly black and
+  /// red, an elegant serif for headings, and soft rounded surfaces. (This is
+  /// the app chrome — the *reader* still uses its own page themes.)
   ThemeData _buildTheme() {
+    // The strong red fills buttons, with white on it. Text and icons use the
+    // lighter one, because the strong red is too dim to read at small sizes.
+    const red = Color(0xFFE5121F);
     final scheme =
         ColorScheme.fromSeed(
-          // A muted dusk purple — fitting for "umbra" (shadow).
-          seedColor: const Color(0xFF8B7BC4),
+          seedColor: red,
           brightness: Brightness.dark,
         ).copyWith(
-          // Warm candlelight gold for accents (section motifs, highlights).
-          tertiary: const Color(0xFFE3B873),
-          onTertiary: const Color(0xFF2A1F0A),
+          primary: const Color(0xFFFF4B4B),
+          onPrimary: const Color(0xFF2A0306),
+          primaryContainer: const Color(0xFF5A0710),
+          onPrimaryContainer: const Color(0xFFFFD9D9),
+          secondary: const Color(0xFFFF8A80),
+          secondaryContainer: const Color(0xFF47090F),
+          onSecondaryContainer: const Color(0xFFFFD9D9),
+          tertiary: const Color(0xFFFF7A6B),
+          onTertiary: const Color(0xFF2A0306),
+          surface: const Color(0xFF0C0608),
+          onSurface: const Color(0xFFF7EFEF),
+          onSurfaceVariant: const Color(0xFFCDBCBD),
+          outline: const Color(0xFF9A8486),
+          outlineVariant: const Color(0xFF3A2326),
+          surfaceContainerLowest: const Color(0xFF080304),
+          surfaceContainerLow: const Color(0xFF120709),
+          surfaceContainer: const Color(0xFF180A0D),
+          surfaceContainerHigh: const Color(0xFF211014),
+          surfaceContainerHighest: const Color(0xFF2C161A),
         );
 
     final base = ThemeData(
       colorScheme: scheme,
       brightness: Brightness.dark,
-      scaffoldBackgroundColor: const Color(0xFF14111C), // deep dusk
+      scaffoldBackgroundColor: const Color(0xFF060304),
     );
 
     // A warm book serif for headings/titles (the dark-academia library feel),
@@ -129,6 +151,42 @@ class UmbraReaderApp extends StatelessWidget {
       ),
       chipTheme: base.chipTheme.copyWith(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: red,
+          foregroundColor: Colors.white,
+        ),
+      ),
+      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+        backgroundColor: red,
+        foregroundColor: Colors.white,
+      ),
+      navigationBarTheme: NavigationBarThemeData(
+        indicatorColor: red,
+        iconTheme: WidgetStateProperty.resolveWith(
+          (states) => IconThemeData(
+            color: states.contains(WidgetState.selected)
+                ? Colors.white
+                : scheme.onSurfaceVariant,
+          ),
+        ),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: scheme.surfaceContainerHigh,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: scheme.outlineVariant),
+        ),
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: scheme.surfaceContainer,
+        modalBackgroundColor: scheme.surfaceContainer,
+      ),
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: scheme.surfaceContainerHighest,
+        contentTextStyle: TextStyle(color: scheme.onSurface),
+        actionTextColor: scheme.primary,
       ),
     );
   }

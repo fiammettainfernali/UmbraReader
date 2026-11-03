@@ -2,6 +2,8 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import '../services/app_motion.dart';
+
 /// The app's bottom bar, drawn as translucent glass over whatever is scrolling
 /// beneath it.
 ///
@@ -44,14 +46,50 @@ class GlassNavBar extends StatelessWidget {
     // blurred backdrop is harder to read. Give them a solid bar instead.
     final opaque = MediaQuery.of(context).highContrast;
 
-    final bar = NavigationBar(
-      selectedIndex: selectedIndex,
-      onDestinationSelected: onDestinationSelected,
-      destinations: destinations,
-      backgroundColor: Colors.transparent,
-      surfaceTintColor: Colors.transparent,
-      shadowColor: Colors.transparent,
-      elevation: 0,
+    final count = destinations.length;
+    final bar = Stack(
+      children: [
+        NavigationBar(
+          selectedIndex: selectedIndex,
+          onDestinationSelected: onDestinationSelected,
+          destinations: destinations,
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          elevation: 0,
+        ),
+        // A glowing line along the top that slides to the chosen tab.
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 3,
+          child: IgnorePointer(
+            child: AnimatedAlign(
+              alignment: Alignment(-1 + 2 * selectedIndex / (count - 1), 0),
+              duration: AppMotion.isReduced(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 420),
+              curve: Curves.easeOutCubic,
+              child: FractionallySizedBox(
+                widthFactor: 1 / count,
+                child: Center(
+                  child: Container(
+                    width: 44,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5121F),
+                      borderRadius: BorderRadius.circular(2),
+                      boxShadow: const [
+                        BoxShadow(color: Color(0xCCE5121F), blurRadius: 12),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
 
     if (opaque) {

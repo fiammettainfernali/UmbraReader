@@ -65,7 +65,7 @@ class OpdsClient {
     } on Exception catch (e) {
       throw OpdsException(
         'Could not reach the server at ${settings.baseUrl}.\n\n'
-        'Make sure Novel Grabber is running, the OPDS server is started, '
+        'Make sure Hawthorne Codex is running on your computer, the OPDS server is started, '
         'and your phone is on the same Wi-Fi network.\n\n($e)',
       );
     }

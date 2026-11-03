@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/settings_service.dart';
 import '../widgets/glass_nav_bar.dart';
+import '../widgets/living_surfaces.dart';
 import 'library_screen.dart';
 import 'manage_screen.dart';
 import 'discover_screen.dart';
@@ -63,6 +64,7 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) {
     final settings = _settings;
     final mq = MediaQuery.of(context);
+    final theme = Theme.of(context);
     // Android has a system back; iOS does not, so nothing here ever needed
     // to answer it. Back on a sub-tab belongs to the tab strip, not the app:
     // it returns to Library, and only a back from Library itself leaves.
@@ -88,27 +90,47 @@ class _HomeShellState extends State<HomeShell> {
           // IndexedStack keeps each tab alive, so switching away and back doesn't
           // rebuild the library or lose a scroll position — which would read as
           // the app moving under you.
-          child: IndexedStack(
-            index: _index,
+          child: Stack(
+            fit: StackFit.expand,
             children: [
-              const LibraryScreen(),
-              // Both of these need the server address, so they wait on the
-              // same settings load rather than each guessing at it.
-              if (settings == null) ...[
-                const Scaffold(
-                  body: Center(child: CircularProgressIndicator()),
+              const EmberBackdrop(),
+              // The tabs let the embers show through. Screens pushed on top
+              // take the app's own theme, and stay solid.
+              Theme(
+                data: theme.copyWith(
+                  scaffoldBackgroundColor: Colors.transparent,
+                  appBarTheme: theme.appBarTheme.copyWith(
+                    backgroundColor: const Color(0xB8060304),
+                    scrolledUnderElevation: 0,
+                  ),
                 ),
-                const Scaffold(
-                  body: Center(child: CircularProgressIndicator()),
+                child: IndexedStack(
+                  index: _index,
+                  children: [
+                    const LibraryScreen(),
+                    // Both of these need the server address, so they wait on
+                    // the same settings load rather than each guessing at it.
+                    if (settings == null) ...[
+                      const Scaffold(
+                        body: Center(child: CircularProgressIndicator()),
+                      ),
+                      const Scaffold(
+                        body: Center(child: CircularProgressIndicator()),
+                      ),
+                    ] else ...[
+                      // Discover is told whether it is the tab on show. Alive
+                      // in this stack is not the same as seen, and its shelf
+                      // counts what the reader has been shown.
+                      DiscoverScreen(
+                        settings: settings,
+                        isSelected: _index == 1,
+                      ),
+                      ManageScreen(settings: settings),
+                    ],
+                    const StatsScreen(),
+                  ],
                 ),
-              ] else ...[
-                // Discover is told whether it is the tab on show. Alive in
-                // this stack is not the same as seen, and its shelf counts
-                // what the reader has been shown.
-                DiscoverScreen(settings: settings, isSelected: _index == 1),
-                ManageScreen(settings: settings),
-              ],
-              const StatsScreen(),
+              ),
             ],
           ),
         ),

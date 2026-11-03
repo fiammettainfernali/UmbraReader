@@ -544,7 +544,7 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
       return const MessageView(
         icon: Icons.menu_book_outlined,
         title: 'Your library is empty',
-        message: 'Series you add in Novel Grabber appear here.',
+        message: 'Series you add on your computer appear here.',
         actionLabel: '',
         onAction: _noop,
       );

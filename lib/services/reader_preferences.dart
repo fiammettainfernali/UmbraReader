@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/reader_settings.dart';
 import '../models/volume.dart';
+import 'app_motion.dart';
 import 'cloud_sync_service.dart';
 
 /// Loads and saves the reader's [ReaderSettings] via [SharedPreferences].
@@ -203,6 +204,10 @@ class ReaderPreferences {
     final p = volume != null && await hasOverride(volume)
         ? _volumePrefix(volume)
         : '';
+    // One book's own settings don't speak for the rest of the app.
+    if (p.isEmpty) {
+      AppMotion.reduceAnimations.value = settings.reduceAnimations;
+    }
     await prefs.setString('$p$_kMode', settings.mode.name);
     await prefs.setString('$p$_kThemeId', settings.themeId);
     await prefs.setString('$p$_kFontFamily', settings.fontFamily);

@@ -421,7 +421,7 @@ class ControlClient {
           'Tailscale or a LAN usually has no certificate of its own, and '
           'does not need one.';
     }
-    return 'Could not reach Novel Grabber.\n($error)';
+    return 'Could not reach your computer.\n($error)';
   }
 
   /// Commands go to the downloader, which need not be the machine the books

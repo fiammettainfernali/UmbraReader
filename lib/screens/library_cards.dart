@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/series.dart';
 import '../services/reading_progress_store.dart';
 import '../widgets/cached_cover.dart';
+import '../widgets/living_surfaces.dart';
 
 /// A single cover in the library grid: cover art, title, author.
 class SeriesCard extends StatelessWidget {
@@ -36,60 +37,68 @@ class SeriesCard extends StatelessWidget {
         onTap: onTap,
         onLongPress: onLongPress,
         behavior: HitTestBehavior.opaque,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.4),
-                      blurRadius: 6,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      CoverImage(series: series, headers: imageHeaders),
-                      if (series.hasMultipleVolumes)
-                        const Positioned(
-                          top: 6,
-                          right: 6,
-                          child: VolumeBadge(),
+        child: RiseIn(
+          child: PressScale(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x47E5121F),
+                          blurRadius: 10,
+                          offset: Offset(0, 3),
                         ),
-                      if (updateAvailable)
-                        const Positioned(top: 6, left: 6, child: UpdateBadge()),
-                    ],
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          CoverImage(series: series, headers: imageHeaders),
+                          if (series.hasMultipleVolumes)
+                            const Positioned(
+                              top: 6,
+                              right: 6,
+                              child: VolumeBadge(),
+                            ),
+                          if (updateAvailable)
+                            const Positioned(
+                              top: 6,
+                              left: 6,
+                              child: UpdateBadge(),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(height: 8),
+                Text(
+                  series.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    height: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  series.author,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              series.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                height: 1.2,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              series.author,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );

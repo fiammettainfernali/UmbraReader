@@ -451,7 +451,7 @@ class _ManageScreenState extends State<ManageScreen>
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              "Novel Grabber isn't reachable — saved for when it is.",
+              "Your computer isn't reachable — saved for when it is.",
             ),
           ),
         );
@@ -766,7 +766,7 @@ class _ManageScreenState extends State<ManageScreen>
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Text(
-                      'Added while Novel Grabber was out of reach. These go '
+                      'Added while your computer was out of reach. These go '
                       'as soon as it answers.',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.outline,

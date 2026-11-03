@@ -161,12 +161,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           Text(
-            'Connect to your Novel Grabber library',
+            'Connect to your Hawthorne Codex library',
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
           Text(
-            'In Novel Grabber, start the OPDS server and copy the address it '
+            'In Hawthorne Codex on your computer, start the OPDS server and copy the address it '
             'shows — something like http://192.168.1.42:8765. That address '
             'only works on your home Wi-Fi; a Tailscale or reverse-proxy '
             'address works anywhere, and usually needs no port.',
@@ -207,7 +207,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             autocorrect: false,
             decoration: const InputDecoration(
               labelText: 'Username (optional)',
-              helperText: 'Only if you set up authentication in Novel Grabber',
+              helperText: 'Only if you set up authentication on your computer',
               border: OutlineInputBorder(),
               prefixIcon: Icon(Icons.person_outline),
             ),

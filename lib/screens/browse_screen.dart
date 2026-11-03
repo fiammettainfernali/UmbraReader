@@ -204,7 +204,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Sent to Novel Grabber — scraping started. '
+            'Sent to your computer — scraping started. '
             'Watch it on the Discover tab.',
           ),
         ),
@@ -236,7 +236,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              "Novel Grabber isn't reachable — saved, and it'll be added "
+              "Your computer isn't reachable — saved, and it'll be added "
               'next time the app connects.',
             ),
           ),
@@ -384,7 +384,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
                   child: Text(
-                    "Novel Grabber can't scrape this site — follow it to "
+                    "Your computer can't scrape this site — follow it to "
                     'read it here instead.',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.labelSmall?.copyWith(
