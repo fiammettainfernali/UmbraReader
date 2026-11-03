@@ -13,11 +13,141 @@ Widget _app(Widget child, {bool disableAnimations = false}) => MaterialApp(
   ),
 );
 
+class _StillScreen extends StatefulWidget {
+  const _StillScreen();
+
+  @override
+  State<_StillScreen> createState() => _StillScreenState();
+}
+
+class _StillScreenState extends State<_StillScreen> with HoldsMotionStill {
+  @override
+  Widget build(BuildContext context) => const Text('Reading');
+}
+
 bool _running(WidgetTester tester, Type type) =>
     (tester.state(find.byType(type)) as SlowClock).clockRunning;
 
 void main() {
-  tearDown(() => AppMotion.reduceAnimations.value = false);
+  tearDown(() {
+    AppMotion.reduceAnimations.value = false;
+    AppMotion.stillScreens.value = 0;
+  });
+
+  testWidgets('every pushed screen gets embers and a clear scaffold', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(
+          scaffoldBackgroundColor: Colors.black,
+          pageTransitionsTheme: const PageTransitionsTheme(
+            builders: {TargetPlatform.android: LivingPageTransitions()},
+          ),
+        ),
+        home: const Scaffold(body: Text('Home')),
+      ),
+    );
+    expect(find.byType(EmberBackdrop), findsOneWidget);
+    final context = tester.element(find.text('Home'));
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(body: Text('Details')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Details'), findsOneWidget);
+    expect(find.byType(EmberBackdrop), findsOneWidget);
+    expect(
+      Theme.of(tester.element(find.text('Details'))).scaffoldBackgroundColor,
+      Colors.transparent,
+    );
+    // Only the screen on show keeps its clock running.
+    expect(_running(tester, EmberBackdrop), isTrue);
+  });
+
+  testWidgets('a screen that holds still stops everything until it closes', (
+    tester,
+  ) async {
+    await tester.pumpWidget(_app(const EmberBackdrop()));
+    final context = tester.element(find.byType(EmberBackdrop));
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const _StillScreen()));
+    await tester.pumpAndSettle();
+    expect(AppMotion.stillScreens.value, 1);
+    Navigator.of(context).pop();
+    await tester.pumpAndSettle();
+    expect(AppMotion.stillScreens.value, 0);
+    expect(_running(tester, EmberBackdrop), isTrue);
+  });
+
+  testWidgets('a backdrop opened beneath a still screen stays stopped', (
+    tester,
+  ) async {
+    AppMotion.stillScreens.value = 1;
+    await tester.pumpWidget(_app(const EmberBackdrop()));
+    expect(_running(tester, EmberBackdrop), isFalse);
+    AppMotion.stillScreens.value = 0;
+    await tester.pump();
+    expect(_running(tester, EmberBackdrop), isTrue);
+  });
+
+  testWidgets('a hidden tab keeps nothing moving', (tester) async {
+    Widget tabs(int index) => _app(
+      IndexedStack(
+        index: index,
+        children: const [
+          SizedBox(key: Key('library')),
+          Twinkle(child: SizedBox()),
+        ],
+      ),
+    );
+    await tester.pumpWidget(tabs(0));
+    expect(
+      (tester.state(find.byType(Twinkle, skipOffstage: false)) as SlowClock)
+          .clockRunning,
+      isFalse,
+    );
+    await tester.pumpWidget(tabs(1));
+    expect(_running(tester, Twinkle), isTrue);
+  });
+
+  testWidgets('a screenful of moving pieces costs one frame per beat', (
+    tester,
+  ) async {
+    var frames = 0;
+    await tester.pumpWidget(
+      _app(
+        Column(
+          children: const [
+            Twinkle(child: SizedBox()),
+            Twinkle(phase: 1, child: SizedBox()),
+            Twinkle(phase: 2, child: SizedBox()),
+            BreathingGlow(borderRadius: BorderRadius.zero, child: SizedBox()),
+          ],
+        ),
+      ),
+    );
+    tester.binding.addPersistentFrameCallback((_) => frames++);
+    // A frame is asked for by each change: with a timer each, they'd arrive
+    // apart and this would see one per piece per beat.
+    await tester.pump(const Duration(milliseconds: 41));
+    final afterOneBeat = frames;
+    await tester.pump(const Duration(milliseconds: 41));
+    expect(frames - afterOneBeat, 1);
+    expect(tester.binding.hasScheduledFrame, isFalse);
+  });
+
+  testWidgets('a section waits its turn before rising', (tester) async {
+    await tester.pumpWidget(
+      _app(const RiseIn(delayMs: 200, child: Text('Later'))),
+    );
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(tester.widget<Opacity>(find.byType(Opacity)).opacity, 0);
+    await tester.pumpAndSettle();
+    expect(tester.widget<Opacity>(find.byType(Opacity)).opacity, 1);
+  });
 
   testWidgets('the backdrop runs when motion is allowed', (tester) async {
     await tester.pumpWidget(_app(const EmberBackdrop()));

@@ -12,6 +12,7 @@ import 'services/pro_service.dart';
 import 'services/reader_preferences.dart';
 import 'services/reminder_service.dart';
 import 'services/settings_service.dart';
+import 'widgets/living_surfaces.dart';
 
 /// Sentry crash-reporting DSN, baked in at build time via
 /// `--dart-define=SENTRY_DSN=…` (a Codemagic env var). Empty in local/dev
@@ -130,6 +131,12 @@ class UmbraReaderApp extends StatelessWidget {
 
     return base.copyWith(
       textTheme: textTheme,
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: LivingPageTransitions(),
+          TargetPlatform.iOS: LivingPageTransitions(),
+        },
+      ),
       appBarTheme: AppBarTheme(
         backgroundColor: base.scaffoldBackgroundColor,
         surfaceTintColor: Colors.transparent,

@@ -32,6 +32,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../services/app_motion.dart';
 import '../services/web_series_store.dart';
 import '../services/web_view_guard.dart';
 
@@ -46,7 +47,7 @@ class WebSeriesScreen extends StatefulWidget {
 }
 
 class _WebSeriesScreenState extends State<WebSeriesScreen>
-    with WidgetsBindingObserver {
+    with HoldsMotionStill, WidgetsBindingObserver {
   late final WebSeriesStore _store = widget.store ?? WebSeriesStore();
   late final WebViewController _web;
 

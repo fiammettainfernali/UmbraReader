@@ -24,6 +24,7 @@ import '../utils/volume_ordering.dart';
 import '../widgets/add_to_collection_sheet.dart';
 import '../widgets/action_sheet.dart';
 import '../widgets/cached_cover.dart';
+import '../widgets/living_surfaces.dart';
 import '../widgets/section_header.dart';
 import 'filtered_series_screen.dart';
 import 'glossary_screen.dart';
@@ -137,12 +138,14 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     // Which of the two paths answered, in the log. The difference is only
     // visible in-app as the wording under a pick, which is a thin thing to
     // hang "is this feature working" on.
-    semanticLog(semantic.isEmpty
-        ? 'more like this for "${widget.series.title}": no vector for it, '
-            '${vectors.length} in the index — ranking on metadata instead'
-        : 'more like this for "${widget.series.title}": ${semantic.length} '
-            'by meaning, closest '
-            '${semantic.first.similarity.toStringAsFixed(2)}');
+    semanticLog(
+      semantic.isEmpty
+          ? 'more like this for "${widget.series.title}": no vector for it, '
+                '${vectors.length} in the index — ranking on metadata instead'
+          : 'more like this for "${widget.series.title}": ${semantic.length} '
+                'by meaning, closest '
+                '${semantic.first.similarity.toStringAsFixed(2)}',
+    );
 
     final status = await _statusStore.statusFor(widget.series.opdsId);
     setState(() {
@@ -699,32 +702,41 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
         children: [
-          _Header(
-            series: series,
-            imageHeaders: OpdsClient(widget.settings).authHeaders,
-            onAuthorTap: () => _openAuthor(series.author),
+          RiseIn(
+            child: _Header(
+              series: series,
+              imageHeaders: OpdsClient(widget.settings).authHeaders,
+              onAuthorTap: () => _openAuthor(series.author),
+            ),
           ),
           if (series.genres.isNotEmpty) ...[
             const SizedBox(height: 20),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final genre in series.genres)
-                  ActionChip(
-                    label: Text(genre),
-                    onPressed: () => _openGenre(genre),
-                  ),
-              ],
+            RiseIn(
+              delayMs: 90,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final genre in series.genres)
+                    ActionChip(
+                      label: Text(genre),
+                      onPressed: () => _openGenre(genre),
+                    ),
+                ],
+              ),
             ),
           ],
           if (series.description.isNotEmpty) ...[
             const SizedBox(height: 20),
-            _Description(
-              text: series.description,
-              expanded: _descriptionExpanded,
-              onToggle: () =>
-                  setState(() => _descriptionExpanded = !_descriptionExpanded),
+            RiseIn(
+              delayMs: 180,
+              child: _Description(
+                text: series.description,
+                expanded: _descriptionExpanded,
+                onToggle: () => setState(
+                  () => _descriptionExpanded = !_descriptionExpanded,
+                ),
+              ),
             ),
           ],
           const SizedBox(height: 12),
@@ -932,17 +944,8 @@ class _Header extends StatelessWidget {
         SizedBox(
           width: 116,
           height: 174,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.4),
-                  blurRadius: 8,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
+          child: BreathingGlow(
+            borderRadius: BorderRadius.circular(10),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: _Cover(series: series, headers: imageHeaders),

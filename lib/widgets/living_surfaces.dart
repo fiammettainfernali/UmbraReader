@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/cupertino.dart' show CupertinoPageTransitionsBuilder;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -23,26 +24,51 @@ const _deep = Color(0xFF5A0710);
 /// (120 a second on a recent phone) even when it then draws nothing, and that
 /// was what kept the app busy at rest. It runs only while the screen holding it
 /// is on show, the app is open and movement is allowed.
+///
+/// One timer serves everything using it, so a screenful of glimmers all move on
+/// the same beat and cost one frame. With a timer each they'd fall out of step
+/// and wake the phone many times as often.
 mixin SlowClock<T extends StatefulWidget> on State<T> {
   static const _beat = Duration(milliseconds: 41);
 
-  final ValueNotifier<double> seconds = ValueNotifier(0);
-  final Stopwatch _watch = Stopwatch();
-  late final AppLifecycleListener _lifecycle;
-  Timer? _timer;
+  /// One clock for the whole app, so the embers carry on from one screen to
+  /// the next instead of jumping back to where they started.
+  static final Stopwatch _watch = Stopwatch()..start();
+  static final Set<SlowClock> _running = {};
+  static Timer? _timer;
 
-  bool get clockRunning => _timer != null;
+  static void _onBeat(Timer _) {
+    final now = _watch.elapsedMilliseconds / 1000;
+    for (final clock in _running) {
+      clock.seconds.value = now;
+    }
+  }
+
+  late final ValueNotifier<double> seconds = ValueNotifier(
+    _watch.elapsedMilliseconds / 1000,
+  );
+  late final AppLifecycleListener _lifecycle;
+  bool _phoneReduced = false;
+  bool _onShow = true;
+
+  bool get clockRunning => _running.contains(this);
 
   @override
   void initState() {
     super.initState();
     _lifecycle = AppLifecycleListener(onStateChange: (_) => _syncClock());
     AppMotion.reduceAnimations.addListener(_syncClock);
+    AppMotion.stillScreens.addListener(_syncClock);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // Read here and kept: the listeners can fire while a screen is being taken
+    // down, when looking things up through the context is no longer safe.
+    _phoneReduced = MediaQuery.of(context).disableAnimations;
+    // A tab that isn't chosen stays alive but hidden, and only Visibility says so.
+    _onShow = TickerMode.valuesOf(context).enabled && Visibility.of(context);
     _syncClock();
   }
 
@@ -55,27 +81,97 @@ mixin SlowClock<T extends StatefulWidget> on State<T> {
         life == AppLifecycleState.inactive;
     final run =
         open &&
-        TickerMode.valuesOf(context).enabled &&
-        !AppMotion.isReduced(context);
-    if (run && _timer == null) {
-      _watch.start();
-      _timer = Timer.periodic(_beat, (_) {
-        seconds.value = _watch.elapsedMilliseconds / 1000;
-      });
-    } else if (!run && _timer != null) {
-      _watch.stop();
-      _timer!.cancel();
+        _onShow &&
+        !_phoneReduced &&
+        !AppMotion.reduceAnimations.value &&
+        AppMotion.stillScreens.value == 0;
+    if (run) {
+      _running.add(this);
+      _timer ??= Timer.periodic(_beat, _onBeat);
+    } else {
+      _stopClock();
+    }
+  }
+
+  void _stopClock() {
+    _running.remove(this);
+    if (_running.isEmpty) {
+      _timer?.cancel();
       _timer = null;
     }
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _stopClock();
     _lifecycle.dispose();
     AppMotion.reduceAnimations.removeListener(_syncClock);
+    AppMotion.stillScreens.removeListener(_syncClock);
     seconds.dispose();
     super.dispose();
+  }
+}
+
+/// Every screen in the app, drawn over the embers. Scaffolds inside go clear so
+/// they show through, and app bars stay nearly solid: a cover's own title
+/// showing through made the heading on top of it hard to read.
+class LivingPage extends StatelessWidget {
+  const LivingPage({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const EmberBackdrop(),
+        Theme(
+          data: theme.copyWith(
+            scaffoldBackgroundColor: Colors.transparent,
+            appBarTheme: theme.appBarTheme.copyWith(
+              backgroundColor: const Color(0xF2060304),
+              scrolledUnderElevation: 0,
+            ),
+          ),
+          child: child,
+        ),
+      ],
+    );
+  }
+}
+
+/// Gives every pushed screen its [LivingPage], in one place rather than at each
+/// of the many spots that open a screen, then moves it the platform's own way.
+/// Each page is solid, so nothing of the one beneath shows during the change.
+class LivingPageTransitions extends PageTransitionsBuilder {
+  const LivingPageTransitions();
+
+  static const _android = ZoomPageTransitionsBuilder();
+  static const _ios = CupertinoPageTransitionsBuilder();
+
+  /// Kept per screen: this runs on every frame of a transition, and handing
+  /// back the same widget means the page isn't rebuilt each time.
+  static final Expando<Widget> _pages = Expando();
+
+  @override
+  Widget buildTransitions<T>(
+    PageRoute<T> route,
+    BuildContext context,
+    Animation<double> animation,
+    Animation<double> secondaryAnimation,
+    Widget child,
+  ) {
+    final PageTransitionsBuilder inner =
+        Theme.of(context).platform == TargetPlatform.iOS ? _ios : _android;
+    return inner.buildTransitions(
+      route,
+      context,
+      animation,
+      secondaryAnimation,
+      _pages[route] ??= LivingPage(child: child),
+    );
   }
 }
 
@@ -268,6 +364,81 @@ class _PanelGlowState extends State<PanelGlow> with SlowClock {
   }
 }
 
+/// A small icon that glimmers, like the sparkle on a section heading.
+class Twinkle extends StatefulWidget {
+  const Twinkle({super.key, required this.child, this.phase = 0});
+
+  final Widget child;
+
+  /// Where in its glimmer it starts, so a screenful don't pulse in step.
+  final double phase;
+
+  @override
+  State<Twinkle> createState() => _TwinkleState();
+}
+
+class _TwinkleState extends State<Twinkle> with SlowClock {
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: ValueListenableBuilder<double>(
+        valueListenable: seconds,
+        child: widget.child,
+        builder: (context, elapsed, child) {
+          final pulse = 0.5 + 0.5 * math.sin(elapsed * 1.4 + widget.phase);
+          return Opacity(
+            opacity: 0.55 + 0.45 * pulse,
+            child: Transform.scale(scale: 0.86 + 0.2 * pulse, child: child),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// A soft red glow around a featured cover, breathing slowly.
+class BreathingGlow extends StatefulWidget {
+  const BreathingGlow({
+    super.key,
+    required this.child,
+    required this.borderRadius,
+  });
+
+  final Widget child;
+  final BorderRadius borderRadius;
+
+  @override
+  State<BreathingGlow> createState() => _BreathingGlowState();
+}
+
+class _BreathingGlowState extends State<BreathingGlow> with SlowClock {
+  @override
+  Widget build(BuildContext context) {
+    return RepaintBoundary(
+      child: ValueListenableBuilder<double>(
+        valueListenable: seconds,
+        child: widget.child,
+        builder: (context, elapsed, child) {
+          final pulse = 0.5 + 0.5 * math.sin(elapsed * 0.9);
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: widget.borderRadius,
+              boxShadow: [
+                BoxShadow(
+                  color: _red.withValues(alpha: 0.28 + 0.3 * pulse),
+                  blurRadius: 14 + 12 * pulse,
+                  spreadRadius: 1 + pulse,
+                ),
+              ],
+            ),
+            child: child,
+          );
+        },
+      ),
+    );
+  }
+}
+
 /// Sinks a little under a finger and springs back. Uses a raw pointer listener,
 /// so it never competes with the tap, long-press or scroll underneath.
 class PressScale extends StatefulWidget {
@@ -305,17 +476,25 @@ class _PressScaleState extends State<PressScale> {
 
 /// Fades and rises into place once, when it first appears.
 class RiseIn extends StatelessWidget {
-  const RiseIn({super.key, required this.child});
+  const RiseIn({super.key, required this.child, this.delayMs = 0});
 
   final Widget child;
+
+  /// How long it waits first, so a page's sections arrive one after another.
+  final int delayMs;
 
   @override
   Widget build(BuildContext context) {
     if (AppMotion.isReduced(context)) return child;
+    const riseMs = 460;
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 460),
-      curve: Curves.easeOutCubic,
+      duration: Duration(milliseconds: delayMs + riseMs),
+      curve: Interval(
+        delayMs / (delayMs + riseMs),
+        1,
+        curve: Curves.easeOutCubic,
+      ),
       child: child,
       builder: (context, value, child) => Opacity(
         opacity: value,

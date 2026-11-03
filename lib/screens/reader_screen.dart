@@ -20,6 +20,7 @@ import '../models/epub_book.dart';
 import '../models/reader_settings.dart';
 import '../models/reader_theme.dart';
 import '../models/volume.dart';
+import '../services/app_motion.dart';
 import '../services/bookmark_store.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/dictionary_service.dart';
@@ -100,6 +101,7 @@ class ReaderScreen extends StatefulWidget {
 
 class _ReaderScreenState extends State<ReaderScreen>
     with
+        HoldsMotionStill,
         WidgetsBindingObserver,
         ReaderSelection,
         ReaderSession {

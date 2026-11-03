@@ -12,6 +12,27 @@ class AppMotion {
   /// The saved switch, kept current by [ReaderPreferences].
   static final ValueNotifier<bool> reduceAnimations = ValueNotifier(false);
 
+  /// How many open screens want everything still. See [HoldsMotionStill].
+  static final ValueNotifier<int> stillScreens = ValueNotifier(0);
+
   static bool isReduced(BuildContext context) =>
       MediaQuery.of(context).disableAnimations || reduceAnimations.value;
+}
+
+/// For a screen where the embers would only spend battery: the reader, whose
+/// page covers them and where the phone may sit open for hours, and the web
+/// views. Movement stays stopped for as long as the screen is open, including
+/// behind anything opened from it.
+mixin HoldsMotionStill<T extends StatefulWidget> on State<T> {
+  @override
+  void initState() {
+    super.initState();
+    AppMotion.stillScreens.value++;
+  }
+
+  @override
+  void dispose() {
+    AppMotion.stillScreens.value--;
+    super.dispose();
+  }
 }

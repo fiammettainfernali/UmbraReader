@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../services/app_motion.dart';
 import '../services/control_client.dart';
 import '../services/settings_service.dart';
 import '../services/pending_add_store.dart';
@@ -30,7 +31,7 @@ class BrowseScreen extends StatefulWidget {
   State<BrowseScreen> createState() => _BrowseScreenState();
 }
 
-class _BrowseScreenState extends State<BrowseScreen> {
+class _BrowseScreenState extends State<BrowseScreen> with HoldsMotionStill {
   late final ControlClient _client = ControlClient(widget.settings);
   late final WebViewController _web;
   final TextEditingController _urlField = TextEditingController();
