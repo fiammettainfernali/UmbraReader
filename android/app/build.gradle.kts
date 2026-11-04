@@ -62,6 +62,9 @@ android {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // Already here through webview_flutter. Named so MainActivity can use it,
+    // at the same version so nothing new comes down.
+    implementation("androidx.webkit:webkit:1.15.0")
 }
 
 flutter {

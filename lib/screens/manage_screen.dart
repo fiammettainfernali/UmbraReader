@@ -13,7 +13,7 @@ import '../widgets/duplicate_sheet.dart';
 import '../widgets/hawthorne_parts.dart';
 import 'library_home.dart';
 import '../widgets/text_prompt.dart';
-import 'browse_screen.dart';
+import 'novel_browser_screen.dart';
 import 'novel_search_screen.dart';
 import 'series_detail_screen.dart';
 
@@ -345,7 +345,7 @@ class _ManageScreenState extends State<ManageScreen>
   Future<void> _openBrowser() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => BrowseScreen(settings: widget.settings),
+        builder: (_) => NovelBrowserScreen(settings: widget.settings),
       ),
     );
     // Anything added in the browser lands in the queue below — or in the

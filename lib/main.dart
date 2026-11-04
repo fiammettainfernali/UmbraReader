@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'screens/home_shell.dart';
@@ -12,7 +13,9 @@ import 'services/pro_service.dart';
 import 'services/reader_preferences.dart';
 import 'services/reminder_service.dart';
 import 'services/settings_service.dart';
+import 'services/shared_link.dart';
 import 'widgets/living_surfaces.dart';
+import 'widgets/share_sheet.dart';
 
 /// Sentry crash-reporting DSN, baked in at build time via
 /// `--dart-define=SENTRY_DSN=…` (a Codemagic env var). Empty in local/dev
@@ -312,13 +315,27 @@ class _RootGate extends StatefulWidget {
 }
 
 class _RootGateState extends State<_RootGate> {
+  static const _shareChannel = MethodChannel('umbra/share');
+
   bool _resolving = true;
   bool _showOnboarding = false;
+
+  /// One at a time, so two links shared quickly each get their own answer.
+  Future<void> _shares = Future.value();
 
   @override
   void initState() {
     super.initState();
+    _shareChannel.setMethodCallHandler((call) async {
+      if (call.method == 'shared') _onShared(call.arguments);
+    });
     _resolve();
+  }
+
+  @override
+  void dispose() {
+    _shareChannel.setMethodCallHandler(null);
+    super.dispose();
   }
 
   Future<void> _resolve() async {
@@ -329,6 +346,27 @@ class _RootGateState extends State<_RootGate> {
     setState(() {
       _showOnboarding = !settings.isConfigured && !seen;
       _resolving = false;
+    });
+    // A share that's what opened the app was waiting for there to be a screen.
+    try {
+      _onShared(await _shareChannel.invokeMethod<Object?>('takeWaiting'));
+    } on PlatformException {
+      // Nothing to pick up.
+    } on MissingPluginException {
+      // Not on Android.
+    }
+  }
+
+  void _onShared(Object? arguments) {
+    if (arguments is! Map) return;
+    final link = readSharedText(
+      arguments['text'] as String?,
+      arguments['subject'] as String?,
+    );
+    _shares = _shares.then((_) async {
+      final settings = await SettingsService().load();
+      if (!mounted) return;
+      await showShareSheet(context, link, settings);
     });
   }
 

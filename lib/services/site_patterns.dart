@@ -98,6 +98,15 @@ PageKind classify(Uri url) {
       : PageKind.supportedSite;
 }
 
+/// A page's address without the query or anything after it, which is how the
+/// computer knows a novel whatever link led to it.
+String bareAddress(Uri url) => Uri(
+  scheme: url.scheme,
+  host: url.host,
+  port: url.hasPort ? url.port : null,
+  path: url.path,
+).toString();
+
 /// For a chapter URL whose path carries the novel's slug, the URL of the
 /// novel's main page — so the button can offer the *right* thing from
 /// inside a chapter. Null when it can't be derived safely.

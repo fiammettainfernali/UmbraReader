@@ -28,6 +28,7 @@ import '../services/settings_service.dart';
 import '../widgets/add_to_collection_sheet.dart';
 import '../widgets/action_sheet.dart';
 import '../widgets/living_surfaces.dart';
+import 'comic_browser_screen.dart';
 import 'library_home.dart';
 import 'backup_screen.dart';
 import 'collections_screen.dart';
@@ -366,6 +367,13 @@ class _LibraryScreenState extends State<LibraryScreen>
     if (learned > 0 && mounted) await _loadWebSeries();
   }
 
+  Future<void> _openComicBrowser() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const ComicBrowserScreen()));
+    await _loadWebSeries();
+  }
+
   Future<void> _openWebSeries(WebSeries series) async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(builder: (_) => WebSeriesScreen(series: series)),
@@ -455,13 +463,18 @@ class _LibraryScreenState extends State<LibraryScreen>
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  'Find a comic in Discover → Browse the sites, then tap '
-                  'Follow. It stays on its own site; this remembers your '
-                  'place and tells you when it grows.',
+                  'Find a comic and tap Follow. It stays on its own site; '
+                  'this remembers your place and tells you when it grows.',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.outline,
                   ),
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: _openComicBrowser,
+                  icon: const Icon(Icons.image_search, size: 20),
+                  label: const Text('Find comics'),
                 ),
               ],
             ),
@@ -470,6 +483,16 @@ class _LibraryScreenState extends State<LibraryScreen>
       ];
     }
     return [
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 6),
+          child: OutlinedButton.icon(
+            onPressed: _openComicBrowser,
+            icon: const Icon(Icons.image_search, size: 20),
+            label: const Text('Find more comics'),
+          ),
+        ),
+      ),
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
         sliver: SliverGrid.builder(

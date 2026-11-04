@@ -9,7 +9,8 @@ import '../services/reading_progress_store.dart';
 import '../services/recommendation_loader.dart';
 import '../services/settings_service.dart';
 import '../widgets/hawthorne_parts.dart';
-import 'browse_screen.dart';
+import 'comic_browser_screen.dart';
+import 'novel_browser_screen.dart';
 import 'library_home.dart';
 import 'library_recommendations.dart';
 import 'library_search_screen.dart';
@@ -211,9 +212,16 @@ class DiscoverScreenState extends State<DiscoverScreen>
   Future<void> _openBrowser() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => BrowseScreen(settings: widget.settings),
+        builder: (_) => NovelBrowserScreen(settings: widget.settings),
       ),
     );
+    if (mounted) await _load();
+  }
+
+  Future<void> _openComicBrowser() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const ComicBrowserScreen()));
     if (mounted) await _load();
   }
 
@@ -355,9 +363,17 @@ class DiscoverScreenState extends State<DiscoverScreen>
             _searchRow(
               theme,
               icon: Icons.language,
-              label: 'Browse the sites',
-              subtitle: 'Look around and send anything to your computer',
+              label: 'Browse novel sites',
+              subtitle: 'Send novels to your computer right from the lists',
               onTap: _openBrowser,
+            ),
+            _hairline(theme),
+            _searchRow(
+              theme,
+              icon: Icons.image_search,
+              label: 'Browse comics',
+              subtitle: 'Find comics and follow them to read here',
+              onTap: _openComicBrowser,
             ),
           ],
         ),

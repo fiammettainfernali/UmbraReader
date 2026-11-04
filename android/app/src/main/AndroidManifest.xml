@@ -49,6 +49,20 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- In Android's share menu, for sending a link to the computer. It only
+             passes the link on to MainActivity and has no screen of its own. -->
+        <activity
+            android:name=".ShareTargetActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/plain"/>
+            </intent-filter>
+        </activity>
         <!-- Hands a volume's EPUB to another app to open. The file lives in
              app-private storage, so a path is no use to anybody else: a
              reader app can only be given a content:// URI it has been
