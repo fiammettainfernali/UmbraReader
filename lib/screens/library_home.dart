@@ -8,6 +8,7 @@ import '../models/series.dart';
 import '../services/app_motion.dart';
 import '../services/reading_progress_store.dart';
 import '../services/series_status_store.dart';
+import '../widgets/hawthorne_parts.dart';
 import '../widgets/living_surfaces.dart';
 import 'library_cards.dart';
 
@@ -83,12 +84,15 @@ List<Series> pickSpotlight(
 /// A book only counts as finished once the very end of its last page is reached,
 /// so most books read up to date never quite get there, and sat here for good
 /// on "Chapter 191 of 191". Left on the last chapter for [caughtUpAfter], a book
-/// counts as caught up. New chapters raise its count, which takes it off the
-/// last chapter and brings it back without anyone doing anything.
+/// counts as caught up, until new chapters bring it back. [hasNewChapters] is how
+/// that's known for a book on the device: its own chapter count only changes once
+/// it's downloaded again, so without asking, it could never return. A book read
+/// from the server has its count refreshed, which takes it off the last chapter.
 List<ReadingEntry> continueShelf(
   List<ReadingEntry> entries, {
   required Set<String> hidden,
   required Map<int, SeriesStatus> statuses,
+  bool Function(int seriesId)? hasNewChapters,
   int limit = 12,
   Duration caughtUpAfter = const Duration(days: 3),
   DateTime? now,
@@ -113,7 +117,7 @@ List<ReadingEntry> continueShelf(
       continue;
     }
     if (hidden.contains('$id/${entry.volume.fileName}')) continue;
-    if (caughtUp(progress)) continue;
+    if (caughtUp(progress) && !(hasNewChapters?.call(id) ?? false)) continue;
     shelf.add(entry);
     if (shelf.length == limit) break;
   }
@@ -1451,6 +1455,58 @@ class _NewBadge extends StatelessWidget {
       child: const Text(
         'New',
         style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800),
+      ),
+    );
+  }
+}
+
+/// Shown while a book's new chapters come down, just before it opens.
+class GettingChaptersDialog extends StatelessWidget {
+  const GettingChaptersDialog({
+    super.key,
+    required this.title,
+    required this.progress,
+    required this.onSkip,
+  });
+
+  final String title;
+
+  /// Null until the download itself starts, while it's still checking.
+  final ValueListenable<double?> progress;
+
+  /// Stops waiting and opens the copy on the device.
+  final VoidCallback onSkip;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) onSkip();
+      },
+      child: AlertDialog(
+        title: const Text('Getting new chapters'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 14),
+            ValueListenableBuilder<double?>(
+              valueListenable: progress,
+              builder: (context, value, _) => StripedBar(value: value),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: onSkip, child: const Text('Read what I have')),
+        ],
       ),
     );
   }

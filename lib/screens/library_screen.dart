@@ -7,6 +7,8 @@ import '../models/collection.dart';
 import '../models/saved_view.dart';
 import '../models/series.dart';
 import '../models/volume.dart';
+import '../services/book_freshener.dart';
+import '../services/download_service.dart';
 import '../services/library_cache.dart';
 import '../services/library_storage.dart';
 import '../services/opds_client.dart';
@@ -146,6 +148,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   Map<int, SeriesStatus> get seriesStatuses => _seriesStatus;
 
   Set<int> _removedFromReading = const {};
+  Set<String> _hiddenFromShelf = const {};
 
   @override
   Set<int> get seriesRemovedFromReading => _removedFromReading;
@@ -565,8 +568,13 @@ class _LibraryScreenState extends State<LibraryScreen>
       if (any) revived = await ReadingProgressStore().allEntries();
     }
 
-    List<ReadingEntry> shelf(List<ReadingEntry> from) =>
-        continueShelf(from, hidden: hidden, statuses: status);
+    _hiddenFromShelf = hidden;
+    List<ReadingEntry> shelf(List<ReadingEntry> from) => continueShelf(
+      from,
+      hidden: hidden,
+      statuses: status,
+      hasNewChapters: _seriesIdHasUpdate,
+    );
 
     // Series taken off the shelf by hand aren't offered as Reading either.
     // They aren't unread or finished, so they stay under All alone.
@@ -630,7 +638,22 @@ class _LibraryScreenState extends State<LibraryScreen>
     final store = DownloadStore(LibraryStorage());
     await store.load();
     if (!mounted) return;
-    setState(() => _downloads = store);
+    setState(() {
+      _downloads = store;
+      // Which books have new chapters depends on what's on the device, and that
+      // decides whether a caught-up book is back on the shelf.
+      _reading = continueShelf(
+        _allReadingEntries,
+        hidden: _hiddenFromShelf,
+        statuses: _seriesStatus,
+        hasNewChapters: _seriesIdHasUpdate,
+      );
+    });
+  }
+
+  bool _seriesIdHasUpdate(int seriesId) {
+    final series = _seriesById(seriesId);
+    return series != null && _seriesHasUpdate(series);
   }
 
   /// True when a series has content newer than what's been downloaded — its
@@ -814,10 +837,59 @@ class _LibraryScreenState extends State<LibraryScreen>
 
   /// Opens a volume straight into the reader (from a "Continue reading" card).
   Future<void> _openVolume(Volume volume) async {
+    final toOpen = _seriesIdHasUpdate(volume.seriesOpdsId)
+        ? await _bringUpToDate(volume)
+        : volume;
+    if (!mounted) return;
     await Navigator.of(context).push(
-      MaterialPageRoute<void>(builder: (_) => ReaderScreen(volume: volume)),
+      MaterialPageRoute<void>(builder: (_) => ReaderScreen(volume: toOpen)),
     );
+    await _loadDownloads();
     await _loadReading();
+  }
+
+  /// Gets the new chapters for a book about to open, with a bar to watch and a
+  /// way to skip the wait. Whatever happens there's something to open.
+  Future<Volume> _bringUpToDate(Volume volume) async {
+    final settings = _settings;
+    final store = _downloads;
+    if (settings == null || store == null) return volume;
+    final service = DownloadService(
+      settings: settings,
+      storage: LibraryStorage(),
+      store: store,
+    );
+    final progress = ValueNotifier<double?>(null);
+    final job = BookFreshener(
+      fetchVolumes: OpdsClient(settings).fetchVolumes,
+      recordFor: store.recordFor,
+      download: (current, onProgress) =>
+          service.download(current, onProgress: onProgress),
+    ).run(volume, onProgress: (p) => progress.value = p);
+
+    final navigator = Navigator.of(context, rootNavigator: true);
+    var waiting = true;
+    final shown = showDialog<FreshenOutcome>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => GettingChaptersDialog(
+        title: _seriesById(volume.seriesOpdsId)?.title ?? volume.title,
+        progress: progress,
+        onSkip: () => navigator.pop(),
+      ),
+    );
+    // Skipping leaves the download running, and that's safe. The reader holds
+    // the book in memory, and the new copy is simply there for next time.
+    unawaited(
+      job.then((outcome) {
+        if (waiting && mounted) navigator.pop(outcome);
+      }),
+    );
+    final outcome = await shown;
+    waiting = false;
+    if (outcome == null) return volume;
+    if (outcome.note != null && mounted) _snack(outcome.note!);
+    return outcome.volume;
   }
 
   /// Long-press menu for a series cover in the grid: open, add to a

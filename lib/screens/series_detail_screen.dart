@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import '../models/download_record.dart';
 import '../models/series.dart';
 import '../models/volume.dart';
+import '../services/book_freshener.dart';
 import '../services/download_service.dart';
 import '../services/library_cache.dart';
 import '../services/library_storage.dart';
@@ -296,19 +297,8 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
 
   /// True when the server's copy of [volume] differs from what was downloaded
   /// — i.e. Novel Grabber re-compiled it with new chapters.
-  bool _isStale(Volume volume, DownloadRecord record) {
-    final serverTime = volume.updatedAt;
-    final recordTime = record.volumeUpdatedAt;
-    final timeChanged =
-        serverTime != null &&
-        recordTime != null &&
-        serverTime.isAfter(recordTime);
-    final sizeChanged =
-        volume.fileSizeBytes > 0 &&
-        record.sizeBytes > 0 &&
-        volume.fileSizeBytes != record.sizeBytes;
-    return timeChanged || sizeChanged;
-  }
+  bool _isStale(Volume volume, DownloadRecord record) =>
+      volumeChangedOnServer(volume, record);
 
   Future<void> _download(Volume volume) async {
     setState(() => _progress[volume.fileName] = 0);
