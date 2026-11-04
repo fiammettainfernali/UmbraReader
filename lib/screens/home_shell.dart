@@ -76,6 +76,10 @@ class _HomeShellState extends State<HomeShell> {
         // The bar is glass, so the tabs have to scroll underneath it — with
         // nothing passing behind it there is nothing to blur.
         extendBody: true,
+        // Each tab is a Scaffold that makes room for the keyboard itself. With
+        // this one doing it too the room was taken twice, and a search left the
+        // library a thin strip with its results out of sight.
+        resizeToAvoidBottomInset: false,
         body: MediaQuery(
           // Hand the tabs the bar's full footprint as bottom padding. They paint
           // beneath it now, so their lists and floating buttons need to know to

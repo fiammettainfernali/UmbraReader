@@ -76,6 +76,10 @@ class UmbraReaderApp extends StatelessWidget {
     // The strong red fills buttons, with white on it. Text and icons use the
     // lighter one, because the strong red is too dim to read at small sizes.
     const red = Color(0xFFE5121F);
+    const ink = Color(0xFF150608);
+    const paper = Color(0xFFF7EFEF);
+    const panel = Color(0xFF10060A);
+    const edge = Color(0x3DFF5A5A);
     final scheme =
         ColorScheme.fromSeed(
           seedColor: red,
@@ -150,17 +154,106 @@ class UmbraReaderApp extends StatelessWidget {
         ),
       ),
       cardTheme: CardThemeData(
-        color: scheme.surfaceContainerHigh,
+        color: panel,
         elevation: 0,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(18),
+          side: const BorderSide(color: edge),
+        ),
       ),
+      // Dark pills, and white when chosen, as on the desktop.
       chipTheme: base.chipTheme.copyWith(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: const StadiumBorder(side: BorderSide(color: Color(0x29FFFFFF))),
+        side: const BorderSide(color: Color(0x29FFFFFF)),
+        backgroundColor: const Color(0x17FFFFFF),
+        selectedColor: paper,
+        secondarySelectedColor: paper,
+        checkmarkColor: ink,
+        labelStyle: TextStyle(
+          fontFamily: 'Manrope',
+          fontWeight: FontWeight.w600,
+          color: WidgetStateColor.resolveWith(
+            (states) =>
+                states.contains(WidgetState.selected) ? ink : scheme.onSurface,
+          ),
+        ),
+      ),
+      segmentedButtonTheme: SegmentedButtonThemeData(
+        style: ButtonStyle(
+          // Small enough that three choices with icons, like Auto, Portrait and
+          // Landscape, fit a phone without breaking a word in two.
+          textStyle: const WidgetStatePropertyAll(
+            TextStyle(
+              fontFamily: 'Manrope',
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: 6),
+          ),
+          backgroundColor: WidgetStateProperty.resolveWith(
+            (states) => states.contains(WidgetState.selected)
+                ? paper
+                : const Color(0xFF1A0B0E),
+          ),
+          foregroundColor: WidgetStateProperty.resolveWith(
+            (states) =>
+                states.contains(WidgetState.selected) ? ink : scheme.onSurface,
+          ),
+          side: const WidgetStatePropertyAll(
+            BorderSide(color: Color(0x1FFFFFFF)),
+          ),
+        ),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
           backgroundColor: red,
           foregroundColor: Colors.white,
+          shape: const StadiumBorder(),
+          minimumSize: const Size(0, 46),
+          textStyle: const TextStyle(
+            fontFamily: 'Manrope',
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: scheme.onSurface,
+          shape: const StadiumBorder(),
+          minimumSize: const Size(0, 46),
+          side: const BorderSide(color: Color(0x99FF5A5A)),
+          textStyle: const TextStyle(
+            fontFamily: 'Manrope',
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      searchBarTheme: SearchBarThemeData(
+        elevation: const WidgetStatePropertyAll(0),
+        constraints: const BoxConstraints(minHeight: 44),
+        backgroundColor: const WidgetStatePropertyAll(Color(0xFF1A0B0E)),
+        side: const WidgetStatePropertyAll(
+          BorderSide(color: Color(0x1FFFFFFF)),
+        ),
+      ),
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: const Color(0xFF1A0B0E),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: Color(0x1FFFFFFF)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: Color(0x1FFFFFFF)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: const BorderSide(color: red),
         ),
       ),
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
@@ -168,7 +261,18 @@ class UmbraReaderApp extends StatelessWidget {
         foregroundColor: Colors.white,
       ),
       navigationBarTheme: NavigationBarThemeData(
-        indicatorColor: red,
+        labelTextStyle: WidgetStateProperty.resolveWith(
+          (states) => TextStyle(
+            fontFamily: 'Manrope',
+            fontSize: 12,
+            fontWeight: states.contains(WidgetState.selected)
+                ? FontWeight.w800
+                : FontWeight.w600,
+            color: states.contains(WidgetState.selected)
+                ? Colors.white
+                : scheme.onSurfaceVariant,
+          ),
+        ),
         iconTheme: WidgetStateProperty.resolveWith(
           (states) => IconThemeData(
             color: states.contains(WidgetState.selected)

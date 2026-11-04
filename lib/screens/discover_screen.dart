@@ -10,7 +10,7 @@ import '../services/recommendation_loader.dart';
 import '../services/settings_service.dart';
 import '../widgets/section_header.dart';
 import 'browse_screen.dart';
-import 'library_cards.dart';
+import 'library_home.dart';
 import 'library_recommendations.dart';
 import 'library_search_screen.dart';
 import 'novel_search_screen.dart';
@@ -425,25 +425,21 @@ class DiscoverScreenState extends State<DiscoverScreen>
 
   /// A horizontal run of covers.
   Widget _shelf(List<Series> series) {
-    return SizedBox(
-      height: 218,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: series.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 12),
-        itemBuilder: (context, i) => SizedBox(
-          width: 110,
-          child: SeriesCard(
-            series: series[i],
-            imageHeaders: OpdsClient(widget.settings).authHeaders,
-            updateAvailable: _hasUpdate(series[i]),
-            onTap: () => openSeries(series[i]),
-            // No bulk actions on this tab, so a long press does the same
-            // as a tap rather than being a gesture that goes nowhere.
-            onLongPress: () => openSeries(series[i]),
-          ),
-        ),
+    final headers = OpdsClient(widget.settings).authHeaders;
+    return DriftingRow(
+      itemCount: series.length,
+      itemExtent: 136,
+      height: 238,
+      itemBuilder: (context, i, clock) => RowCard(
+        series: series[i],
+        headers: headers,
+        phase: i * 0.73,
+        clock: clock,
+        fresh: _hasUpdate(series[i]),
+        onTap: () => openSeries(series[i]),
+        // No bulk actions on this tab, so a long press does the same
+        // as a tap rather than being a gesture that goes nowhere.
+        onLongPress: () => openSeries(series[i]),
       ),
     );
   }

@@ -26,7 +26,7 @@ import '../services/settings_service.dart';
 import '../widgets/add_to_collection_sheet.dart';
 import '../widgets/action_sheet.dart';
 import '../widgets/living_surfaces.dart';
-import '../widgets/section_header.dart';
+import 'library_home.dart';
 import 'backup_screen.dart';
 import 'collections_screen.dart';
 import 'glossary_screen.dart';
@@ -100,6 +100,11 @@ class _LibraryScreenState extends State<LibraryScreen>
   /// Books that have been started but not finished, newest first.
   List<ReadingEntry> _reading = const [];
 
+  /// True after a row's See all, which swaps the spotlight and rows for the
+  /// whole library, sorted that row's way.
+  bool _homeCollapsed = false;
+  (LibrarySort, bool)? _sortBeforeCollapse;
+
   /// Comics followed on their own sites. Local rows, unrelated to the OPDS
   /// library, so they are on the shelf whether or not a server answers.
   List<WebSeries> _webSeries = const [];
@@ -139,6 +144,11 @@ class _LibraryScreenState extends State<LibraryScreen>
   /// that saturated the connection and slowed manual checking/downloading.
   @override
   Map<int, SeriesStatus> get seriesStatuses => _seriesStatus;
+
+  Set<int> _removedFromReading = const {};
+
+  @override
+  Set<int> get seriesRemovedFromReading => _removedFromReading;
   @override
   List<Collection> get libraryCollections => _collections;
   @override
@@ -406,23 +416,12 @@ class _LibraryScreenState extends State<LibraryScreen>
   /// choose between their library and an empty one.
   Widget _buildLibraryToggle() {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-      child: SegmentedButton<bool>(
-        segments: [
-          const ButtonSegment<bool>(
-            value: false,
-            icon: Icon(Icons.auto_stories_outlined, size: 18),
-            label: Text('Novels'),
-          ),
-          ButtonSegment<bool>(
-            value: true,
-            icon: const Icon(Icons.image_outlined, size: 18),
-            label: Text('Comics (${_webSeries.length})'),
-          ),
-        ],
-        selected: {_showingComics},
-        showSelectedIcon: false,
-        onSelectionChanged: (choice) => _setLibraryMode(choice.first),
+      padding: const EdgeInsets.only(bottom: 10),
+      child: SlidingPillBar<bool>(
+        values: const [false, true],
+        labels: ['Novels', 'Comics (${_webSeries.length})'],
+        selected: _showingComics,
+        onSelected: _setLibraryMode,
       ),
     );
   }
@@ -566,17 +565,22 @@ class _LibraryScreenState extends State<LibraryScreen>
       if (any) revived = await ReadingProgressStore().allEntries();
     }
 
-    // The Continue shelf excludes volumes the user hid; the filter chips
-    // (which use _allReadingEntries) still count them as in-progress.
-    List<ReadingEntry> shelf(List<ReadingEntry> from) => from
-        .where(
-          (e) =>
-              e.progress.isStarted &&
-              !e.progress.isFinished &&
-              !hidden.contains('${e.volume.seriesOpdsId}/${e.volume.fileName}'),
-        )
-        .take(12)
-        .toList();
+    List<ReadingEntry> shelf(List<ReadingEntry> from) =>
+        continueShelf(from, hidden: hidden, statuses: status);
+
+    // Series taken off the shelf by hand aren't offered as Reading either.
+    // They aren't unread or finished, so they stay under All alone.
+    Set<int> removed(List<ReadingEntry> from) {
+      final out = <int>{};
+      final settled = <int>{};
+      for (final e in from) {
+        if (e.progress.isFinished) continue;
+        final id = e.volume.seriesOpdsId;
+        if (!settled.add(id)) continue;
+        if (hidden.contains('$id/${e.volume.fileName}')) out.add(id);
+      }
+      return out;
+    }
 
     if (!mounted) return;
     setState(() {
@@ -586,6 +590,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       _dailyGoalMinutes = dailyGoal;
       _seriesStatus = status;
       _reading = shelf(revived);
+      _removedFromReading = removed(revived);
     });
 
     // Only now, with the shelf already on screen, re-measure streamed books.
@@ -613,6 +618,7 @@ class _LibraryScreenState extends State<LibraryScreen>
     setState(() {
       _allReadingEntries = remeasured;
       _reading = shelf(remeasured);
+      _removedFromReading = removed(remeasured);
     });
   }
 
@@ -718,12 +724,16 @@ class _LibraryScreenState extends State<LibraryScreen>
 
   /// Opens a series, then reloads so anything read or downloaded inside is
   /// reflected on return.
-  Future<void> openSeries(Series series) async {
+  Future<void> openSeries(Series series, {bool startReading = false}) async {
     final settings = _settings;
     if (settings == null) return;
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => SeriesDetailScreen(series: series, settings: settings),
+        builder: (_) => SeriesDetailScreen(
+          series: series,
+          settings: settings,
+          startReading: startReading,
+        ),
       ),
     );
     await _loadReading();
@@ -966,9 +976,23 @@ class _LibraryScreenState extends State<LibraryScreen>
       await ReadingProgressStore().markFinished(entry.volume);
       await _loadReading();
     } else if (action == 'remove') {
-      await ReadingProgressStore().hideFromContinue(entry.volume);
-      await _loadReading();
+      await _removeFromContinue(entry);
     }
+  }
+
+  /// Takes the whole series off the shelf. Hiding just the one volume left its
+  /// other started volumes to step into its place, so it looked as if nothing
+  /// had happened.
+  Future<void> _removeFromContinue(ReadingEntry entry) async {
+    final store = ReadingProgressStore();
+    final id = entry.volume.seriesOpdsId;
+    for (final other in _allReadingEntries) {
+      if (other.volume.seriesOpdsId == id) {
+        await store.hideFromContinue(other.volume);
+      }
+    }
+    await _loadReading();
+    _snack('Removed. It comes back when you read it again.');
   }
 
   /// Finds a loaded series by its OPDS id, or null if not in the library list.
@@ -1010,20 +1034,8 @@ class _LibraryScreenState extends State<LibraryScreen>
               // trigger from anywhere at the top (the large app bar used to
               // swallow the downward drag to re-expand itself first).
               pinned: true,
-              titleSpacing: 16,
-              title: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ExcludeSemantics(
-                    child: Image.asset(
-                      'assets/logo/hawthorne_emblem.png',
-                      height: 28,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  const Text('Library'),
-                ],
-              ),
+              titleSpacing: 12,
+              title: const HawthorneBrand(),
               actions: [
                 // Random and download-all moved into the menu below: both are
                 // occasional, and permanent bar space belongs to what is used
@@ -1247,7 +1259,12 @@ class _LibraryScreenState extends State<LibraryScreen>
     // and the streak all describe books held on the device.
     if (_showingComics) {
       return [
-        SliverToBoxAdapter(child: _buildLibraryToggle()),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
+            child: _buildLibraryToggle(),
+          ),
+        ),
         ..._buildComicsSlivers(),
       ];
     }
@@ -1267,44 +1284,93 @@ class _LibraryScreenState extends State<LibraryScreen>
       // Recently updated and Recommended now live on Discover: they are
       // about choosing something, not about the collection, and here they
       // pushed the actual grid below the fold.
-      final showHome =
-          searchQuery.trim().isEmpty && readingState == ReadingStateFilter.any;
-      final hasHomeContent =
-          showHome &&
-          (_reading.isNotEmpty ||
-              _activity.currentStreak() > 0 ||
-              _dailyGoalMinutes > 0);
+      final showHome = filtersAreClear && !_homeCollapsed;
+      if (showHome) _refreshHome(all);
+      final hasRows = showHome && (_homeRows.isNotEmpty || _reading.isNotEmpty);
 
       return [
-        // Only once there is a second library to switch to.
-        if (_webSeries.isNotEmpty)
-          SliverToBoxAdapter(child: _buildLibraryToggle()),
-        if (_offline) SliverToBoxAdapter(child: _buildOfflineBanner()),
+        if (_offline)
+          SliverToBoxAdapter(
+            child: OfflineStrip(reason: _offlineReason, onRetry: _sync),
+          ),
+        if (showHome && _spotlight.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Column(
+              children: [
+                SpotlightCarousel(
+                  key: ValueKey(_spotlight.map((s) => s.opdsId).join(',')),
+                  series: _spotlight,
+                  isReading: (series) => _readingEntryFor(series) != null,
+                  headers: _coverHeaders,
+                  onRead: _readFromSpotlight,
+                  onDetails: openSeries,
+                ),
+                // The spotlight ends in black and the embers begin in red, so
+                // this melts one into the other instead of leaving a hard line.
+                const SizedBox(
+                  height: 44,
+                  width: double.infinity,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Color(0xFF060304), Color(0x00060304)],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         if (bulkDownloading) SliverToBoxAdapter(child: buildBulkBanner()),
-        SliverToBoxAdapter(child: buildControls(all.length, visible.length)),
+        SliverToBoxAdapter(
+          child: LibraryToolbarCard(
+            count: all.length,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Only once there is a second library to switch to.
+                if (_webSeries.isNotEmpty) _buildLibraryToggle(),
+                buildControls(all.length, visible.length),
+              ],
+            ),
+          ),
+        ),
         if (showHome &&
             (_activity.currentStreak() > 0 || _dailyGoalMinutes > 0))
           SliverToBoxAdapter(child: _buildStreakChip()),
-        if (showHome && _reading.isNotEmpty)
-          SliverToBoxAdapter(child: _buildContinueHero()),
-        if (showHome && _reading.length > 1)
-          SliverToBoxAdapter(child: _buildContinueShelf()),
+        if (hasRows) _buildHomeRows(),
         // Only worth a heading when something sits above it. With nothing
-        // in progress the grid starts right under the controls, and
-        // "All books" would just be a label on the only thing there is.
-        if (hasHomeContent && visible.isNotEmpty)
-          SliverToBoxAdapter(child: _sectionHeader('All books')),
+        // in progress the grid starts right under the controls, and a title
+        // would just be a label on the only thing there is.
+        if (hasRows && visible.isNotEmpty)
+          const SliverToBoxAdapter(child: RowHeading(title: 'All novels')),
+        if (_homeCollapsed && filtersAreClear)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _restoreHome,
+                  icon: const Icon(Icons.auto_awesome, size: 16),
+                  label: const Text('Back to the spotlight and rows'),
+                ),
+              ),
+            ),
+          ),
         if (visible.isEmpty)
           SliverFillRemaining(hasScrollBody: false, child: buildEmptyState())
         else
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+            padding: const EdgeInsets.fromLTRB(14, 4, 14, 24),
             sliver: SliverGrid.builder(
               gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: 160,
-                childAspectRatio: 0.52,
-                crossAxisSpacing: 16,
-                mainAxisSpacing: 20,
+                maxCrossAxisExtent: 130,
+                childAspectRatio: 0.5,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 18,
               ),
               itemCount: visible.length,
               itemBuilder: (context, index) => SeriesCard(
@@ -1448,229 +1514,156 @@ class _LibraryScreenState extends State<LibraryScreen>
     );
   }
 
-  /// A slim banner shown above the grid when browsing the offline cache.
-  Widget _buildOfflineBanner() {
-    final theme = Theme.of(context);
-    return Container(
-      width: double.infinity,
-      color: theme.colorScheme.surfaceContainerHighest,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      child: Row(
-        children: [
-          Icon(
-            Icons.cloud_off_outlined,
-            size: 16,
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Offline — showing your saved library. Downloaded books '
-                  'can still be read.',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                if (_offlineReason != null && _offlineReason!.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Text(
-                      _offlineReason!,
-                      style: theme.textTheme.labelSmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant.withValues(
-                          alpha: 0.75,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
+  /// Auth for loading covers, once a server is set up.
+  Map<String, String> get _coverHeaders => (_settings?.isConfigured ?? false)
+      ? OpdsClient(_settings!).authHeaders
+      : const {};
+
+  // What the spotlight and rows hold. Worked out once per library and reading
+  // list rather than on every rebuild: it walks all 1,000-odd series.
+  List<Series> _spotlight = const [];
+  List<HomeRow> _homeRows = const [];
+  List<Series>? _homeRowsFor;
+  List<ReadingEntry>? _spotlightFor;
+
+  void _refreshHome(List<Series> library) {
+    if (!identical(_homeRowsFor, library)) {
+      _homeRowsFor = library;
+      _homeRows = buildHomeRows(library);
+      _spotlightFor = null;
+    }
+    if (!identical(_spotlightFor, _reading)) {
+      _spotlightFor = _reading;
+      _spotlight = pickSpotlight(library, [
+        for (final entry in _reading) entry.volume.seriesOpdsId,
+      ], DateTime.now());
+    }
+  }
+
+  ReadingEntry? _readingEntryFor(Series series) {
+    for (final entry in _reading) {
+      if (entry.volume.seriesOpdsId == series.opdsId) return entry;
+    }
+    return null;
+  }
+
+  /// A spotlight's main button: carries on with a book already started, and
+  /// otherwise opens its page set to start reading.
+  Future<void> _readFromSpotlight(Series series) async {
+    final entry = _readingEntryFor(series);
+    if (entry != null) {
+      await _openVolume(entry.volume);
+      return;
+    }
+    await openSeries(series, startReading: true);
+  }
+
+  void _seeAll(HomeRowTarget target) {
+    switch (target) {
+      case SeeGenre(:final genre):
+        showGenre(genre);
+      case SeeNewest():
+        _collapseHomeSortedBy(LibrarySort.recentlyUpdated);
+      case SeeLongest():
+        _collapseHomeSortedBy(LibrarySort.length);
+    }
+    _scrollToTop();
+  }
+
+  /// Looking through a row shouldn't change how the library is arranged from
+  /// then on, so the sort from before is kept to go back to.
+  void _collapseHomeSortedBy(LibrarySort next) {
+    if (!_homeCollapsed) _sortBeforeCollapse = (sort, sortDescending);
+    setSort(next);
+    setSortDescending(false);
+    setState(() => _homeCollapsed = true);
+  }
+
+  void _restoreHome() {
+    final before = _sortBeforeCollapse;
+    if (before != null) {
+      setSort(before.$1);
+      setSortDescending(before.$2);
+    }
+    setState(() => _homeCollapsed = false);
+  }
+
+  /// Everything between the toolbar and the full grid. One lazy list, so a row
+  /// scrolled out of sight isn't built, and so isn't drifting.
+  Widget _buildHomeRows() {
+    final headers = _coverHeaders;
+    final reading = _reading;
+    final byId = {
+      for (final series in _library ?? const <Series>[]) series.opdsId: series,
+    };
+    return SliverList.builder(
+      itemCount: _homeRows.length + (reading.isEmpty ? 0 : 1),
+      itemBuilder: (context, position) {
+        if (reading.isNotEmpty && position == 0) {
+          return _buildContinueRow(reading, byId, headers);
+        }
+        final row = _homeRows[position - (reading.isEmpty ? 0 : 1)];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            RowHeading(
+              title: row.title,
+              tag: row.tag,
+              onSeeAll: () => _seeAll(row.seeAll),
             ),
-          ),
-        ],
-      ),
+            DriftingRow(
+              key: PageStorageKey('row:${row.title}'),
+              itemCount: row.series.length,
+              itemExtent: 136,
+              height: 238,
+              reverse: row.reverse,
+              itemBuilder: (context, index, clock) {
+                final series = row.series[index];
+                return RowCard(
+                  series: series,
+                  headers: headers,
+                  phase: index * 0.73,
+                  clock: clock,
+                  fresh: _seriesHasUpdate(series),
+                  onTap: () => openSeries(series),
+                  onLongPress: () => _seriesCardMenu(series),
+                );
+              },
+            ),
+          ],
+        );
+      },
     );
   }
 
-  /// A big tappable "Resume reading" banner for the single most-recently-read
-  /// volume — saves a scroll into the horizontal shelf when there's only one
-  /// thing you're likely to pick back up.
-  ///
-  /// Layout note: the outer SizedBox pins the hero to a fixed height so the
-  /// inner Row never has to compute intrinsic heights. An earlier version
-  /// used Row(crossAxisAlignment.stretch) + Expanded(Column with Spacer),
-  /// which threw during the CustomScrollView's intrinsic-sizing pass and
-  /// silently nuked everything below it in the sliver list — so be careful
-  /// before reintroducing Spacer/Expanded inside this widget.
-  Widget _sectionHeader(String title) => SectionHeader(title);
-
-  Widget _buildContinueHero() {
-    final theme = Theme.of(context);
-    final entry = _reading.first;
-    final seriesById = {
-      for (final s in _library ?? const <Series>[]) s.opdsId: s,
-    };
-    final series = seriesById[entry.volume.seriesOpdsId];
-    final headers = (_settings?.isConfigured ?? false)
-        ? OpdsClient(_settings!).authHeaders
-        : const <String, String>{};
-    final title = series?.title ?? entry.volume.title;
-    final volumeLabel = entry.volume.title != title ? entry.volume.title : null;
-    final progress = entry.progress;
-    final chapterLabel = progress.chapterCount > 0
-        ? 'Chapter ${progress.chapterIndex + 1} of ${progress.chapterCount}'
-        : 'Chapter ${progress.chapterIndex + 1}';
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      child: PressScale(
-        child: Material(
-          color: theme.colorScheme.surfaceContainerHigh,
-          borderRadius: BorderRadius.circular(12),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            onTap: () => _openVolume(entry.volume),
-            onLongPress: () => _continueCardMenu(entry),
-            child: SizedBox(
-              height: 148,
-              child: Stack(
-                children: [
-                  const Positioned.fill(child: PanelGlow()),
-                  Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox(
-                          width: 88,
-                          height: 124,
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(6),
-                            child: series != null
-                                ? CoverImage(series: series, headers: headers)
-                                : TitleCover(title: entry.volume.title),
-                          ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Continue reading',
-                                    style: theme.textTheme.labelSmall?.copyWith(
-                                      color: theme.colorScheme.primary,
-                                      fontWeight: FontWeight.w600,
-                                      letterSpacing: 0.6,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    title,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.titleMedium
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.w600,
-                                          height: 1.2,
-                                        ),
-                                  ),
-                                  if (volumeLabel != null) ...[
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      volumeLabel,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: theme.textTheme.bodySmall
-                                          ?.copyWith(
-                                            color: theme.colorScheme.outline,
-                                          ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(2),
-                                    child: LinearProgressIndicator(
-                                      value: progress.fraction,
-                                      minHeight: 4,
-                                      backgroundColor: theme
-                                          .colorScheme
-                                          .surfaceContainerHighest,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          chapterLabel,
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: theme.textTheme.labelSmall
-                                              ?.copyWith(
-                                                color:
-                                                    theme.colorScheme.outline,
-                                              ),
-                                        ),
-                                      ),
-                                      Icon(
-                                        Icons.play_arrow_rounded,
-                                        color: theme.colorScheme.primary,
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildContinueShelf() {
-    final seriesById = {
-      for (final s in _library ?? const <Series>[]) s.opdsId: s,
-    };
-    final headers = (_settings?.isConfigured ?? false)
-        ? OpdsClient(_settings!).authHeaders
-        : const <String, String>{};
-    // The hero already covers entry [0]; the shelf shows the rest.
-    final rest = _reading.skip(1).toList();
+  Widget _buildContinueRow(
+    List<ReadingEntry> reading,
+    Map<int, Series> byId,
+    Map<String, String> headers,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _sectionHeader('Also in progress'),
-        SizedBox(
+        RowHeading(
+          title: 'Continue reading',
+          tag: 'In progress',
+          onSeeAll: () {
+            setReadingState(ReadingStateFilter.inProgress);
+            _scrollToTop();
+          },
+        ),
+        DriftingRow(
+          key: const PageStorageKey('row:continue'),
+          itemCount: reading.length,
+          itemExtent: 138,
           height: 236,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            itemCount: rest.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 14),
-            itemBuilder: (context, index) {
-              final entry = rest[index];
-              final series = seriesById[entry.volume.seriesOpdsId];
-              return PressScale(
+          reverse: true,
+          itemBuilder: (context, index, clock) {
+            final entry = reading[index];
+            final series = byId[entry.volume.seriesOpdsId];
+            return Align(
+              alignment: Alignment.centerLeft,
+              child: PressScale(
                 child: ContinueCard(
                   entry: entry,
                   series: series,
@@ -1684,12 +1677,12 @@ class _LibraryScreenState extends State<LibraryScreen>
                   imageHeaders: headers,
                   onTap: () => _openVolume(entry.volume),
                   onLongPress: () => _continueCardMenu(entry),
+                  onRemove: () => _removeFromContinue(entry),
                 ),
-              );
-            },
-          ),
+              ),
+            );
+          },
         ),
-        const SizedBox(height: 12),
       ],
     );
   }

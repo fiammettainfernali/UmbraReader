@@ -25,6 +25,7 @@ import '../widgets/add_to_collection_sheet.dart';
 import '../widgets/action_sheet.dart';
 import '../widgets/cached_cover.dart';
 import '../widgets/living_surfaces.dart';
+import 'library_home.dart';
 import '../widgets/section_header.dart';
 import 'filtered_series_screen.dart';
 import 'glossary_screen.dart';
@@ -40,10 +41,15 @@ class SeriesDetailScreen extends StatefulWidget {
     super.key,
     required this.series,
     required this.settings,
+    this.startReading = false,
   });
 
   final Series series;
   final OpdsSettings settings;
+
+  /// Opens the reader once the volumes are known, as a spotlight's Read now
+  /// does. The page is left underneath, to come back to.
+  final bool startReading;
 
   @override
   State<SeriesDetailScreen> createState() => _SeriesDetailScreenState();
@@ -162,6 +168,29 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     });
     await _loadReading();
     await _loadVolumes();
+    if (widget.startReading && mounted) await _readNow();
+  }
+
+  /// Picks up the volume in progress, or else the first one not finished, and
+  /// reads it from the device if it's there or from the server if not.
+  Future<void> _readNow() async {
+    final volumes = _volumes;
+    if (volumes == null || volumes.isEmpty) {
+      _snack('Nothing to read for this series yet.');
+      return;
+    }
+    final ordered = volumesInReadingOrder(volumes);
+    bool unfinished(Volume v) => (_reading[v.fileName]?.fraction ?? 0) < 0.995;
+    final volume = ordered.firstWhere(
+      (v) => _reading.containsKey(v.fileName) && unfinished(v),
+      orElse: () => ordered.firstWhere(unfinished, orElse: () => ordered.first),
+    );
+    final onDevice = _store.recordFor(volume) != null;
+    if (!onDevice && _offline) {
+      _snack('This volume isn\'t downloaded, and the server is out of reach.');
+      return;
+    }
+    await _openReader(volume, stream: !onDevice);
   }
 
   Future<void> _loadReading() async {
@@ -666,6 +695,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final series = widget.series;
+    final started = _reading.values.any((p) => p.fraction > 0);
     return Scaffold(
       appBar: AppBar(
         title: Text(series.title),
@@ -699,73 +729,102 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
           ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      body: Stack(
         children: [
-          RiseIn(
-            child: _Header(
-              series: series,
-              imageHeaders: OpdsClient(widget.settings).authHeaders,
-              onAuthorTap: () => _openAuthor(series.author),
+          // The desktop page's backdrop: this cover, blurred and drifting,
+          // fading into the embers further down.
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 420,
+            child: ShaderMask(
+              blendMode: BlendMode.dstIn,
+              shaderCallback: (bounds) => const LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0x99000000), Color(0x00000000)],
+              ).createShader(bounds),
+              child: CoverBackdrop(
+                series: series,
+                headers: OpdsClient(widget.settings).authHeaders,
+              ),
             ),
           ),
-          if (series.genres.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            RiseIn(
-              delayMs: 90,
-              child: Wrap(
+          ListView(
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
+            children: [
+              RiseIn(
+                child: _Header(
+                  series: series,
+                  imageHeaders: OpdsClient(widget.settings).authHeaders,
+                  onAuthorTap: () => _openAuthor(series.author),
+                  readLabel: started ? 'Continue' : 'Read now',
+                  onRead: _readNow,
+                ),
+              ),
+              if (series.genres.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                RiseIn(
+                  delayMs: 90,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final genre in series.genres)
+                        ActionChip(
+                          label: Text(genre),
+                          onPressed: () => _openGenre(genre),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+              if (series.description.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                RiseIn(
+                  delayMs: 180,
+                  child: _Description(
+                    text: series.description,
+                    expanded: _descriptionExpanded,
+                    onToggle: () => setState(
+                      () => _descriptionExpanded = !_descriptionExpanded,
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              const SectionHeader(
+                'My status',
+                padding: EdgeInsets.only(bottom: 8),
+              ),
+              Wrap(
                 spacing: 8,
-                runSpacing: 8,
                 children: [
-                  for (final genre in series.genres)
-                    ActionChip(
-                      label: Text(genre),
-                      onPressed: () => _openGenre(genre),
+                  for (final status in const [
+                    SeriesStatus.reading,
+                    SeriesStatus.caughtUp,
+                    SeriesStatus.dropped,
+                  ])
+                    ChoiceChip(
+                      label: Text(status.label),
+                      selected: _status == status,
+                      onSelected: (_) => _setStatus(status),
                     ),
                 ],
               ),
-            ),
-          ],
-          if (series.description.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            RiseIn(
-              delayMs: 180,
-              child: _Description(
-                text: series.description,
-                expanded: _descriptionExpanded,
-                onToggle: () => setState(
-                  () => _descriptionExpanded = !_descriptionExpanded,
-                ),
-              ),
-            ),
-          ],
-          const SizedBox(height: 12),
-          const SectionHeader('My status', padding: EdgeInsets.only(bottom: 8)),
-          Wrap(
-            spacing: 8,
-            children: [
-              for (final status in const [
-                SeriesStatus.reading,
-                SeriesStatus.caughtUp,
-                SeriesStatus.dropped,
-              ])
-                ChoiceChip(
-                  label: Text(status.label),
-                  selected: _status == status,
-                  onSelected: (_) => _setStatus(status),
-                ),
+              const SizedBox(height: 24),
+              const Divider(),
+              const SizedBox(height: 8),
+              _buildVolumesSection(),
+              if (_similar.isNotEmpty) ...[
+                const SizedBox(height: 24),
+                const Divider(),
+                const SizedBox(height: 8),
+                _buildSimilarSection(),
+              ],
             ],
           ),
-          const SizedBox(height: 24),
-          const Divider(),
-          const SizedBox(height: 8),
-          _buildVolumesSection(),
-          if (_similar.isNotEmpty) ...[
-            const SizedBox(height: 24),
-            const Divider(),
-            const SizedBox(height: 8),
-            _buildSimilarSection(),
-          ],
         ],
       ),
     );
@@ -929,11 +988,15 @@ class _Header extends StatelessWidget {
     required this.series,
     required this.imageHeaders,
     required this.onAuthorTap,
+    required this.readLabel,
+    required this.onRead,
   });
 
   final Series series;
   final Map<String, String> imageHeaders;
   final VoidCallback onAuthorTap;
+  final String readLabel;
+  final VoidCallback onRead;
 
   @override
   Widget build(BuildContext context) {
@@ -942,26 +1005,32 @@ class _Header extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
-          width: 116,
-          height: 174,
-          child: BreathingGlow(
-            borderRadius: BorderRadius.circular(10),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: _Cover(series: series, headers: imageHeaders),
+          width: 128,
+          height: 192,
+          child: FloatingTilt(
+            child: BreathingGlow(
+              borderRadius: BorderRadius.circular(12),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: _Cover(series: series, headers: imageHeaders),
+              ),
             ),
           ),
         ),
-        const SizedBox(width: 16),
+        const SizedBox(width: 18),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 series.title,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  height: 1.2,
+                style: theme.textTheme.headlineSmall?.copyWith(
+                  fontSize: 23,
+                  fontWeight: FontWeight.w800,
+                  height: 1.12,
+                  shadows: const [
+                    Shadow(color: Color(0x80E5121F), blurRadius: 20),
+                  ],
                 ),
               ),
               const SizedBox(height: 6),
@@ -990,6 +1059,12 @@ class _Header extends StatelessWidget {
                 style: theme.textTheme.labelMedium?.copyWith(
                   color: theme.colorScheme.outline,
                 ),
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: onRead,
+                icon: const Icon(Icons.play_arrow_rounded, size: 20),
+                label: Text(readLabel),
               ),
             ],
           ),

@@ -89,13 +89,11 @@ void main() {
     );
   });
 
-  testWidgets('blurs by default, and goes solid under Increase Contrast', (
-    tester,
-  ) async {
-    Future<void> pumpWith({required bool highContrast}) => tester.pumpWidget(
-      MediaQuery(
-        data: MediaQueryData(highContrast: highContrast),
-        child: MaterialApp(
+  testWidgets(
+    'never blurs, which would be redone on every beat of the embers',
+    (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
           home: Scaffold(
             body: const SizedBox.shrink(),
             bottomNavigationBar: GlassNavBar(
@@ -105,27 +103,16 @@ void main() {
             ),
           ),
         ),
-      ),
-    );
-
-    await pumpWith(highContrast: false);
-    expect(
-      find.descendant(
-        of: find.byType(GlassNavBar),
-        matching: find.byType(BackdropFilter),
-      ),
-      findsOneWidget,
-    );
-
-    await pumpWith(highContrast: true);
-    expect(
-      find.descendant(
-        of: find.byType(GlassNavBar),
-        matching: find.byType(BackdropFilter),
-      ),
-      findsNothing,
-    );
-  });
+      );
+      expect(
+        find.descendant(
+          of: find.byType(GlassNavBar),
+          matching: find.byType(BackdropFilter),
+        ),
+        findsNothing,
+      );
+    },
+  );
 }
 
 void _ignore(int _) {}

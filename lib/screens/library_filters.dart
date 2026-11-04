@@ -15,6 +15,7 @@ import '../services/series_status_store.dart';
 import '../widgets/action_sheet.dart';
 import '../widgets/section_header.dart';
 import 'library_cards.dart';
+import 'library_home.dart';
 
 export '../models/library_view.dart';
 
@@ -42,6 +43,9 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
   List<ReadingEntry> get readingEntries;
   Map<int, SeriesStatus> get seriesStatuses;
 
+  /// Series taken off Continue reading by hand, and so not offered as Reading.
+  Set<int> get seriesRemovedFromReading;
+
   /// The user's collections, so the library can be narrowed to one.
   List<Collection> get libraryCollections;
 
@@ -55,6 +59,7 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
   // ── view state (owned by the mixin) ─────────────────────────────────────
 
   final TextEditingController searchController = TextEditingController();
+  final FocusNode searchFocus = FocusNode();
 
   String searchQuery = '';
 
@@ -147,6 +152,7 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
   void disposeFiltering() {
     _recordDebounce?.cancel();
     searchController.dispose();
+    searchFocus.dispose();
   }
 
   /// Applies a query and, once typing settles, remembers it.
@@ -299,6 +305,9 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
     }
     if (readState.finished.contains(series.opdsId)) {
       return ReadingStateFilter.finished;
+    }
+    if (seriesRemovedFromReading.contains(series.opdsId)) {
+      return ReadingStateFilter.any;
     }
     if (readState.inProgress.contains(series.opdsId)) {
       return ReadingStateFilter.inProgress;
@@ -578,6 +587,10 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
         'and ${parts.last}';
   }
 
+  /// Narrows to one genre, as a row's See all does.
+  void showGenre(String genre) =>
+      _updateView(view.copyWith(filters: filters.copyWith(genres: {genre})));
+
   void clearSearch() {
     searchController.clear();
     setState(() => searchQuery = '');
@@ -588,7 +601,7 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
     final theme = Theme.of(context);
     final searching = searchQuery.trim().isNotEmpty;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: EdgeInsets.zero,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -597,7 +610,8 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
               Expanded(
                 child: SearchBar(
                   controller: searchController,
-                  hintText: 'Search title, author, genre…',
+                  focusNode: searchFocus,
+                  hintText: 'Search novels…',
                   leading: const Icon(Icons.search),
                   padding: const WidgetStatePropertyAll(
                     EdgeInsets.symmetric(horizontal: 12),
@@ -635,53 +649,57 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
               ),
             ],
           ),
-          if (searchQuery.trim().isEmpty && recentSearches.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Icon(
-                      Icons.history,
-                      size: 16,
-                      color: theme.colorScheme.outline,
-                    ),
-                  ),
-                  for (final query in recentSearches)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: InputChip(
-                        label: Text(query),
-                        onPressed: () => applyRecentSearch(query),
-                        onDeleted: () => forgetRecentSearch(query),
-                        deleteIcon: const Icon(Icons.close, size: 15),
+          // Past searches appear once the box is in use, rather than taking
+          // up a row of the toolbar the rest of the time.
+          ListenableBuilder(
+            listenable: searchFocus,
+            builder: (context, _) {
+              if (!searchFocus.hasFocus ||
+                  searchQuery.trim().isNotEmpty ||
+                  recentSearches.isEmpty) {
+                return const SizedBox.shrink();
+              }
+              return Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: Icon(
+                          Icons.history,
+                          size: 16,
+                          color: theme.colorScheme.outline,
+                        ),
                       ),
-                    ),
-                ],
-              ),
-            ),
-          ],
-          const SizedBox(height: 8),
-          // Quick reading-state chips: a tap-friendly way to narrow the grid
+                      for (final query in recentSearches)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: InputChip(
+                            label: Text(query),
+                            onPressed: () => applyRecentSearch(query),
+                            onDeleted: () => forgetRecentSearch(query),
+                            deleteIcon: const Icon(Icons.close, size: 15),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 10),
+          // Quick reading-state choices: a tap-friendly way to narrow the grid
           // down to what's actually being read (or the unread backlog) without
           // diving into the full filter sheet.
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final state in ReadingStateFilter.values) ...[
-                  ChoiceChip(
-                    label: Text(state.label),
-                    selected: readingState == state,
-                    onSelected: (_) => setReadingState(state),
-                  ),
-                  if (state != ReadingStateFilter.values.last)
-                    const SizedBox(width: 8),
-                ],
-              ],
-            ),
+          SlidingPillBar<ReadingStateFilter>(
+            values: ReadingStateFilter.values,
+            labels: [
+              for (final state in ReadingStateFilter.values) state.label,
+            ],
+            selected: readingState,
+            onSelected: setReadingState,
           ),
           if (!filters.isEmpty) ...[
             const SizedBox(height: 8),

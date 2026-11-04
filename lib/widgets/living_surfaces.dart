@@ -113,8 +113,8 @@ mixin SlowClock<T extends StatefulWidget> on State<T> {
 }
 
 /// Every screen in the app, drawn over the embers. Scaffolds inside go clear so
-/// they show through, and app bars stay nearly solid: a cover's own title
-/// showing through made the heading on top of it hard to read.
+/// they show through, and app bars stay solid: a cover's own title showing
+/// through made the heading on top of it hard to read.
 class LivingPage extends StatelessWidget {
   const LivingPage({super.key, required this.child});
 
@@ -131,7 +131,7 @@ class LivingPage extends StatelessWidget {
           data: theme.copyWith(
             scaffoldBackgroundColor: Colors.transparent,
             appBarTheme: theme.appBarTheme.copyWith(
-              backgroundColor: const Color(0xF2060304),
+              backgroundColor: const Color(0xFF060304),
               scrolledUnderElevation: 0,
             ),
           ),
@@ -391,6 +391,33 @@ class _TwinkleState extends State<Twinkle> with SlowClock {
             child: Transform.scale(scale: 0.86 + 0.2 * pulse, child: child),
           );
         },
+      ),
+    );
+  }
+}
+
+/// Tilts its child a little and lets it float, like the desktop's feature art.
+class FloatingTilt extends StatefulWidget {
+  const FloatingTilt({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<FloatingTilt> createState() => _FloatingTiltState();
+}
+
+class _FloatingTiltState extends State<FloatingTilt> with SlowClock {
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<double>(
+      valueListenable: seconds,
+      child: widget.child,
+      builder: (context, now, child) => Transform.translate(
+        offset: Offset(0, 4 * math.sin(now * 0.6)),
+        child: Transform.rotate(
+          angle: -0.05 + 0.012 * math.sin(now * 0.42),
+          child: child,
+        ),
       ),
     );
   }
