@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../models/series.dart';
+import '../services/app_motion.dart';
 import '../services/library_cache.dart';
 import '../services/library_storage.dart';
 import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
+import '../services/series_status_store.dart';
 import '../services/settings_service.dart';
-import '../widgets/section_header.dart';
+import '../widgets/hawthorne_parts.dart';
+import 'library_home.dart';
 import 'notes_screen.dart';
 import 'series_detail_screen.dart';
 import 'stats_awards.dart';
@@ -50,6 +53,9 @@ class _StatsScreenState extends State<StatsScreen> {
   /// open it rather than being a dead end.
   Map<int, Series> _seriesById = const {};
 
+  /// What's been set by hand, which outranks what the reading suggests.
+  Map<int, SeriesStatus> _seriesStatus = const {};
+
   /// Needed to open a series; null until settings load.
   OpdsSettings? _opdsSettings;
 
@@ -80,8 +86,10 @@ class _StatsScreenState extends State<StatsScreen> {
     final cache = LibraryCache(LibraryStorage());
     await cache.load();
     final opds = await _settingsService.load();
+    final statuses = await SeriesStatusStore().load();
     if (!mounted) return;
     setState(() {
+      _seriesStatus = statuses;
       _entries = entries;
       _activity = activity;
       _dailyGoalMinutes = goal;
@@ -108,7 +116,8 @@ class _StatsScreenState extends State<StatsScreen> {
     final entries = _entries;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('You'),
+        titleSpacing: 12,
+        title: const HawthorneBrand(),
         actions: [
           // Notes lost their own tab when the server gained one. They sit
           // here rather than in the library menu because highlights are
@@ -129,17 +138,17 @@ class _StatsScreenState extends State<StatsScreen> {
           ? _buildEmpty(context)
           : Column(
               children: [
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: ScreenHeading('Statistics'),
+                ),
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                  child: SegmentedButton<_StatsTab>(
-                    segments: [
-                      for (final t in _StatsTab.values)
-                        ButtonSegment(value: t, label: Text(t.label)),
-                    ],
-                    selected: {_tab},
-                    showSelectedIcon: false,
-                    onSelectionChanged: (sel) =>
-                        setState(() => _tab = sel.first),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: SlidingPillBar<_StatsTab>(
+                    values: _StatsTab.values,
+                    labels: [for (final t in _StatsTab.values) t.label],
+                    selected: _tab,
+                    onSelected: (t) => setState(() => _tab = t),
                   ),
                 ),
                 Expanded(
@@ -312,6 +321,99 @@ class _StatsScreenState extends State<StatsScreen> {
     return trend > 0 ? 'Up $pct% on $against' : 'Down $pct% on $against';
   }
 
+  /// The desktop's picture of the library as a whole: how much of it there is,
+  /// how much is here, and what it's made of. Left out until a library has
+  /// loaded, since none of it means anything without one.
+  List<Widget> _libraryOverview() {
+    final library = _seriesById.values.toList();
+    if (library.isEmpty) return const [];
+    final total = library.fold<int>(0, (n, s) => n + s.totalChapters);
+    final downloaded = library.fold<int>(0, (n, s) => n + s.downloadedChapters);
+    final genres = <String, int>{};
+    for (final series in library) {
+      for (final genre in series.genres) {
+        genres[genre] = (genres[genre] ?? 0) + 1;
+      }
+    }
+    final byStatus = readingBreakdown(
+      library,
+      _entries ?? const [],
+      _seriesStatus,
+    ).entries.toList();
+    final tallest = byStatus.fold<int>(1, (m, e) => e.value > m ? e.value : m);
+    final byGenre = genres.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final topGenres = byGenre.take(5).toList();
+    return [
+      const RowHeading(
+        title: 'Your library',
+        padding: EdgeInsets.only(top: 22, bottom: 10),
+      ),
+      Row(
+        children: [
+          Expanded(
+            child: StatTile(value: exactCount(library.length), label: 'novels'),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: StatTile(
+              delayMs: 60,
+              value: exactCount(total),
+              label: 'chapters',
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: StatTile(
+              delayMs: 120,
+              value: total == 0
+                  ? '—'
+                  : '${(downloaded * 100 / total).toStringAsFixed(1)}%',
+              label: 'downloaded',
+            ),
+          ),
+        ],
+      ),
+      const RowHeading(
+        title: 'Novels by status',
+        padding: EdgeInsets.only(top: 22, bottom: 10),
+      ),
+      PanelCard(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        child: Column(
+          children: [
+            for (final entry in byStatus)
+              MeterRow(
+                label: entry.key,
+                value: exactCount(entry.value),
+                fraction: entry.value / tallest,
+              ),
+          ],
+        ),
+      ),
+      if (topGenres.isNotEmpty) ...[
+        const RowHeading(
+          title: 'Top 5 genres',
+          padding: EdgeInsets.only(top: 22, bottom: 10),
+        ),
+        PanelCard(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Column(
+            children: [
+              for (final entry in topGenres)
+                MeterRow(
+                  label: entry.key,
+                  value: '${entry.value}',
+                  fraction: entry.value / topGenres.first.value,
+                  warm: true,
+                ),
+            ],
+          ),
+        ),
+      ],
+    ];
+  }
+
   Widget _buildContent(BuildContext context, List<ReadingEntry> entries) {
     final theme = Theme.of(context);
     final period = _period;
@@ -342,14 +444,11 @@ class _StatsScreenState extends State<StatsScreen> {
         16 + MediaQuery.of(context).padding.bottom,
       ),
       children: [
-        SegmentedButton<StatsPeriod>(
-          segments: [
-            for (final p in StatsPeriod.values)
-              ButtonSegment(value: p, label: Text(p.label)),
-          ],
-          selected: {period},
-          showSelectedIcon: false,
-          onSelectionChanged: (sel) => setState(() => _period = sel.first),
+        SlidingPillBar<StatsPeriod>(
+          values: StatsPeriod.values,
+          labels: [for (final p in StatsPeriod.values) p.label],
+          selected: period,
+          onSelected: (p) => setState(() => _period = p),
         ),
         const SizedBox(height: 20),
 
@@ -357,7 +456,8 @@ class _StatsScreenState extends State<StatsScreen> {
         Text(
           _formatDuration(seconds),
           style: theme.textTheme.displaySmall?.copyWith(
-            fontWeight: FontWeight.w600,
+            fontWeight: FontWeight.w800,
+            shadows: const [Shadow(color: Color(0x8CE5121F), blurRadius: 24)],
           ),
         ),
         const SizedBox(height: 2),
@@ -379,10 +479,13 @@ class _StatsScreenState extends State<StatsScreen> {
         const SizedBox(height: 18),
 
         // Today against the goal — the most actionable line, so it sits high.
-        _GoalRow(
-          dailyGoalMinutes: _dailyGoalMinutes,
-          todaySeconds: _activity.dailySeconds[_todayKey()] ?? 0,
-          onEdit: _editGoal,
+        PanelCard(
+          padding: const EdgeInsets.fromLTRB(16, 8, 8, 14),
+          child: _GoalRow(
+            dailyGoalMinutes: _dailyGoalMinutes,
+            todaySeconds: _activity.dailySeconds[_todayKey()] ?? 0,
+            onEdit: _editGoal,
+          ),
         ),
         const SizedBox(height: 18),
 
@@ -390,7 +493,7 @@ class _StatsScreenState extends State<StatsScreen> {
         Row(
           children: [
             Expanded(
-              child: _StatCard(
+              child: StatTile(
                 icon: Icons.event_available_outlined,
                 value: '$daysRead',
                 label: daysRead == 1 ? 'day read' : 'days read',
@@ -398,7 +501,8 @@ class _StatsScreenState extends State<StatsScreen> {
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: _StatCard(
+              child: StatTile(
+                delayMs: 60,
                 icon: Icons.schedule,
                 value: perDay == 0 ? '—' : _formatDuration(perDay),
                 label: 'per reading day',
@@ -410,7 +514,8 @@ class _StatsScreenState extends State<StatsScreen> {
         Row(
           children: [
             Expanded(
-              child: _StatCard(
+              child: StatTile(
+                delayMs: 120,
                 icon: Icons.text_fields,
                 value: words == 0 ? '—' : _formatCount(words),
                 label: 'words read',
@@ -418,7 +523,8 @@ class _StatsScreenState extends State<StatsScreen> {
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: _StatCard(
+              child: StatTile(
+                delayMs: 180,
                 icon: Icons.speed,
                 value: pace == 0 ? '—' : '$pace',
                 label: 'words / min',
@@ -430,7 +536,8 @@ class _StatsScreenState extends State<StatsScreen> {
         Row(
           children: [
             Expanded(
-              child: _StatCard(
+              child: StatTile(
+                delayMs: 240,
                 icon: Icons.task_alt,
                 value: '$finishedInPeriod',
                 label: 'books finished',
@@ -438,7 +545,9 @@ class _StatsScreenState extends State<StatsScreen> {
             ),
             const SizedBox(width: 12),
             Expanded(
-              child: _StatCard(
+              child: StatTile(
+                delayMs: 300,
+                warm: true,
                 icon: Icons.local_fire_department_outlined,
                 value: streak == 0 ? '—' : '$streak',
                 label: streak == 1 ? 'day streak' : 'days streak',
@@ -446,60 +555,79 @@ class _StatsScreenState extends State<StatsScreen> {
             ),
           ],
         ),
-        const SizedBox(height: 24),
-        const SectionHeader(
-          'Reading activity',
-          padding: EdgeInsets.only(bottom: 8),
+        const RowHeading(
+          title: 'Reading activity',
+          padding: EdgeInsets.only(top: 22, bottom: 10),
         ),
         // Bars for a window (how much, and which way), the heatmap for
         // all-time (whether, across a long stretch) — each is the right tool
         // for its question.
-        if (period.isAllTime)
-          _CalendarHeatmap(dailySeconds: _activity.dailySeconds)
-        else
-          _TrendBars(buckets: _activity.trendBuckets(period)),
-        if (bestDay != null) ...[
-          const SizedBox(height: 10),
-          Text(
-            'Best day ${_dayLabel(bestDay.day)} · ${_formatDuration(bestDay.seconds)}'
-            '${bestWeek > 0 ? '   ·   Best week ${_formatDuration(bestWeek)}' : ''}',
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.outline,
-            ),
+        PanelCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (period.isAllTime)
+                _CalendarHeatmap(dailySeconds: _activity.dailySeconds)
+              else
+                _TrendBars(buckets: _activity.trendBuckets(period)),
+              if (bestDay != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  'Best day ${_dayLabel(bestDay.day)} · ${_formatDuration(bestDay.seconds)}'
+                  '${bestWeek > 0 ? '   ·   Best week ${_formatDuration(bestWeek)}' : ''}',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: theme.colorScheme.outline,
+                  ),
+                ),
+              ],
+            ],
           ),
-        ],
-        const SizedBox(height: 20),
+        ),
+        ..._libraryOverview(),
 
         // ── lifetime totals, deliberately quiet
-        const SectionHeader('All time', padding: EdgeInsets.only(bottom: 8)),
-        _AllTimeStrip(
-          entries: entries.length,
-          inProgress: inProgress,
-          finished: finished,
-          time: _formatDuration(_activity.totalSeconds),
-          words: _activity.totalWords == 0
-              ? '—'
-              : _formatCount(_activity.totalWords),
-          wpm: _activity.wordsPerMinute,
-          longestStreak: _activity.longestStreak(),
+        const RowHeading(
+          title: 'All time',
+          padding: EdgeInsets.only(top: 22, bottom: 10),
         ),
-        const SizedBox(height: 20),
-        const SectionHeader('By series', padding: EdgeInsets.only(bottom: 8)),
-        const SizedBox(height: 4),
-        // Grouped by series and ranked by time: a forty-volume webnovel is one
-        // line about where the time went, not forty rows to scroll past.
-        for (final row in _seriesByTime(
-          entries,
-        ).take(_showAllBooks ? 1 << 30 : _bookRowCap))
-          _SeriesRow(row: row, onTap: () => _openSeries(row.series)),
-        if (!_showAllBooks && _seriesByTime(entries).length > _bookRowCap)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton(
-              onPressed: () => setState(() => _showAllBooks = true),
-              child: Text('Show all ${_seriesByTime(entries).length}'),
-            ),
+        PanelCard(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: _AllTimeStrip(
+            entries: entries.length,
+            inProgress: inProgress,
+            finished: finished,
+            time: _formatDuration(_activity.totalSeconds),
+            words: _activity.totalWords == 0
+                ? '—'
+                : _formatCount(_activity.totalWords),
+            wpm: _activity.wordsPerMinute,
+            longestStreak: _activity.longestStreak(),
           ),
+        ),
+        const RowHeading(
+          title: 'By series',
+          padding: EdgeInsets.only(top: 22, bottom: 10),
+        ),
+        PanelCard(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Grouped by series and ranked by time: a forty-volume webnovel
+              // is one line about where the time went, not forty rows to
+              // scroll past.
+              for (final row in _seriesByTime(
+                entries,
+              ).take(_showAllBooks ? 1 << 30 : _bookRowCap))
+                _SeriesRow(row: row, onTap: () => _openSeries(row.series)),
+              if (!_showAllBooks && _seriesByTime(entries).length > _bookRowCap)
+                TextButton(
+                  onPressed: () => setState(() => _showAllBooks = true),
+                  child: Text('Show all ${_seriesByTime(entries).length}'),
+                ),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -619,19 +747,43 @@ class _TrendBars extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       Expanded(
-                        child: FractionallySizedBox(
-                          alignment: Alignment.bottomCenter,
-                          heightFactor: peak == 0
-                              ? 0.02
-                              : (b.seconds / peak).clamp(0.02, 1.0),
+                        child: TweenAnimationBuilder<double>(
+                          tween: Tween(
+                            begin: 0.02,
+                            end: peak == 0
+                                ? 0.02
+                                : (b.seconds / peak).clamp(0.02, 1.0),
+                          ),
+                          duration: AppMotion.isReduced(context)
+                              ? Duration.zero
+                              : const Duration(milliseconds: 850),
+                          curve: Curves.easeOutCubic,
+                          builder: (context, height, child) =>
+                              FractionallySizedBox(
+                                alignment: Alignment.bottomCenter,
+                                // The column only offers a bar loose width, and
+                                // a box with nothing in it takes the least it
+                                // can. Without this every bar was zero wide.
+                                widthFactor: 1,
+                                heightFactor: height,
+                                child: child,
+                              ),
                           child: DecoratedBox(
                             decoration: BoxDecoration(
                               color: b.seconds == 0
                                   ? theme.colorScheme.outlineVariant.withValues(
                                       alpha: 0.4,
                                     )
-                                  : theme.colorScheme.primary.withValues(
-                                      alpha: 0.75,
+                                  : null,
+                              gradient: b.seconds == 0
+                                  ? null
+                                  : const LinearGradient(
+                                      begin: Alignment.bottomCenter,
+                                      end: Alignment.topCenter,
+                                      colors: [
+                                        Color(0xFFE5121F),
+                                        Color(0xFFFF4B4B),
+                                      ],
                                     ),
                               borderRadius: BorderRadius.circular(3),
                             ),
@@ -721,50 +873,6 @@ class _AllTimeStrip extends StatelessWidget {
   }
 }
 
-class _StatCard extends StatelessWidget {
-  const _StatCard({
-    required this.icon,
-    required this.value,
-    required this.label,
-  });
-
-  final IconData icon;
-  final String value;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 20, color: theme.colorScheme.primary),
-          const SizedBox(height: 10),
-          Text(
-            value,
-            style: theme.textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// Today's progress against the user's daily reading goal — a thin progress
 /// bar plus the minute count and an "Edit" / "Set goal" action.
 class _GoalRow extends StatelessWidget {
@@ -810,13 +918,9 @@ class _GoalRow extends StatelessWidget {
         ),
         if (hasGoal) ...[
           const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: ratio,
-              minHeight: 8,
-              backgroundColor: theme.colorScheme.surfaceContainerHighest,
-            ),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: GrowingBar(fraction: ratio),
           ),
           if (ratio >= 1.0) ...[
             const SizedBox(height: 6),
@@ -923,6 +1027,44 @@ class _CalendarHeatmap extends StatelessWidget {
       ],
     );
   }
+}
+
+/// Every digit, with commas, for a number that's the point of the tile.
+String exactCount(int n) =>
+    n.toString().replaceAllMapped(RegExp(r'\B(?=(\d{3})+$)'), (_) => ',');
+
+/// How the library splits by where you are with each series, in the order you'd
+/// read them. A status set by hand wins, as it does in the Library's filters;
+/// otherwise a series is Reading if any volume is under way. The server's own
+/// status field can't answer this: nearly every series just says "ongoing".
+Map<String, int> readingBreakdown(
+  List<Series> library,
+  List<ReadingEntry> entries,
+  Map<int, SeriesStatus> statuses,
+) {
+  final underWay = <int>{};
+  final finished = <int>{};
+  for (final entry in entries) {
+    final id = entry.volume.seriesOpdsId;
+    (entry.progress.isFinished ? finished : underWay).add(id);
+  }
+  final counts = {'Reading': 0, 'Unread': 0, 'Finished': 0, 'Dropped': 0};
+  for (final series in library) {
+    final id = series.opdsId;
+    final String bucket = switch (statuses[id]) {
+      SeriesStatus.dropped => 'Dropped',
+      SeriesStatus.caughtUp => 'Finished',
+      SeriesStatus.reading => 'Reading',
+      _ =>
+        underWay.contains(id)
+            ? 'Reading'
+            : finished.contains(id)
+            ? 'Finished'
+            : 'Unread',
+    };
+    counts[bucket] = counts[bucket]! + 1;
+  }
+  return counts;
 }
 
 String _formatCount(int n) {

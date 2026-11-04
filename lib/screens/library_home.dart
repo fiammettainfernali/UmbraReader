@@ -1096,12 +1096,16 @@ class RowHeading extends StatelessWidget {
     required this.title,
     this.tag,
     this.onSeeAll,
+    this.trailing,
     this.padding = const EdgeInsets.fromLTRB(16, 20, 16, 10),
   });
 
   final String title;
   final String? tag;
   final VoidCallback? onSeeAll;
+
+  /// Something of its own at the far end, such as a shuffle button.
+  final Widget? trailing;
   final EdgeInsets padding;
 
   @override
@@ -1134,6 +1138,7 @@ class RowHeading extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
+            ?trailing,
             if (onSeeAll != null)
               Semantics(
                 button: true,

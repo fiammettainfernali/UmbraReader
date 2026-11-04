@@ -10,7 +10,8 @@ import '../services/pending_add_store.dart';
 import '../services/settings_service.dart';
 import '../widgets/action_sheet.dart';
 import '../widgets/duplicate_sheet.dart';
-import '../widgets/section_header.dart';
+import '../widgets/hawthorne_parts.dart';
+import 'library_home.dart';
 import '../widgets/text_prompt.dart';
 import 'browse_screen.dart';
 import 'novel_search_screen.dart';
@@ -167,7 +168,12 @@ class _ManageScreenState extends State<ManageScreen>
     } on ControlException catch (e) {
       if (!mounted || !identical(client, _client)) return;
       setState(() {
-        _error = e.message;
+        // The wording for a timeout is written for a search, and blames the
+        // source site. Here nothing answering means the program isn't there.
+        _error = e.isUnreachable
+            ? 'Make sure Hawthorne Codex is open on your computer, and that '
+                  'Tailscale is on if you\'re away from home.'
+            : e.message;
         _loading = false;
       });
     }
@@ -467,7 +473,8 @@ class _ManageScreenState extends State<ManageScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Manage server'),
+        titleSpacing: 12,
+        title: const HawthorneBrand(),
         actions: [
           IconButton(
             icon: const Icon(Icons.language),
@@ -502,6 +509,10 @@ class _ManageScreenState extends State<ManageScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            const ScreenHeading(
+              'Download Queue',
+              padding: EdgeInsets.only(bottom: 24),
+            ),
             Icon(
               Icons.cloud_off_outlined,
               size: 56,
@@ -518,7 +529,7 @@ class _ManageScreenState extends State<ManageScreen>
               ),
             ),
             const SizedBox(height: 16),
-            FilledButton.tonalIcon(
+            FilledButton.icon(
               onPressed: _refresh,
               icon: const Icon(Icons.refresh),
               label: const Text('Retry'),
@@ -551,16 +562,18 @@ class _ManageScreenState extends State<ManageScreen>
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
             sliver: SliverList.list(
               children: [
+                ScreenHeading(
+                  'Download Queue',
+                  subtitle: _queueLength == 0
+                      ? 'queue empty'
+                      : '$_queueLength waiting',
+                  padding: const EdgeInsets.fromLTRB(0, 16, 0, 12),
+                ),
                 // ── activity card ──────────────────────────────────────────
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHigh,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
+                PanelCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -628,19 +641,13 @@ class _ManageScreenState extends State<ManageScreen>
                           ),
                         ),
                         const SizedBox(height: 8),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(3),
-                          child: LinearProgressIndicator(
-                            // Compiling arrives pinned at 100%, so a
-                            // determinate bar would read as finished while
-                            // the EPUB is still being written.
-                            value: p.state.isIndeterminate || p.total <= 0
-                                ? null
-                                : (p.percent / 100).clamp(0, 1),
-                            minHeight: 6,
-                            backgroundColor:
-                                theme.colorScheme.surfaceContainerHighest,
-                          ),
+                        StripedBar(
+                          // Compiling arrives pinned at 100%, so a
+                          // determinate bar would read as finished while
+                          // the EPUB is still being written.
+                          value: p.state.isIndeterminate || p.total <= 0
+                              ? null
+                              : (p.percent / 100).clamp(0, 1),
                         ),
                         const SizedBox(height: 4),
                         Text(
@@ -670,38 +677,58 @@ class _ManageScreenState extends State<ManageScreen>
                         ),
                       ],
                       const SizedBox(height: 12),
-                      Wrap(
-                        spacing: 8,
+                      // One line of three equal buttons, tight enough that the
+                      // last doesn't drop onto a line of its own.
+                      Row(
                         children: [
-                          if (status.paused)
-                            FilledButton.tonalIcon(
-                              onPressed: _busy
-                                  ? null
-                                  : () => _run(_client.resume, 'Resumed'),
-                              icon: const Icon(Icons.play_arrow),
-                              label: const Text('Resume'),
-                            )
-                          else
-                            FilledButton.tonalIcon(
-                              onPressed: _busy
-                                  ? null
-                                  : () => _run(_client.pause, 'Paused'),
-                              icon: const Icon(Icons.pause),
-                              label: const Text('Pause'),
-                            ),
-                          OutlinedButton.icon(
-                            onPressed: _busy
-                                ? null
-                                : () => _run(_client.skip, 'Skipped current'),
-                            icon: const Icon(Icons.skip_next),
-                            label: const Text('Skip'),
+                          Expanded(
+                            child: status.paused
+                                ? FilledButton.icon(
+                                    style: FilledButton.styleFrom(
+                                      padding: _controlPadding,
+                                    ),
+                                    onPressed: _busy
+                                        ? null
+                                        : () => _run(_client.resume, 'Resumed'),
+                                    icon: const Icon(Icons.play_arrow),
+                                    label: _controlLabel('Resume'),
+                                  )
+                                : FilledButton.icon(
+                                    style: FilledButton.styleFrom(
+                                      padding: _controlPadding,
+                                    ),
+                                    onPressed: _busy
+                                        ? null
+                                        : () => _run(_client.pause, 'Paused'),
+                                    icon: const Icon(Icons.pause),
+                                    label: _controlLabel('Pause'),
+                                  ),
                           ),
-                          OutlinedButton.icon(
-                            onPressed: _busy
-                                ? null
-                                : () => _run(_client.stop, 'Stopped'),
-                            icon: const Icon(Icons.stop),
-                            label: const Text('Stop'),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                padding: _controlPadding,
+                              ),
+                              onPressed: _busy
+                                  ? null
+                                  : () => _run(_client.skip, 'Skipped current'),
+                              icon: const Icon(Icons.skip_next),
+                              label: _controlLabel('Skip'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              style: OutlinedButton.styleFrom(
+                                padding: _controlPadding,
+                              ),
+                              onPressed: _busy
+                                  ? null
+                                  : () => _run(_client.stop, 'Stopped'),
+                              icon: const Icon(Icons.stop),
+                              label: _controlLabel('Stop'),
+                            ),
                           ),
                         ],
                       ),
@@ -722,7 +749,7 @@ class _ManageScreenState extends State<ManageScreen>
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: FilledButton.tonalIcon(
+                      child: OutlinedButton.icon(
                         onPressed: _busy
                             ? null
                             : () => _run(
@@ -730,28 +757,38 @@ class _ManageScreenState extends State<ManageScreen>
                                 'Checking for new chapters…',
                               ),
                         icon: const Icon(Icons.sync),
-                        label: const Text('Check updates'),
+                        label: const FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text('Check updates', maxLines: 1),
+                        ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 14),
 
                 // ── auto-update schedule ───────────────────────────────────
                 if (_schedule != null) ...[
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.schedule),
-                    title: const Text('Auto-update'),
-                    subtitle: Text(
-                      _scheduleLabel(_schedule!),
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.outline,
+                  Container(
+                    decoration: panelDecoration(),
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        Icons.schedule,
+                        color: theme.colorScheme.primary,
                       ),
-                    ),
-                    trailing: TextButton(
-                      onPressed: _busy ? null : _editSchedule,
-                      child: const Text('Edit'),
+                      title: const Text('Auto-update'),
+                      subtitle: Text(
+                        _scheduleLabel(_schedule!),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                      trailing: TextButton(
+                        onPressed: _busy ? null : _editSchedule,
+                        child: const Text('Edit'),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -759,9 +796,10 @@ class _ManageScreenState extends State<ManageScreen>
 
                 // ── waiting to send ────────────────────────────────
                 if (_pending.isNotEmpty) ...[
-                  SectionHeader(
-                    'Waiting to send (${_pending.length})',
-                    padding: const EdgeInsets.only(bottom: 4),
+                  RowHeading(
+                    title: 'Waiting to send',
+                    tag: '${_pending.length}',
+                    padding: const EdgeInsets.only(top: 8, bottom: 6),
                   ),
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8),
@@ -804,14 +842,15 @@ class _ManageScreenState extends State<ManageScreen>
                 ],
 
                 // ── queue ──────────────────────────────────────────────────
-                SectionHeader(
-                  query.isEmpty
+                RowHeading(
+                  title: 'Up next',
+                  tag: query.isEmpty
                       // The live count from the event stream when there is
                       // one: it moves as work happens, while the polled
                       // list waits for a queue event to fetch it.
-                      ? 'Queue ($_queueLength)'
-                      : 'Queue (${visible.length} of ${queue.length})',
-                  padding: const EdgeInsets.only(bottom: 4),
+                      ? '$_queueLength in the queue'
+                      : '${visible.length} of ${queue.length}',
+                  padding: const EdgeInsets.only(top: 8, bottom: 8),
                 ),
                 if (queue.length >= _searchThreshold) _queueSearchField(theme),
               ],
@@ -852,6 +891,12 @@ class _ManageScreenState extends State<ManageScreen>
       ),
     );
   }
+
+  static const _controlPadding = EdgeInsets.symmetric(horizontal: 8);
+
+  Widget _controlLabel(String text) => Flexible(
+    child: FittedBox(fit: BoxFit.scaleDown, child: Text(text, maxLines: 1)),
+  );
 
   Widget _queueSearchField(ThemeData theme) {
     return Padding(
@@ -906,20 +951,33 @@ class _ManageScreenState extends State<ManageScreen>
   }
 
   Widget _queueRow(ThemeData theme, QueueEntry e, int index, int count) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
+    final row = ListTile(
+      contentPadding: const EdgeInsets.only(left: 12, right: 4),
       // The real position, which a filtered list would otherwise hide: the
       // point of finding a series here is usually to see how far down it is.
-      leading: SizedBox(
+      leading: Container(
         width: 34,
-        child: Text(
-          '${index + 1}',
-          textAlign: TextAlign.center,
-          style: theme.textTheme.labelMedium?.copyWith(
-            color: index == 0
-                ? theme.colorScheme.tertiary
-                : theme.colorScheme.outline,
-            fontWeight: index == 0 ? FontWeight.w700 : FontWeight.w500,
+        height: 34,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: index == 0
+              ? const Color(0xFFE5121F)
+              : theme.colorScheme.surfaceContainerHighest,
+        ),
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Padding(
+            padding: const EdgeInsets.all(4),
+            child: Text(
+              '${index + 1}',
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: index == 0
+                    ? Colors.white
+                    : theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ),
         ),
       ),
@@ -944,6 +1002,11 @@ class _ManageScreenState extends State<ManageScreen>
               ),
       ),
       onTap: _busy ? null : () => _openQueueItemSheet(e, index, count),
+    );
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: panelDecoration(radius: 14),
+      child: Material(type: MaterialType.transparency, child: row),
     );
   }
 

@@ -8,7 +8,7 @@ import '../services/opds_client.dart';
 import '../services/reading_progress_store.dart';
 import '../services/recommendation_loader.dart';
 import '../services/settings_service.dart';
-import '../widgets/section_header.dart';
+import '../widgets/hawthorne_parts.dart';
 import 'browse_screen.dart';
 import 'library_home.dart';
 import 'library_recommendations.dart';
@@ -231,7 +231,8 @@ class DiscoverScreenState extends State<DiscoverScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Discover'),
+        titleSpacing: 12,
+        title: const HawthorneBrand(),
         actions: [
           IconButton(
             icon: const Icon(Icons.casino_outlined),
@@ -250,19 +251,25 @@ class DiscoverScreenState extends State<DiscoverScreen>
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: EdgeInsets.fromLTRB(
                   0,
-                  8,
+                  0,
                   0,
                   24 + MediaQuery.of(context).padding.bottom,
                 ),
                 children: [
+                  ScreenHeading(
+                    'Discover',
+                    subtitle: _library.isEmpty
+                        ? null
+                        : '${_library.length} novels to choose from',
+                  ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
                     child: _searchCard(theme),
                   ),
                   if (recent.isNotEmpty) ...[
-                    const SectionHeader(
-                      'Recently updated',
-                      padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+                    const RowHeading(
+                      title: 'Recently updated',
+                      tag: 'New chapters',
                     ),
                     _shelf(recent),
                   ],
@@ -271,9 +278,9 @@ class DiscoverScreenState extends State<DiscoverScreen>
                   // above the recommendations, since these are books you
                   // chose yourself.
                   if (added.isNotEmpty) ...[
-                    const SectionHeader(
-                      'Recently added',
-                      padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+                    const RowHeading(
+                      title: 'Recently added',
+                      tag: 'Newest first',
                     ),
                     _shelf(added),
                   ],
@@ -323,10 +330,7 @@ class DiscoverScreenState extends State<DiscoverScreen>
   /// question: two search the library, one goes out to the sources.
   Widget _searchCard(ThemeData theme) {
     return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(18),
-      ),
+      decoration: panelDecoration(),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(18),
         child: Column(
