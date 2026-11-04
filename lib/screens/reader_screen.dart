@@ -2455,6 +2455,11 @@ class _ReaderScreenState extends State<ReaderScreen>
             behavior: HitTestBehavior.opaque,
             child: Stack(
               children: [
+                // Always here, even for a theme with no glow. Adding it only
+                // when needed shifted everything after it along by one, which
+                // rebuilt the pager and threw the reader back to the first page
+                // of the chapter whenever the theme changed.
+                Positioned.fill(child: _EdgeGlow(color: preset.edgeGlow)),
                 Positioned.fill(
                   child: Padding(
                     padding: contentPadding,
@@ -2981,6 +2986,38 @@ class _NoteInputSheet extends StatefulWidget {
 
   @override
   State<_NoteInputSheet> createState() => _NoteInputSheetState();
+}
+
+/// A theme's still glow at the top and bottom of the page, behind the text.
+class _EdgeGlow extends StatelessWidget {
+  const _EdgeGlow({required this.color});
+
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = this.color;
+    if (color == null) return const SizedBox.shrink();
+    return IgnorePointer(
+      child: RepaintBoundary(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                color.withValues(alpha: 0.2),
+                color.withValues(alpha: 0),
+                color.withValues(alpha: 0),
+                color.withValues(alpha: 0.16),
+              ],
+              stops: const [0, 0.2, 0.8, 1],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _NoteInputSheetState extends State<_NoteInputSheet> {

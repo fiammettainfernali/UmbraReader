@@ -10,14 +10,7 @@ import '../widgets/seek_button.dart';
 
 /// Overlay top bar: back, chapter title, reading settings, contents.
 /// Actions in the reader's top-bar overflow menu.
-enum ReaderMenu {
-  contents,
-  series,
-  search,
-  bookmarks,
-  glossary,
-  settings,
-}
+enum ReaderMenu { contents, series, search, bookmarks, glossary, settings }
 
 class ReaderTopBar extends StatelessWidget {
   const ReaderTopBar({
@@ -380,7 +373,9 @@ class ReaderChapterBar extends StatelessWidget {
                           backgroundColor: preset.secondary.withValues(
                             alpha: 0.25,
                           ),
-                          color: preset.text.withValues(alpha: 0.55),
+                          color:
+                              preset.accent ??
+                              preset.text.withValues(alpha: 0.55),
                         ),
                       ),
                     ),

@@ -12,6 +12,8 @@ class ReaderThemePreset {
     required this.text,
     required this.secondary,
     required this.highlight,
+    this.accent,
+    this.edgeGlow,
   });
 
   final String id;
@@ -22,6 +24,17 @@ class ReaderThemePreset {
 
   /// Background colour for the sentence being read aloud.
   final Color highlight;
+
+  /// Chapter headings and the progress bar, when this theme gives them a
+  /// colour of their own. Otherwise they follow [text].
+  final Color? accent;
+
+  /// A still glow at the top and bottom of the page, when the theme has one.
+  /// Painted once and never animated, so it doesn't pull at the eye or spend
+  /// battery while reading.
+  final Color? edgeGlow;
+
+  Color get headingColor => accent ?? text;
 
   /// True when the background is light enough to need dark foreground/status
   /// elements.
@@ -50,6 +63,14 @@ class ReaderThemePreset {
         washedText,
       ),
       highlight: _multiply(highlight, wash),
+      accent: accent == null
+          ? null
+          : _liftToContrast(
+              _multiply(accent!, wash),
+              washedBackground,
+              washedText,
+            ),
+      edgeGlow: edgeGlow == null ? null : _multiply(edgeGlow!, wash),
     );
   }
 }
@@ -191,6 +212,19 @@ const List<ReaderThemePreset> kReaderThemes = [
     text: Color(0xFFC4C2BE),
     secondary: Color(0xFF6C6A67),
     highlight: Color(0xFF333338),
+  ),
+  // The app's own look: black and red, with warm text that's easy on the eyes
+  // for hours. The text stays off-white rather than red, and red is saved for
+  // headings.
+  ReaderThemePreset(
+    id: 'hawthorne',
+    name: 'Hawthorne',
+    background: Color(0xFF0B0506),
+    text: Color(0xFFEFE6E3),
+    secondary: Color(0xFFA89292),
+    highlight: Color(0xFF5A1019),
+    accent: Color(0xFFFF6B6B),
+    edgeGlow: Color(0xFFE5121F),
   ),
 ];
 

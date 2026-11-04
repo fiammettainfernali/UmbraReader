@@ -85,7 +85,7 @@ class BlockView extends StatelessWidget {
                   children: _spansFor(
                     context,
                     effectiveRuns(heading.runs, settings),
-                    headingStyle(settings, heading.level, preset.text),
+                    headingStyle(settings, heading.level, preset.headingColor),
                   ),
                 ),
                 textScaler: TextScaler.noScaling,
