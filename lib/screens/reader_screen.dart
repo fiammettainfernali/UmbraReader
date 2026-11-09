@@ -28,6 +28,7 @@ import '../services/epub_parser.dart';
 import '../services/opds_client.dart';
 import '../services/page_turn_sound.dart';
 import '../services/remote_epub_source.dart';
+import '../services/server_route.dart';
 import '../models/series.dart';
 import '../services/glossary_store.dart';
 import '../services/library_cache.dart';
@@ -445,7 +446,7 @@ class _ReaderScreenState extends State<ReaderScreen>
           return;
         }
         final source = RemoteEpubSource(
-          baseUrl: settings.baseUrl,
+          baseUrl: await ServerRoute.instance.ready(settings),
           novelId: widget.volume.seriesOpdsId,
           fileName: widget.volume.fileName,
           headers: OpdsClient(settings).authHeaders,

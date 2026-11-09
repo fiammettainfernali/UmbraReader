@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'opds_client.dart';
+import 'server_route.dart';
 import 'settings_service.dart';
 
 /// Raised when the control API can't be reached or returns an error.
@@ -433,6 +434,25 @@ class ControlClient {
   /// one server does both.
   Uri _u(String path) => Uri.parse('${settings.controlUrl}$path');
 
+  /// Sends a request to the computer, by whichever of its addresses answers.
+  ///
+  /// A separate downloader has only the one address, so it is asked as is.
+  /// A command that timed out may have arrived and be under way, so it is
+  /// tried again elsewhere only when the connection never opened at all.
+  Future<http.Response> _send(
+    String path,
+    Future<http.Response> Function(Uri url) send, {
+    bool command = false,
+  }) {
+    if (settings.downloaderUrl.isNotEmpty) return send(_u(path));
+    return ServerRoute.instance.run(
+      settings,
+      (base) => send(Uri.parse('$base$path')),
+      unreachable: (e) =>
+          e is Exception && !(command && e is TimeoutException),
+    );
+  }
+
   Future<ControlStatus> status() async {
     final json = await _get('/api/status');
     return ControlStatus.fromJson(json);
@@ -556,7 +576,10 @@ class ControlClient {
   }) async {
     final http.Response res;
     try {
-      res = await http.get(_u(path), headers: _auth).timeout(timeout);
+      res = await _send(
+        path,
+        (url) => http.get(url, headers: _auth).timeout(timeout),
+      );
     } on TimeoutException {
       throw ControlException(
         'The server took too long to respond. The source site may be slow '
@@ -601,13 +624,17 @@ class ControlClient {
   ) async {
     final http.Response res;
     try {
-      res = await http
-          .post(
-            _u(path),
-            headers: {..._auth, 'Content-Type': 'application/json'},
-            body: body == null ? null : jsonEncode(body),
-          )
-          .timeout(const Duration(seconds: 20));
+      res = await _send(
+        path,
+        (url) => http
+            .post(
+              url,
+              headers: {..._auth, 'Content-Type': 'application/json'},
+              body: body == null ? null : jsonEncode(body),
+            )
+            .timeout(const Duration(seconds: 20)),
+        command: true,
+      );
     } on Exception catch (e) {
       throw ControlException(
         explain(e, _u(path).toString()),
@@ -631,13 +658,17 @@ class ControlClient {
   Future<void> _post(String path, Map<String, dynamic>? body) async {
     final http.Response res;
     try {
-      res = await http
-          .post(
-            _u(path),
-            headers: {..._auth, 'Content-Type': 'application/json'},
-            body: body == null ? null : jsonEncode(body),
-          )
-          .timeout(const Duration(seconds: 12));
+      res = await _send(
+        path,
+        (url) => http
+            .post(
+              url,
+              headers: {..._auth, 'Content-Type': 'application/json'},
+              body: body == null ? null : jsonEncode(body),
+            )
+            .timeout(const Duration(seconds: 12)),
+        command: true,
+      );
     } on Exception catch (e) {
       throw ControlException(
         explain(e, _u(path).toString()),
@@ -735,6 +766,11 @@ class ControlClient {
               cancelOnError: true,
             );
       } on Exception {
+        // Perhaps the phone left home, or Tailscale went off: the next try
+        // goes to whichever address answers.
+        if (settings.downloaderUrl.isEmpty) {
+          await ServerRoute.instance.recover(settings, _u('').toString());
+        }
         scheduleReconnect();
       }
     };

@@ -18,6 +18,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _settingsService = SettingsService();
   late final TextEditingController _urlController;
+  late final TextEditingController _secondController;
   late final TextEditingController _downloaderController;
   late final TextEditingController _usernameController;
   late final TextEditingController _passwordController;
@@ -37,6 +38,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _urlController = TextEditingController(text: widget.initial.baseUrl);
+    _secondController = TextEditingController(text: widget.initial.secondUrl);
     _downloaderController = TextEditingController(
       text: widget.initial.downloaderUrl,
     );
@@ -94,6 +96,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void dispose() {
     _urlController.dispose();
+    _secondController.dispose();
     _downloaderController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
@@ -104,6 +107,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   OpdsSettings _currentSettings() {
     return OpdsSettings(
       baseUrl: normalizeOpdsUrl(_urlController.text),
+      secondUrl: normalizeOpdsUrl(_secondController.text),
       // Left blank when one machine does both, which is the common case and
       // the one nobody should have to think about.
       downloaderUrl: normalizeOpdsUrl(_downloaderController.text),
@@ -127,14 +131,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     setState(() => _testing = true);
     try {
-      final library = await OpdsClient(settings).fetchLibrary();
+      if (settings.secondUrl.isEmpty) {
+        final library = await OpdsClient(settings).fetchLibrary();
+        if (!mounted) return;
+        _showSnack('Connected — found ${library.length} series.');
+        return;
+      }
+      // Both, each on its own: "connected" says nothing about which one.
+      final first = await _tryOne(settings, settings.baseUrl);
+      final second = await _tryOne(settings, settings.secondUrl);
       if (!mounted) return;
-      _showSnack('Connected — found ${library.length} series.');
+      _showSnack(
+        'First address: $first\nSecond address: $second',
+        isError: !first.startsWith('connected') && !second.startsWith('connected'),
+      );
     } on OpdsException catch (e) {
       if (!mounted) return;
       _showSnack(e.message, isError: true);
     } finally {
       if (mounted) setState(() => _testing = false);
+    }
+  }
+
+  /// One address on its own, as a few words.
+  Future<String> _tryOne(OpdsSettings settings, String address) async {
+    try {
+      final only = settings.copyWith(baseUrl: address, secondUrl: '');
+      final library = await OpdsClient(only).fetchLibrary();
+      return 'connected, ${library.length} series';
+    } on OpdsException catch (e) {
+      return e.message.startsWith('Authentication')
+          ? 'answered, but refused the username or password'
+          : 'no answer';
     }
   }
 
@@ -182,6 +210,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
               hintText: 'http://192.168.1.42:8765',
               border: OutlineInputBorder(),
               prefixIcon: Icon(Icons.dns_outlined),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _secondController,
+            keyboardType: TextInputType.url,
+            autocorrect: false,
+            decoration: const InputDecoration(
+              labelText: 'Second address (optional)',
+              hintText: 'http://192.168.1.42:8765',
+              helperText:
+                  'Another way to reach the same computer, used only while the '
+                  'first one doesn\'t answer — say, its Wi-Fi address beside a '
+                  'Tailscale one, for when Tailscale is off at home.',
+              helperMaxLines: 3,
+              border: OutlineInputBorder(),
+              prefixIcon: Icon(Icons.alt_route),
             ),
           ),
           const SizedBox(height: 16),

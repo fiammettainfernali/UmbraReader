@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'server_route.dart';
+
 /// Connection details for the Novel Grabber OPDS server.
 class OpdsSettings {
   const OpdsSettings({
@@ -9,12 +11,18 @@ class OpdsSettings {
     required this.username,
     required this.password,
     this.downloaderUrl = '',
+    this.secondUrl = '',
     this.passwordLost = false,
   });
 
   /// Server root with no trailing slash and no `/opds` suffix —
   /// e.g. `http://192.168.1.42:8765`.
   final String baseUrl;
+
+  /// Another way to reach the same computer, tried when [baseUrl] doesn't
+  /// answer — typically the Wi-Fi address beside a Tailscale one. Empty means
+  /// there is only the one. See [ServerRoute] for which is used when.
+  final String secondUrl;
   final String username;
   final String password;
 
@@ -45,7 +53,9 @@ class OpdsSettings {
   ///
   /// Falls back to [baseUrl], which is the whole configuration for anyone
   /// whose one server both stores and downloads.
-  String get controlUrl => downloaderUrl.isNotEmpty ? downloaderUrl : baseUrl;
+  String get controlUrl => downloaderUrl.isNotEmpty
+      ? downloaderUrl
+      : ServerRoute.instance.baseFor(this);
 
   /// True when reading and downloading are two different machines.
   bool get downloaderIsElsewhere =>
@@ -57,6 +67,7 @@ class OpdsSettings {
   /// this is false, what it holds is talking to the wrong place.
   bool sameConnection(OpdsSettings other) =>
       baseUrl == other.baseUrl &&
+      secondUrl == other.secondUrl &&
       downloaderUrl == other.downloaderUrl &&
       username == other.username &&
       password == other.password;
@@ -68,6 +79,7 @@ class OpdsSettings {
     String? username,
     String? password,
     String? downloaderUrl,
+    String? secondUrl,
     bool? passwordLost,
   }) {
     return OpdsSettings(
@@ -75,6 +87,7 @@ class OpdsSettings {
       username: username ?? this.username,
       password: password ?? this.password,
       downloaderUrl: downloaderUrl ?? this.downloaderUrl,
+      secondUrl: secondUrl ?? this.secondUrl,
       passwordLost: passwordLost ?? this.passwordLost,
     );
   }
@@ -109,6 +122,7 @@ String normalizeOpdsUrl(String input) {
 class SettingsService {
   static const _kBaseUrl = 'opds_base_url';
   static const _kDownloaderUrl = 'downloader_base_url';
+  static const _kSecondUrl = 'opds_second_url';
   static const _kUsername = 'opds_username';
   static const _kPassword = 'opds_password';
   static const _kHasPassword = 'opds_password_saved';
@@ -166,6 +180,7 @@ class SettingsService {
       username: prefs.getString(_kUsername) ?? '',
       password: password ?? '',
       downloaderUrl: prefs.getString(_kDownloaderUrl) ?? '',
+      secondUrl: prefs.getString(_kSecondUrl) ?? '',
       passwordLost: expected && !hasPassword,
     );
   }
@@ -174,6 +189,7 @@ class SettingsService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kBaseUrl, settings.baseUrl);
     await prefs.setString(_kDownloaderUrl, settings.downloaderUrl);
+    await prefs.setString(_kSecondUrl, settings.secondUrl);
     await prefs.setString(_kUsername, settings.username);
     await prefs.setBool(_kHasPassword, settings.password.isNotEmpty);
     if (await _writeSecure(_kPassword, settings.password)) {

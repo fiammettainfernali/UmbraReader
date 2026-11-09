@@ -7,6 +7,7 @@ import '../models/series.dart';
 import '../services/library_cache.dart';
 import '../services/library_storage.dart';
 import '../services/pending_add_store.dart';
+import '../services/server_route.dart';
 import '../services/settings_service.dart';
 import '../widgets/action_sheet.dart';
 import '../widgets/duplicate_sheet.dart';
@@ -601,6 +602,24 @@ class _ManageScreenState extends State<ManageScreen>
                             ),
                           ),
                         ],
+                      ),
+                      // Said, so the slower or unencrypted route is never a mystery.
+                      ValueListenableBuilder<String>(
+                        valueListenable: ServerRoute.instance.using,
+                        builder: (context, using, _) {
+                          if (!ServerRoute.instance.onSecond) {
+                            return const SizedBox.shrink();
+                          }
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Text(
+                              'Through your second address, '
+                              '${Uri.tryParse(using)?.host ?? using} — the first '
+                              'one isn\'t answering.',
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          );
+                        },
                       ),
                       if (showProgress) ...[
                         const SizedBox(height: 12),

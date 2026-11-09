@@ -5,6 +5,7 @@ import 'library_storage.dart';
 import 'opds_client.dart';
 import 'remote_epub_source.dart';
 import 'reading_progress_store.dart';
+import 'server_route.dart';
 import 'settings_service.dart';
 import '../models/series.dart';
 import '../models/volume.dart';
@@ -110,7 +111,7 @@ class StreamedCountRefresh {
 
   Future<int?> _countFor(Volume volume) async {
     final source = RemoteEpubSource(
-      baseUrl: settings.baseUrl,
+      baseUrl: await ServerRoute.instance.ready(settings),
       novelId: volume.seriesOpdsId,
       fileName: volume.fileName,
       headers: OpdsClient(settings).authHeaders,

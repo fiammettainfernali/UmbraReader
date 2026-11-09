@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import 'library_storage.dart';
+import 'server_route.dart';
 
 /// Caches series cover images on disk so they still appear when the OPDS
 /// server is unreachable.
@@ -25,7 +26,12 @@ class CoverCache {
     Map<String, String> headers,
   ) async {
     try {
-      final response = await http.get(Uri.parse(url), headers: headers);
+      // Stored under the computer's first address; fetched from the one in use.
+      await ServerRoute.instance.settled();
+      final response = await http.get(
+        Uri.parse(ServerRoute.instance.link(url)),
+        headers: headers,
+      );
       if (response.statusCode != 200 || response.bodyBytes.isEmpty) {
         return null;
       }

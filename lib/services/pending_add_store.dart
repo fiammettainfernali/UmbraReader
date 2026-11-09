@@ -112,6 +112,9 @@ class FlushReport {
 class PendingAddStore {
   static const _key = 'pending_novel_adds';
 
+  /// Counts entries made this run, so two in one clock tick still differ.
+  static int _made = 0;
+
   /// A hard ceiling, so a long spell offline can't grow an unbounded list
   /// that then floods the server in one burst.
   static const int maxPending = 100;
@@ -143,7 +146,9 @@ class PendingAddStore {
     return _write([
       ...all,
       PendingAdd(
-        id: '${DateTime.now().microsecondsSinceEpoch}',
+        // The clock alone was not unique: two shares in the same tick got
+        // one id, and forgetting either forgot both.
+        id: '${DateTime.now().microsecondsSinceEpoch}-${_made++}',
         url: trimmed,
         label: (label ?? '').trim().isEmpty ? trimmed : label!.trim(),
         queuedAt: DateTime.now(),
