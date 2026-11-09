@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:background_downloader/background_downloader.dart';
 import 'package:http/http.dart' as http;
@@ -80,6 +81,31 @@ Future<void> platformFetch(
             result.exception != null &&
             result.exception is! TaskConnectionException,
       );
+  }
+}
+
+/// How many chapters the book at [file] has, as the reader counts them;
+/// 0 if it can't be read.
+///
+/// Opened in a background isolate: this runs after every volume downloaded
+/// while a book of that series is in progress, which is most of a
+/// "download new volumes" run, and reading and unpacking a whole book on
+/// the thread that draws the screen made the library stutter through it.
+Future<int> chapterCountOf(File file) async {
+  final path = file.path;
+  Future<int> count() async {
+    try {
+      return (await EpubParser().open(File(path))).chapters.length;
+    } on Exception {
+      return 0;
+    }
+  }
+
+  try {
+    return await Isolate.run(count);
+  } on Object {
+    // Somewhere isolates aren't available: count here, as before.
+    return count();
   }
 }
 
@@ -257,22 +283,16 @@ class DownloadService {
       final progress = await progressStore.load(volume);
       // Nothing has been read — there is no position to refresh.
       if (!progress.isStarted) return;
-      final book = await EpubParser().open(epubFile);
-      if (book.chapters.isEmpty ||
-          book.chapters.length == progress.chapterCount) {
-        return;
-      }
+      final chapters = await chapterCountOf(epubFile);
+      if (chapters == 0 || chapters == progress.chapterCount) return;
       await progressStore.save(
         volume,
         ReadingProgress(
-          chapterIndex: progress.chapterIndex.clamp(
-            0,
-            book.chapters.length - 1,
-          ),
+          chapterIndex: progress.chapterIndex.clamp(0, chapters - 1),
           blockIndex: progress.blockIndex,
           blockChar: progress.blockChar,
           chapterPath: progress.chapterPath,
-          chapterCount: book.chapters.length,
+          chapterCount: chapters,
         ),
         // A background count refresh must not un-hide a volume the user
         // removed from the Continue shelf.
