@@ -82,13 +82,24 @@ class PcProgressSync {
       final path = entry.progress.chapterPath;
       if (at == null || path == null || taken.contains(entry.volume.seriesOpdsId)) continue;
       if (await store.pushedAt(entry.volume) == at.toIso8601String()) continue;
-      final reply = await client.pushProgress(PcPlace(
-        novel: entry.volume.seriesOpdsId,
-        file: entry.volume.fileName,
-        path: path,
-        share: share,
-        at: at,
-      ));
+      final PcProgressReply reply;
+      try {
+        reply = await client.pushProgress(PcPlace(
+          novel: entry.volume.seriesOpdsId,
+          file: entry.volume.fileName,
+          path: path,
+          share: share,
+          at: at,
+        ));
+      } on ControlException catch (e) {
+        // Not reaching the computer ends this run; it is tried next time.
+        if (e.isUnreachable) rethrow;
+        // A place it can't use — a book it doesn't have, an imported EPUB —
+        // is that book's answer, not the run's. Remembered, so it isn't
+        // asked again until the place moves.
+        await store.markPushed(entry.volume, at);
+        continue;
+      }
       await store.markPushed(entry.volume, at);
       final newer = reply.newer;
       if (!reply.applied && newer != null && newer.at.isAfter(at)) {

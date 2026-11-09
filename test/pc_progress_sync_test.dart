@@ -29,6 +29,7 @@ class _Computer {
   List<Map<String, dynamic>> places = [];
   final List<Map<String, dynamic>> received = [];
   Map<String, dynamic> answer = {'applied': true};
+  int? refuseNovel;
   late HttpServer server;
 
   Future<void> start() async {
@@ -38,8 +39,14 @@ class _Computer {
       if (request.uri.path == '/api/progress' && request.method == 'GET') {
         response.write(jsonEncode({'now': '2026-11-09T12:00:00+00:00', 'novels': places}));
       } else if (request.uri.path == '/api/progress' && request.method == 'POST') {
-        received.add(jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>);
-        response.write(jsonEncode(answer));
+        final body = jsonDecode(await utf8.decoder.bind(request).join()) as Map<String, dynamic>;
+        received.add(body);
+        if (body['novel'] == refuseNovel) {
+          response.statusCode = HttpStatus.notFound;
+          response.write(jsonEncode({'error': "that novel isn't in the library"}));
+        } else {
+          response.write(jsonEncode(answer));
+        }
       } else {
         response.statusCode = HttpStatus.notFound;
       }
@@ -147,6 +154,33 @@ void main() {
     computer.answer = {'applied': false, 'newer': place('2099-01-01T00:00:00+00:00', path: 'chapter_0008.xhtml')};
     expect(await PcProgressSync.instance.sync(settings), isTrue);
     expect((await store.load(_volume)).chapterPath, 'chapter_0008.xhtml');
+  });
+
+  test('a place the computer refuses does not stop the others', () async {
+    final other = Volume(
+      seriesOpdsId: 9,
+      title: 'An imported book',
+      fileName: 'Imported.epub',
+      downloadUrl: 'http://pc/opds/download/9/Imported.epub',
+      fileSizeBytes: 10,
+      updatedAt: DateTime(2026, 11, 1),
+    );
+    await store.save(
+      _volume,
+      const ReadingProgress(chapterIndex: 1, blockIndex: 2, chapterPath: 'EPUB/chapter_0002.xhtml', chapterCount: 9),
+      share: 0.2,
+    );
+    // Newer, so sent first: the computer doesn't have it.
+    await store.save(
+      other,
+      const ReadingProgress(chapterIndex: 0, blockIndex: 1, chapterPath: 'ch1.xhtml', chapterCount: 2),
+      share: 0.5,
+    );
+    computer.refuseNovel = 9;
+    await PcProgressSync.instance.sync(settings);
+    expect(computer.received.map((r) => r['novel']), [9, 7]);
+    await PcProgressSync.instance.sync(settings);
+    expect(computer.received, hasLength(2), reason: 'the refused one is not asked again');
   });
 
   test('a computer that cannot be reached is simply tried next time', () async {
