@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 
 import '../widgets/action_sheet.dart';
 import '../models/reader_theme.dart';
-import '../widgets/seek_button.dart';
 
 /// Overlay top bar: back, chapter title, reading settings, contents.
 /// Actions in the reader's top-bar overflow menu.

@@ -130,7 +130,7 @@ void main() {
       _series,
     );
     expect(info.latestChapterNumber, 260);
-    expect(info.latestChapterUrl, '${_series}/chapter-260');
+    expect(info.latestChapterUrl, '$_series/chapter-260');
   });
 
   test('a hashed slug is still a chapter number', () {

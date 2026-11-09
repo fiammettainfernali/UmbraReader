@@ -32,7 +32,6 @@ import '../services/server_route.dart';
 import '../models/series.dart';
 import '../services/glossary_store.dart';
 import '../services/library_cache.dart';
-import '../services/cover_cache.dart';
 import '../services/library_storage.dart';
 import '../services/reader_preferences.dart';
 import '../services/settings_service.dart';
@@ -1581,7 +1580,6 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   /// Plain text of a block — exactly the runs as rendered, so TTS word
   /// offsets line up with the on-screen text for highlighting.
-  @override
   String plainBlockText(ContentBlock block) => switch (block) {
     ParagraphBlock p => p.runs.map((r) => r.text).join(),
     HeadingBlock h => h.runs.map((r) => r.text).join(),
