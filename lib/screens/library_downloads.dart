@@ -183,6 +183,22 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
 
   bool get bulkDownloading => _bulkDownloading;
 
+  /// Ticks when the banner's numbers change. Only the banner listens: the
+  /// count used to go through setState, which rebuilt the whole library
+  /// screen — spotlight, rows and cover grid — once for every one of the
+  /// 1,104 series checked.
+  final ValueNotifier<int> _bannerTick = ValueNotifier<int>(0);
+
+  void _repaintBanner() {
+    if (mounted) _bannerTick.value++;
+  }
+
+  @override
+  void dispose() {
+    _bannerTick.dispose();
+    super.dispose();
+  }
+
   // ── background upkeep ───────────────────────────────────────────────────
 
   /// Runs the auto-download / auto-delete pass, at most once per
@@ -267,7 +283,8 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
         try {
           final fetched = await client.fetchVolumes(entry.volume.seriesOpdsId);
           // Cache the list so the series opens (and reads) offline later.
-          await libraryCache?.saveVolumes(entry.volume.seriesOpdsId, fetched);
+          // Staged: written every few seconds, not once per series.
+          libraryCache?.stageVolumes(entry.volume.seriesOpdsId, fetched);
           final volumes = volumesInReadingOrder(fetched);
           final idx = volumes.indexWhere(
             (v) => v.fileName == entry.volume.fileName,
@@ -283,6 +300,7 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
       concurrency: PoolSize.metadata,
       shouldStop: () => !mounted,
     );
+    await libraryCache?.flush();
 
     // Downloading stays modest, and in the order the list was already
     // sorted into: most recently read first, so an interrupted run has
@@ -397,7 +415,8 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
         try {
           final volumes = await opds.fetchVolumes(series.opdsId);
           // Cache the list so each series opens (and reads) offline later.
-          await libraryCache?.saveVolumes(series.opdsId, volumes);
+          // Staged: written every few seconds, not once per series.
+          libraryCache?.stageVolumes(series.opdsId, volumes);
           return [
             for (final volume in volumes)
               if (needsDownload(volume, store.recordFor(volume))) volume,
@@ -410,27 +429,22 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
           // A count, not a name: with several scans in flight there is no
           // single series to point at, and a title flickering between
           // whichever finished last would say less than a number.
-          if (mounted) {
-            setState(
-              () => _bulkCurrent =
-                  'Checked $scanned of '
-                  '${ordered.length} series',
-            );
-          }
+          _bulkCurrent = 'Checked $scanned of ${ordered.length} series';
+          _repaintBanner();
         }
       },
       concurrency: PoolSize.metadata,
       shouldStop: () => _bulkCancel || !mounted,
     );
+    await libraryCache?.flush();
     // Flattened in the order the library was sorted into, so the most
     // recently read series download first.
     final pending = <Volume>[for (final list in perSeries) ...?list];
 
     if (!mounted) return;
-    setState(() {
-      _bulkTotal = pending.length;
-      _bulkCurrent = null;
-    });
+    _bulkTotal = pending.length;
+    _bulkCurrent = null;
+    _repaintBanner();
 
     // Phase 2 — download a few at a time. Deliberately fewer than the
     // scans: these are large files sharing one pipe, and a download only
@@ -446,15 +460,14 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
           saved = false;
         }
         if (!mounted) return;
-        setState(() {
-          // Only a volume that actually arrived counts as saved. This
-          // incremented either way, and the same number is reported as
-          // "saved" at the end — so twelve volumes with three failures
-          // finished by claiming twelve saved and three failed.
-          if (saved) _bulkSaved++;
-          _bulkDone++;
-          _bulkCurrent = volume.title;
-        });
+        // Only a volume that actually arrived counts as saved. This
+        // incremented either way, and the same number is reported as
+        // "saved" at the end — so twelve volumes with three failures
+        // finished by claiming twelve saved and three failed.
+        if (saved) _bulkSaved++;
+        _bulkDone++;
+        _bulkCurrent = volume.title;
+        _repaintBanner();
       },
       concurrency: PoolSize.downloads,
       shouldStop: () => _bulkCancel || !mounted,
@@ -487,8 +500,14 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
     showSnack(message);
   }
 
-  /// Progress banner shown while the whole-library download runs.
-  Widget buildBulkBanner() {
+  /// Progress banner shown while the whole-library download runs. Redraws
+  /// on its own as the counts move; see [_bannerTick].
+  Widget buildBulkBanner() => ValueListenableBuilder<int>(
+    valueListenable: _bannerTick,
+    builder: (context, _, _) => _bulkBanner(context),
+  );
+
+  Widget _bulkBanner(BuildContext context) {
     final theme = Theme.of(context);
     final total = _bulkTotal;
     final done = _bulkDone;
@@ -541,7 +560,10 @@ mixin LibraryDownloads<T extends StatefulWidget> on State<T> {
           TextButton(
             onPressed: _bulkCancel
                 ? null
-                : () => setState(() => _bulkCancel = true),
+                : () {
+                    _bulkCancel = true;
+                    _repaintBanner();
+                  },
             child: const Text('Stop'),
           ),
         ],
