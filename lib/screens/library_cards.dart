@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/series.dart';
 import '../services/reading_progress_store.dart';
 import '../widgets/cached_cover.dart';
+import '../widgets/living_surfaces.dart';
 
 /// A single cover in the library grid: cover art, title, author.
 class SeriesCard extends StatelessWidget {
@@ -36,60 +37,66 @@ class SeriesCard extends StatelessWidget {
         onTap: onTap,
         onLongPress: onLongPress,
         behavior: HitTestBehavior.opaque,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.4),
-                      blurRadius: 6,
-                      offset: const Offset(0, 3),
+        child: RiseIn(
+          child: PressScale(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      // A hard edge rather than a blurred glow: this is on
+                      // every cover in a grid of 1,000-odd, drawn each frame.
+                      boxShadow: const [
+                        BoxShadow(color: Color(0x4DE5121F), spreadRadius: 1.5),
+                      ],
                     ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      CoverImage(series: series, headers: imageHeaders),
-                      if (series.hasMultipleVolumes)
-                        const Positioned(
-                          top: 6,
-                          right: 6,
-                          child: VolumeBadge(),
-                        ),
-                      if (updateAvailable)
-                        const Positioned(top: 6, left: 6, child: UpdateBadge()),
-                    ],
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          CoverImage(series: series, headers: imageHeaders),
+                          if (series.hasMultipleVolumes)
+                            const Positioned(
+                              top: 6,
+                              right: 6,
+                              child: VolumeBadge(),
+                            ),
+                          if (updateAvailable)
+                            const Positioned(
+                              top: 6,
+                              left: 6,
+                              child: UpdateBadge(),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(height: 8),
+                Text(
+                  series.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    height: 1.2,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  series.author,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.outline,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              series.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-                height: 1.2,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              series.author,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.outline,
-              ),
-            ),
-          ],
+          ),
         ),
       ),
     );
@@ -106,7 +113,11 @@ class ContinueCard extends StatelessWidget {
     required this.onTap,
     required this.onLongPress,
     this.hasUpdate = false,
+    this.onRemove,
   });
+
+  /// Takes it off the shelf, from a small button on the cover.
+  final VoidCallback? onRemove;
 
   final ReadingEntry entry;
 
@@ -176,6 +187,12 @@ class ContinueCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (onRemove != null)
+                      Positioned(
+                        top: 5,
+                        left: 5,
+                        child: DismissChip(onPressed: onRemove!),
+                      ),
                     // On the cover rather than beside the progress line, so
                     // it says "there is more of this book" without competing
                     // with "where you are in it".
@@ -431,10 +448,18 @@ class TitleCover extends StatelessWidget {
 /// Cover art for a series — the network image, or a titled gradient fallback
 /// when there is no cover or it fails to load.
 class CoverImage extends StatelessWidget {
-  const CoverImage({super.key, required this.series, required this.headers});
+  const CoverImage({
+    super.key,
+    required this.series,
+    required this.headers,
+    this.decodeWidth,
+  });
 
   final Series series;
   final Map<String, String> headers;
+
+  /// See [CachedCover.decodeWidth].
+  final int? decodeWidth;
 
   @override
   Widget build(BuildContext context) {
@@ -442,6 +467,7 @@ class CoverImage extends StatelessWidget {
       seriesId: series.opdsId,
       coverUrl: series.coverUrl,
       headers: headers,
+      decodeWidth: decodeWidth,
       fallback: _fallback(context),
     );
   }
@@ -561,8 +587,9 @@ class UpdateBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(3),
       decoration: const BoxDecoration(
-        color: Colors.orange,
+        color: Color(0xFFE5121F),
         shape: BoxShape.circle,
+        boxShadow: [BoxShadow(color: Color(0x99E5121F), blurRadius: 8)],
       ),
       child: const Icon(Icons.update, size: 15, color: Colors.white),
     );

@@ -46,7 +46,7 @@ void main() {
     await tester.tap(find.text('go'));
     await tester.pumpAndSettle();
     expect(allowed, isTrue);
-    expect(find.text('Umbra Pro'), findsNothing);
+    expect(find.text('Hawthorne Codex Pro'), findsNothing);
   });
 
   testWidgets('requirePro shows the upsell when locked', (tester) async {
@@ -69,7 +69,7 @@ void main() {
     );
     await tester.tap(find.text('go'));
     await tester.pumpAndSettle();
-    expect(find.text('Umbra Pro'), findsOneWidget);
+    expect(find.text('Hawthorne Codex Pro'), findsOneWidget);
     // The tapped feature is listed first and emphasised.
     expect(find.text('Search inside every book'), findsOneWidget);
     // Dismiss → still locked.

@@ -15,11 +15,17 @@ class CachedCover extends StatefulWidget {
     required this.coverUrl,
     required this.headers,
     required this.fallback,
+    this.decodeWidth,
   });
 
   final int seriesId;
   final String? coverUrl;
   final Map<String, String> headers;
+
+  /// Decode this few pixels across and let it scale up soft. It looks like a
+  /// blur and costs almost nothing per frame, where a real blur is worked out
+  /// again every time the screen is drawn.
+  final int? decodeWidth;
 
   /// Shown when there is no cover, or it can't be fetched or decoded.
   final Widget fallback;
@@ -86,6 +92,10 @@ class _CachedCoverState extends State<CachedCover> {
       return Image.file(
         file,
         fit: BoxFit.cover,
+        cacheWidth: widget.decodeWidth,
+        filterQuality: widget.decodeWidth == null
+            ? FilterQuality.medium
+            : FilterQuality.high,
         errorBuilder: (_, _, _) => widget.fallback,
       );
     }

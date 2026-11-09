@@ -8,9 +8,10 @@ import '../services/opds_client.dart';
 import '../services/reading_progress_store.dart';
 import '../services/recommendation_loader.dart';
 import '../services/settings_service.dart';
-import '../widgets/section_header.dart';
-import 'browse_screen.dart';
-import 'library_cards.dart';
+import '../widgets/hawthorne_parts.dart';
+import 'comic_browser_screen.dart';
+import 'novel_browser_screen.dart';
+import 'library_home.dart';
 import 'library_recommendations.dart';
 import 'library_search_screen.dart';
 import 'novel_search_screen.dart';
@@ -211,9 +212,16 @@ class DiscoverScreenState extends State<DiscoverScreen>
   Future<void> _openBrowser() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => BrowseScreen(settings: widget.settings),
+        builder: (_) => NovelBrowserScreen(settings: widget.settings),
       ),
     );
+    if (mounted) await _load();
+  }
+
+  Future<void> _openComicBrowser() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const ComicBrowserScreen()));
     if (mounted) await _load();
   }
 
@@ -231,7 +239,8 @@ class DiscoverScreenState extends State<DiscoverScreen>
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Discover'),
+        titleSpacing: 12,
+        title: const HawthorneBrand(),
         actions: [
           IconButton(
             icon: const Icon(Icons.casino_outlined),
@@ -250,19 +259,25 @@ class DiscoverScreenState extends State<DiscoverScreen>
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: EdgeInsets.fromLTRB(
                   0,
-                  8,
+                  0,
                   0,
                   24 + MediaQuery.of(context).padding.bottom,
                 ),
                 children: [
+                  ScreenHeading(
+                    'Discover',
+                    subtitle: _library.isEmpty
+                        ? null
+                        : '${_library.length} novels to choose from',
+                  ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
                     child: _searchCard(theme),
                   ),
                   if (recent.isNotEmpty) ...[
-                    const SectionHeader(
-                      'Recently updated',
-                      padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+                    const RowHeading(
+                      title: 'Recently updated',
+                      tag: 'New chapters',
                     ),
                     _shelf(recent),
                   ],
@@ -271,9 +286,9 @@ class DiscoverScreenState extends State<DiscoverScreen>
                   // above the recommendations, since these are books you
                   // chose yourself.
                   if (added.isNotEmpty) ...[
-                    const SectionHeader(
-                      'Recently added',
-                      padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
+                    const RowHeading(
+                      title: 'Recently added',
+                      tag: 'Newest first',
                     ),
                     _shelf(added),
                   ],
@@ -323,10 +338,7 @@ class DiscoverScreenState extends State<DiscoverScreen>
   /// question: two search the library, one goes out to the sources.
   Widget _searchCard(ThemeData theme) {
     return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHigh,
-        borderRadius: BorderRadius.circular(18),
-      ),
+      decoration: panelDecoration(),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(18),
         child: Column(
@@ -351,9 +363,17 @@ class DiscoverScreenState extends State<DiscoverScreen>
             _searchRow(
               theme,
               icon: Icons.language,
-              label: 'Browse the sites',
-              subtitle: 'Look around and send anything to Novel Grabber',
+              label: 'Browse novel sites',
+              subtitle: 'Send novels to your computer right from the lists',
               onTap: _openBrowser,
+            ),
+            _hairline(theme),
+            _searchRow(
+              theme,
+              icon: Icons.image_search,
+              label: 'Browse comics',
+              subtitle: 'Find comics and follow them to read here',
+              onTap: _openComicBrowser,
             ),
           ],
         ),
@@ -425,25 +445,21 @@ class DiscoverScreenState extends State<DiscoverScreen>
 
   /// A horizontal run of covers.
   Widget _shelf(List<Series> series) {
-    return SizedBox(
-      height: 218,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: series.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 12),
-        itemBuilder: (context, i) => SizedBox(
-          width: 110,
-          child: SeriesCard(
-            series: series[i],
-            imageHeaders: OpdsClient(widget.settings).authHeaders,
-            updateAvailable: _hasUpdate(series[i]),
-            onTap: () => openSeries(series[i]),
-            // No bulk actions on this tab, so a long press does the same
-            // as a tap rather than being a gesture that goes nowhere.
-            onLongPress: () => openSeries(series[i]),
-          ),
-        ),
+    final headers = OpdsClient(widget.settings).authHeaders;
+    return DriftingRow(
+      itemCount: series.length,
+      itemExtent: 136,
+      height: 238,
+      itemBuilder: (context, i, clock) => RowCard(
+        series: series[i],
+        headers: headers,
+        phase: i * 0.73,
+        clock: clock,
+        fresh: _hasUpdate(series[i]),
+        onTap: () => openSeries(series[i]),
+        // No bulk actions on this tab, so a long press does the same
+        // as a tap rather than being a gesture that goes nowhere.
+        onLongPress: () => openSeries(series[i]),
       ),
     );
   }

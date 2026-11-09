@@ -1,22 +1,15 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 
-/// The app's bottom bar, drawn as translucent glass over whatever is scrolling
-/// beneath it.
+import '../services/app_motion.dart';
+
+/// The app's bottom bar: solid black, with a hairline along its top edge
+/// and the desktop's glowing pill on the chosen tab.
 ///
-/// Flutter paints its own widgets rather than hosting UIKit, so Apple's real
-/// Liquid Glass material isn't something it can simply adopt — the Cupertino
-/// rebuild that will bring it is tracked in flutter/flutter#170310 and isn't
-/// expected before late 2026. This is the approximation that needs no native
-/// platform views and no new dependency: the content behind the bar is
-/// blurred, a translucent tint sits over it, and a hairline catches the light
-/// along the top edge. What it doesn't do is refract or throw specular
-/// highlights, which is the part only a shader or a real UIKit view gives you.
-///
-/// It only reads as glass because covers pass *under* it, so the shell sets
-/// `extendBody` and hands its tabs [barHeight] as bottom padding — otherwise
-/// there is nothing behind the bar to blur and it is just a tinted strip.
+/// It used to blur whatever passed beneath it. With embers moving behind every
+/// tab that blur had to be worked out again on every beat, which made it the
+/// most expensive thing on the screen, so the tint now does the job alone. The
+/// shell still sets `extendBody` and hands its tabs [barHeight] as bottom
+/// padding, so covers scroll under the bar's edge rather than stop at it.
 class GlassNavBar extends StatelessWidget {
   const GlassNavBar({
     super.key,
@@ -31,51 +24,74 @@ class GlassNavBar extends StatelessWidget {
 
   /// The bar's own height, above the home-indicator inset it adds on top.
   ///
-  /// Matches [NavigationBar]'s default so the bar is the same size it was
-  /// before it became glass.
+  /// Matches [NavigationBar]'s default.
   static const double barHeight = 80;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
 
-    // Increase Contrast is the closest signal Flutter exposes to iOS's Reduce
-    // Transparency, and people turn both on for the same reason: text over a
-    // blurred backdrop is harder to read. Give them a solid bar instead.
-    final opaque = MediaQuery.of(context).highContrast;
-
-    final bar = NavigationBar(
-      selectedIndex: selectedIndex,
-      onDestinationSelected: onDestinationSelected,
-      destinations: destinations,
-      backgroundColor: Colors.transparent,
-      surfaceTintColor: Colors.transparent,
-      shadowColor: Colors.transparent,
-      elevation: 0,
-    );
-
-    if (opaque) {
-      return ColoredBox(color: scheme.surfaceContainer, child: bar);
-    }
-
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            // Dark and heavy enough that labels stay legible over a bright
-            // cover, sheer enough that you can see one move past.
-            color: scheme.surface.withValues(alpha: 0.62),
-            border: Border(
-              top: BorderSide(
-                color: scheme.onSurface.withValues(alpha: 0.10),
-                width: 0.5,
+    final count = destinations.length;
+    final bar = Stack(
+      children: [
+        // The desktop's nav pill: dark red, a bright edge and a glow, sliding
+        // to the chosen tab with a little overshoot.
+        Positioned(
+          top: 10,
+          left: 0,
+          right: 0,
+          height: 36,
+          child: IgnorePointer(
+            child: AnimatedAlign(
+              alignment: Alignment(-1 + 2 * selectedIndex / (count - 1), 0),
+              duration: AppMotion.isReduced(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 620),
+              curve: const Cubic(0.34, 1.4, 0.64, 1),
+              child: FractionallySizedBox(
+                widthFactor: 1 / count,
+                heightFactor: 1,
+                child: Center(
+                  child: Container(
+                    width: 74,
+                    decoration: BoxDecoration(
+                      color: const Color(0x66A50D18),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: const Color(0xFFE5121F)),
+                      boxShadow: const [
+                        BoxShadow(color: Color(0x99E5121F), blurRadius: 16),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
-          child: bar,
+        ),
+        NavigationBar(
+          selectedIndex: selectedIndex,
+          onDestinationSelected: onDestinationSelected,
+          destinations: destinations,
+          backgroundColor: Colors.transparent,
+          surfaceTintColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          indicatorColor: Colors.transparent,
+          elevation: 0,
+        ),
+      ],
+    );
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xFF0A0506),
+        border: Border(
+          top: BorderSide(
+            color: scheme.onSurface.withValues(alpha: 0.10),
+            width: 0.5,
+          ),
         ),
       ),
+      child: bar,
     );
   }
 }

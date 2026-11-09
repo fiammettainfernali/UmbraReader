@@ -39,7 +39,7 @@ class AnnotationsExport {
     }
     sections.sort((a, b) => a.$1.toLowerCase().compareTo(b.$1.toLowerCase()));
 
-    final buffer = StringBuffer('# Umbra Reader annotations\n');
+    final buffer = StringBuffer('# Hawthorne Codex annotations\n');
     for (final (title, marks) in sections) {
       buffer.writeln('\n## $title\n');
       String? lastChapter;
@@ -77,7 +77,7 @@ class AnnotationsExport {
         .replaceAll(':', '-')
         .split('.')
         .first;
-    final file = File('${dir.path}/umbra-annotations-$stamp.md');
+    final file = File('${dir.path}/hawthorne-codex-annotations-$stamp.md');
     await file.writeAsString(text);
     return file;
   }

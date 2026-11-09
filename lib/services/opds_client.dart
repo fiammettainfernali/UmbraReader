@@ -6,6 +6,7 @@ import 'package:xml/xml.dart';
 
 import '../models/series.dart';
 import '../models/volume.dart';
+import 'server_route.dart';
 import 'settings_service.dart';
 
 /// Raised when the OPDS server can't be reached or returns something
@@ -54,21 +55,36 @@ class OpdsClient {
     _ => '',
   };
 
+  /// Asks [path] of whichever of the computer's addresses answers, trying
+  /// the other one once if the first can't be reached.
+  Future<http.Response> _fetch(String path, String unreachable) async {
+    try {
+      return await ServerRoute.instance.run(
+        settings,
+        (base) => http
+            .get(Uri.parse('$base$path'), headers: authHeaders)
+            .timeout(const Duration(seconds: 20)),
+        unreachable: (e) => e is Exception,
+      );
+    } on Exception catch (e) {
+      throw OpdsException('$unreachable\n\n($e)');
+    }
+  }
+
+  String get _where => settings.secondUrl.isEmpty
+      ? settings.baseUrl
+      : '${settings.baseUrl} or ${settings.secondUrl}';
+
   /// Fetches every series in the library (the OPDS "All Books" feed).
   Future<List<Series>> fetchLibrary() async {
-    final uri = Uri.parse('${settings.baseUrl}/opds/all');
-    final http.Response response;
-    try {
-      response = await http
-          .get(uri, headers: authHeaders)
-          .timeout(const Duration(seconds: 20));
-    } on Exception catch (e) {
-      throw OpdsException(
-        'Could not reach the server at ${settings.baseUrl}.\n\n'
-        'Make sure Novel Grabber is running, the OPDS server is started, '
-        'and your phone is on the same Wi-Fi network.\n\n($e)',
-      );
-    }
+    final response = await _fetch(
+      '/opds/all',
+      'Could not reach the server at $_where.\n\n'
+          'Make sure Hawthorne Codex is running on your computer, the OPDS server is started, '
+          'and your phone is on the same Wi-Fi network.',
+    );
+    final uri = response.request?.url ??
+        Uri.parse('${ServerRoute.instance.baseFor(settings)}/opds/all');
 
     if (response.statusCode == 401) {
       throw OpdsException(
@@ -105,15 +121,10 @@ class OpdsClient {
   /// multi-volume, so this works uniformly regardless of how the series was
   /// linked in the "All Books" feed.
   Future<List<Volume>> fetchVolumes(int seriesOpdsId) async {
-    final uri = Uri.parse('${settings.baseUrl}/opds/novel/$seriesOpdsId');
-    final http.Response response;
-    try {
-      response = await http
-          .get(uri, headers: authHeaders)
-          .timeout(const Duration(seconds: 20));
-    } on Exception catch (e) {
-      throw OpdsException('Could not load volumes from the server.\n($e)');
-    }
+    final response = await _fetch(
+      '/opds/novel/$seriesOpdsId',
+      'Could not load volumes from the server.',
+    );
 
     if (response.statusCode == 401) {
       throw OpdsException(
@@ -144,7 +155,8 @@ class OpdsClient {
     var fileSize = 0;
     for (final link in entry.findElements('link')) {
       if (link.getAttribute('rel') == 'http://opds-spec.org/acquisition') {
-        downloadUrl = link.getAttribute('href');
+        final href = link.getAttribute('href');
+        downloadUrl = href == null ? null : ServerRoute.instance.canonical(href);
         fileSize = int.tryParse(link.getAttribute('length') ?? '') ?? 0;
       }
     }
@@ -213,8 +225,10 @@ class OpdsClient {
     String? volumesFeedUrl;
     for (final link in entry.findElements('link')) {
       final rel = link.getAttribute('rel') ?? '';
-      final href = link.getAttribute('href');
-      if (href == null || href.isEmpty) continue;
+      final raw = link.getAttribute('href');
+      if (raw == null || raw.isEmpty) continue;
+      // Stored under the first address, whichever one fetched the feed.
+      final href = ServerRoute.instance.canonical(raw);
       if (rel == 'http://opds-spec.org/image' ||
           rel == 'http://opds-spec.org/image/thumbnail') {
         coverUrl ??= href;

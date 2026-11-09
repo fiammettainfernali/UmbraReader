@@ -196,7 +196,7 @@ class _GlossaryScreenState extends State<GlossaryScreen> {
           const SizedBox(height: 8),
           Text(
             'Add characters, places or terms as you read so you can keep '
-            'this series\' cast straight. Umbra then tracks which chapter '
+            'this series\' cast straight. Hawthorne Codex then tracks which chapter '
             'each one last appeared in.',
             textAlign: TextAlign.center,
             style: theme.textTheme.bodyMedium?.copyWith(

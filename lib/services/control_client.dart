@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import 'opds_client.dart';
+import 'server_route.dart';
 import 'settings_service.dart';
 
 /// Raised when the control API can't be reached or returns an error.
@@ -393,6 +394,81 @@ Duration reconnectBackoff(int attempt) {
 /// Talks to Novel Grabber's `/api/*` control endpoints (the command channel
 /// that complements the read-only OPDS feed). Same base URL + basic auth as
 /// [OpdsClient]; only works when the server is reachable.
+/// A reading place as it travels between the computer and here: the novel,
+/// the volume file and the chapter file inside it, how far through the
+/// chapter (0 to 1), and when it was read.
+class PcPlace {
+  const PcPlace({
+    required this.novel,
+    required this.file,
+    required this.path,
+    required this.share,
+    required this.at,
+  });
+
+  final int novel;
+  final String file;
+  final String path;
+  final double share;
+  final DateTime at;
+
+  /// Null when the computer has the place but no book holds that chapter yet.
+  static PcPlace? fromJson(Map<String, dynamic> j) {
+    final at = DateTime.tryParse(j['at'] as String? ?? '');
+    final file = j['file'] as String?;
+    final path = j['path'] as String?;
+    final novel = (j['novel'] as num?)?.toInt();
+    if (at == null || file == null || path == null || novel == null) return null;
+    return PcPlace(
+      novel: novel,
+      file: file,
+      path: path,
+      share: ((j['share'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0),
+      at: at,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'novel': novel,
+    'file': file,
+    'path': path,
+    'share': share,
+    'at': at.toUtc().toIso8601String(),
+  };
+}
+
+class PcProgressPage {
+  const PcProgressPage(this.now, this.places);
+
+  /// The computer's clock when it answered: what to ask "since" next time.
+  final String now;
+  final List<PcPlace> places;
+
+  factory PcProgressPage.fromJson(Map<String, dynamic> j) => PcProgressPage(
+    j['now'] as String? ?? '',
+    [
+      for (final n in (j['novels'] as List? ?? const []))
+        if (n is Map<String, dynamic>) ?PcPlace.fromJson(n),
+    ],
+  );
+}
+
+class PcProgressReply {
+  const PcProgressReply({required this.applied, this.newer});
+
+  final bool applied;
+
+  /// The computer's own place, when it was newer than the one sent.
+  final PcPlace? newer;
+
+  factory PcProgressReply.fromJson(Map<String, dynamic> j) => PcProgressReply(
+    applied: j['applied'] == true,
+    newer: j['newer'] is Map<String, dynamic>
+        ? PcPlace.fromJson(j['newer'] as Map<String, dynamic>)
+        : null,
+  );
+}
+
 class ControlClient {
   ControlClient(this.settings);
 
@@ -421,7 +497,7 @@ class ControlClient {
           'Tailscale or a LAN usually has no certificate of its own, and '
           'does not need one.';
     }
-    return 'Could not reach Novel Grabber.\n($error)';
+    return 'Could not reach your computer.\n($error)';
   }
 
   /// Commands go to the downloader, which need not be the machine the books
@@ -432,6 +508,25 @@ class ControlClient {
   /// back to the library address, which is the whole story for anyone whose
   /// one server does both.
   Uri _u(String path) => Uri.parse('${settings.controlUrl}$path');
+
+  /// Sends a request to the computer, by whichever of its addresses answers.
+  ///
+  /// A separate downloader has only the one address, so it is asked as is.
+  /// A command that timed out may have arrived and be under way, so it is
+  /// tried again elsewhere only when the connection never opened at all.
+  Future<http.Response> _send(
+    String path,
+    Future<http.Response> Function(Uri url) send, {
+    bool command = false,
+  }) {
+    if (settings.downloaderUrl.isNotEmpty) return send(_u(path));
+    return ServerRoute.instance.run(
+      settings,
+      (base) => send(Uri.parse('$base$path')),
+      unreachable: (e) =>
+          e is Exception && !(command && e is TimeoutException),
+    );
+  }
 
   Future<ControlStatus> status() async {
     final json = await _get('/api/status');
@@ -522,6 +617,17 @@ class ControlClient {
     start != null && end != null ? {'start': start, 'end': end} : null,
   );
 
+  /// Places read on the computer since [since] (its own clock, from the last
+  /// answer's `now`), or all of them when empty.
+  Future<PcProgressPage> progress({String since = ''}) async => PcProgressPage.fromJson(
+    await _get('/api/progress${since.isEmpty ? '' : '?since=${Uri.encodeQueryComponent(since)}'}'),
+  );
+
+  /// A place read here. The computer takes it if it is newer than its own;
+  /// otherwise the answer carries the computer's, newer one.
+  Future<PcProgressReply> pushProgress(PcPlace place) async =>
+      PcProgressReply.fromJson(await _postJson('/api/progress', place.toJson()));
+
   Future<void> pause() => _post('/api/queue/pause', null);
   Future<void> resume() => _post('/api/queue/resume', null);
   Future<void> stop() => _post('/api/queue/stop', null);
@@ -556,7 +662,10 @@ class ControlClient {
   }) async {
     final http.Response res;
     try {
-      res = await http.get(_u(path), headers: _auth).timeout(timeout);
+      res = await _send(
+        path,
+        (url) => http.get(url, headers: _auth).timeout(timeout),
+      );
     } on TimeoutException {
       throw ControlException(
         'The server took too long to respond. The source site may be slow '
@@ -601,13 +710,17 @@ class ControlClient {
   ) async {
     final http.Response res;
     try {
-      res = await http
-          .post(
-            _u(path),
-            headers: {..._auth, 'Content-Type': 'application/json'},
-            body: body == null ? null : jsonEncode(body),
-          )
-          .timeout(const Duration(seconds: 20));
+      res = await _send(
+        path,
+        (url) => http
+            .post(
+              url,
+              headers: {..._auth, 'Content-Type': 'application/json'},
+              body: body == null ? null : jsonEncode(body),
+            )
+            .timeout(const Duration(seconds: 20)),
+        command: true,
+      );
     } on Exception catch (e) {
       throw ControlException(
         explain(e, _u(path).toString()),
@@ -631,13 +744,17 @@ class ControlClient {
   Future<void> _post(String path, Map<String, dynamic>? body) async {
     final http.Response res;
     try {
-      res = await http
-          .post(
-            _u(path),
-            headers: {..._auth, 'Content-Type': 'application/json'},
-            body: body == null ? null : jsonEncode(body),
-          )
-          .timeout(const Duration(seconds: 12));
+      res = await _send(
+        path,
+        (url) => http
+            .post(
+              url,
+              headers: {..._auth, 'Content-Type': 'application/json'},
+              body: body == null ? null : jsonEncode(body),
+            )
+            .timeout(const Duration(seconds: 12)),
+        command: true,
+      );
     } on Exception catch (e) {
       throw ControlException(
         explain(e, _u(path).toString()),
@@ -735,6 +852,11 @@ class ControlClient {
               cancelOnError: true,
             );
       } on Exception {
+        // Perhaps the phone left home, or Tailscale went off: the next try
+        // goes to whichever address answers.
+        if (settings.downloaderUrl.isEmpty) {
+          await ServerRoute.instance.recover(settings, _u('').toString());
+        }
         scheduleReconnect();
       }
     };

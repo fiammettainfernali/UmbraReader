@@ -12,10 +12,12 @@ import 'package:umbra_reader/db/app_database.dart';
 import 'package:umbra_reader/models/bookmark.dart';
 import 'package:umbra_reader/models/volume.dart';
 import 'package:umbra_reader/screens/home_shell.dart';
+import 'package:umbra_reader/screens/manage_screen.dart';
 import 'package:umbra_reader/screens/notes_screen.dart';
 import 'package:umbra_reader/services/bookmark_store.dart';
 import 'package:umbra_reader/services/cloud_sync_service.dart';
 import 'package:umbra_reader/services/reading_progress_store.dart';
+import 'package:umbra_reader/services/settings_service.dart';
 
 import 'helpers/test_db.dart';
 
@@ -115,6 +117,36 @@ void main() {
       isFalse,
       reason: 'back from Library falls through to the system',
     );
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    CloudSyncService().cancelPendingTimers();
+  });
+
+  testWidgets('the Server tab follows a change of server address', (
+    tester,
+  ) async {
+    // The tabs outlive any settings change. This tab used to keep the address
+    // it started with, and timed out against the old server until the app was
+    // force-stopped.
+    await tester.pumpWidget(const MaterialApp(home: HomeShell()));
+    await _settle(tester);
+
+    await tester.runAsync(
+      () => SettingsService().save(
+        const OpdsSettings(
+          baseUrl: 'http://new-server.invalid:8765',
+          username: '',
+          password: '',
+        ),
+      ),
+    );
+    await _settle(tester);
+
+    final manage = tester.widget<ManageScreen>(
+      find.byType(ManageScreen, skipOffstage: false),
+    );
+    expect(manage.settings.baseUrl, 'http://new-server.invalid:8765');
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();

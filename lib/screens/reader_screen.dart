@@ -20,6 +20,7 @@ import '../models/epub_book.dart';
 import '../models/reader_settings.dart';
 import '../models/reader_theme.dart';
 import '../models/volume.dart';
+import '../services/app_motion.dart';
 import '../services/bookmark_store.dart';
 import '../services/cloud_sync_service.dart';
 import '../services/dictionary_service.dart';
@@ -27,10 +28,10 @@ import '../services/epub_parser.dart';
 import '../services/opds_client.dart';
 import '../services/page_turn_sound.dart';
 import '../services/remote_epub_source.dart';
+import '../services/server_route.dart';
 import '../models/series.dart';
 import '../services/glossary_store.dart';
 import '../services/library_cache.dart';
-import '../services/cover_cache.dart';
 import '../services/library_storage.dart';
 import '../services/reader_preferences.dart';
 import '../services/settings_service.dart';
@@ -100,6 +101,7 @@ class ReaderScreen extends StatefulWidget {
 
 class _ReaderScreenState extends State<ReaderScreen>
     with
+        HoldsMotionStill,
         WidgetsBindingObserver,
         ReaderSelection,
         ReaderSession {
@@ -443,7 +445,7 @@ class _ReaderScreenState extends State<ReaderScreen>
           return;
         }
         final source = RemoteEpubSource(
-          baseUrl: settings.baseUrl,
+          baseUrl: await ServerRoute.instance.ready(settings),
           novelId: widget.volume.seriesOpdsId,
           fileName: widget.volume.fileName,
           headers: OpdsClient(settings).authHeaders,
@@ -469,9 +471,20 @@ class _ReaderScreenState extends State<ReaderScreen>
       // spine path instead of the stale number.
       final savedPath = progress.chapterPath;
       if (widget.initialChapterIndex == null && savedPath != null) {
-        final byPath = book.chapters.indexWhere((c) => c.zipPath == savedPath);
+        // A place from the computer names the file without the book's folder.
+        final byPath = book.chapters.indexWhere(
+          (c) => ReadingProgressStore.samePath(c.zipPath, savedPath),
+        );
         if (byPath >= 0) chapterIndex = byPath;
       }
+      // Read on the computer: how far through this chapter, once.
+      final fromComputer =
+          widget.initialChapterIndex == null && widget.initialBlockIndex == null
+          ? await _progressStore.takeIncomingShare(
+              widget.volume,
+              book.chapters[chapterIndex].zipPath,
+            )
+          : null;
       if (_streaming &&
           !await parser.prepareChapter(book.chapters[chapterIndex])) {
         _fail('Could not reach the server to load this chapter.');
@@ -493,10 +506,11 @@ class _ReaderScreenState extends State<ReaderScreen>
         _settings = settings;
         _pendingRestoreBlock = blocks.isEmpty
             ? 0
-            : (widget.initialBlockIndex ?? progress.blockIndex).clamp(
-                0,
-                blocks.length - 1,
-              );
+            : (widget.initialBlockIndex ??
+                      (fromComputer != null
+                          ? (fromComputer * blocks.length).floor()
+                          : progress.blockIndex))
+                  .clamp(0, blocks.length - 1);
         // Search hits target a block; the saved position carries the char.
         _pendingRestoreChar = widget.initialBlockIndex != null
             ? 0
@@ -958,6 +972,9 @@ class _ReaderScreenState extends State<ReaderScreen>
         chapterCount: chapterCount,
         endReached: onLastChapter && atEnd,
       ),
+      // How far through the chapter, for the computer, which splits it
+      // into paragraphs of its own.
+      share: blocks.isEmpty ? 0 : (block / blocks.length).clamp(0.0, 1.0),
     );
   }
 
@@ -1563,7 +1580,6 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   /// Plain text of a block — exactly the runs as rendered, so TTS word
   /// offsets line up with the on-screen text for highlighting.
-  @override
   String plainBlockText(ContentBlock block) => switch (block) {
     ParagraphBlock p => p.runs.map((r) => r.text).join(),
     HeadingBlock h => h.runs.map((r) => r.text).join(),
@@ -2453,6 +2469,11 @@ class _ReaderScreenState extends State<ReaderScreen>
             behavior: HitTestBehavior.opaque,
             child: Stack(
               children: [
+                // Always here, even for a theme with no glow. Adding it only
+                // when needed shifted everything after it along by one, which
+                // rebuilt the pager and threw the reader back to the first page
+                // of the chapter whenever the theme changed.
+                Positioned.fill(child: _EdgeGlow(color: preset.edgeGlow)),
                 Positioned.fill(
                   child: Padding(
                     padding: contentPadding,
@@ -2979,6 +3000,38 @@ class _NoteInputSheet extends StatefulWidget {
 
   @override
   State<_NoteInputSheet> createState() => _NoteInputSheetState();
+}
+
+/// A theme's still glow at the top and bottom of the page, behind the text.
+class _EdgeGlow extends StatelessWidget {
+  const _EdgeGlow({required this.color});
+
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = this.color;
+    if (color == null) return const SizedBox.shrink();
+    return IgnorePointer(
+      child: RepaintBoundary(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                color.withValues(alpha: 0.2),
+                color.withValues(alpha: 0),
+                color.withValues(alpha: 0),
+                color.withValues(alpha: 0.16),
+              ],
+              stops: const [0, 0.2, 0.8, 1],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _NoteInputSheetState extends State<_NoteInputSheet> {

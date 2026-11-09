@@ -47,7 +47,7 @@ void main() {
   testWidgets('onboarding survives 2.0x text scale', (tester) async {
     SharedPreferences.setMockInitialValues(<String, Object>{});
     await _pumpScaled(tester, const UmbraReaderApp());
-    expect(find.text('Welcome to Umbra Reader'), findsOneWidget);
+    expect(find.text('Welcome to Hawthorne Codex'), findsOneWidget);
     // Overflows would have thrown by now; also make sure the CTA is there.
     expect(tester.takeException(), isNull);
   });

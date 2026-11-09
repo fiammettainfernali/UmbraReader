@@ -21,7 +21,7 @@
          import/export goes through the Storage Access Framework. -->
 
     <application
-        android:label="Umbra Reader"
+        android:label="Hawthorne Codex"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:fullBackupContent="@xml/backup_rules"
@@ -47,6 +47,20 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+        <!-- In Android's share menu, for sending a link to the computer. It only
+             passes the link on to MainActivity and has no screen of its own. -->
+        <activity
+            android:name=".ShareTargetActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/plain"/>
             </intent-filter>
         </activity>
         <!-- Hands a volume's EPUB to another app to open. The file lives in

@@ -97,6 +97,9 @@ dependencies:
   timezone: ^0.11.1
   flutter_timezone: ^5.1.0
   webview_flutter: ^4.14.1
+  # Named so the browsers can reach the Android web view itself. Already here
+  # through webview_flutter, so nothing new comes down.
+  webview_flutter_android: ^4.12.0
   background_downloader: ^9.5.7
   flutter_onnxruntime: ^1.9.0
   dart_bert_tokenizer: ^1.3.0
@@ -146,6 +149,8 @@ flutter:
     # The embedding model: 23MB, and the only thing in the app that knows
     # what a book is ABOUT rather than what its metadata says.
     - assets/models/minilm/
+    # The welcome screen's logo.
+    - assets/logo/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
@@ -158,6 +163,14 @@ flutter:
   # when these were fetched via google_fonts keep working; bundling means
   # they render correctly offline from the very first launch.
   fonts:
+    # The app's own look, matching the desktop program. One variable file
+    # each, so every weight is there; Flutter picks it from fontWeight.
+    - family: Cinzel
+      fonts:
+        - asset: assets/fonts/Cinzel-Variable.ttf
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/Manrope-Variable.ttf
     - family: Literata
       fonts:
         - asset: assets/fonts/Literata-Regular.ttf

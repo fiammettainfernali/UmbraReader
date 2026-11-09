@@ -17,6 +17,7 @@ import '../services/bookmark_store.dart';
 import '../services/reading_activity_store.dart';
 import '../services/reading_insights.dart';
 import '../services/reading_progress_store.dart';
+import '../widgets/hawthorne_parts.dart';
 
 class AwardsView extends StatefulWidget {
   const AwardsView({
@@ -169,7 +170,10 @@ class _Heading extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Text(
     text,
-    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+    style: theme.textTheme.titleMedium?.copyWith(
+      fontSize: 18,
+      fontWeight: FontWeight.w800,
+    ),
   );
 }
 
@@ -184,10 +188,7 @@ class _LevelCard extends StatelessWidget {
     final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(16),
-      ),
+      decoration: panelDecoration(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -198,7 +199,10 @@ class _LevelCard extends StatelessWidget {
               Text(
                 'Level ${level.level}',
                 style: theme.textTheme.headlineMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.w800,
+                  shadows: const [
+                    Shadow(color: Color(0x8CE5121F), blurRadius: 20),
+                  ],
                 ),
               ),
               const Spacer(),
@@ -211,14 +215,7 @@ class _LevelCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: level.fraction,
-              minHeight: 10,
-              backgroundColor: theme.colorScheme.surfaceContainerHighest,
-            ),
-          ),
+          GrowingBar(fraction: level.fraction, height: 10),
           const SizedBox(height: 8),
           Text(
             '${_count(level.remaining)} XP to level ${level.level + 1}',
@@ -261,8 +258,9 @@ class _NewlyEarned extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: theme.colorScheme.tertiaryContainer.withValues(alpha: 0.45),
+        color: const Color(0x29F09628),
         borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0x6BF09628)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -311,27 +309,22 @@ class _LadderRow extends StatelessWidget {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: theme.colorScheme.secondaryContainer,
-                    borderRadius: BorderRadius.circular(8),
+                    color: const Color(0x29F09628),
+                    borderRadius: BorderRadius.circular(7),
+                    border: Border.all(color: const Color(0x6BF09628)),
                   ),
                   child: Text(
                     'Tier $reached',
                     style: theme.textTheme.labelSmall?.copyWith(
-                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFFFFD9B0),
+                      fontWeight: FontWeight.w800,
                     ),
                   ),
                 ),
             ],
           ),
           const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: progress.fraction,
-              minHeight: 6,
-              backgroundColor: theme.colorScheme.surfaceContainerHighest,
-            ),
-          ),
+          GrowingBar(fraction: progress.fraction, warm: true, height: 7),
           const SizedBox(height: 5),
           Text(
             '${_count(progress.value)} of ${_count(progress.nextRung)} '

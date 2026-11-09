@@ -9,6 +9,7 @@ import 'epub_parser.dart';
 import 'library_storage.dart';
 import 'opds_client.dart';
 import 'reading_progress_store.dart';
+import 'server_route.dart';
 import 'settings_service.dart';
 
 /// Raised when a volume download fails. [message] is safe to show to the user.
@@ -68,11 +69,17 @@ Future<void> platformFetch(
     case TaskStatus.complete:
       return;
     case TaskStatus.canceled:
-      throw const _FetchFailure('the download was cancelled');
+      throw const _FetchFailure('the download was cancelled', answered: true);
     case TaskStatus.notFound:
-      throw const _FetchFailure('the server no longer has it');
+      throw const _FetchFailure('the server no longer has it', answered: true);
     default:
-      throw _FetchFailure(result.exception?.description ?? 'transfer failed');
+      throw _FetchFailure(
+        result.exception?.description ?? 'transfer failed',
+        // Only a connection that never got there is worth another address.
+        answered:
+            result.exception != null &&
+            result.exception is! TaskConnectionException,
+      );
   }
 }
 
@@ -90,7 +97,10 @@ Future<void> httpFetch(
     final request = http.Request('GET', url)..headers.addAll(headers);
     final response = await client.send(request);
     if (response.statusCode != 200) {
-      throw _FetchFailure('server returned HTTP ${response.statusCode}');
+      throw _FetchFailure(
+        'server returned HTTP ${response.statusCode}',
+        answered: true,
+      );
     }
     sink = target.openWrite();
     final total = response.contentLength ?? 0;
@@ -108,8 +118,12 @@ Future<void> httpFetch(
 }
 
 class _FetchFailure implements Exception {
-  const _FetchFailure(this.reason);
+  const _FetchFailure(this.reason, {this.answered = false});
   final String reason;
+
+  /// True when the computer answered (an HTTP status, a cancel, a 404):
+  /// asking its other address would get the same answer.
+  final bool answered;
   @override
   String toString() => reason;
 }
@@ -153,12 +167,24 @@ class DownloadService {
       if (partFile.existsSync()) await partFile.delete();
 
       onProgress(0);
-      await fetch(
-        Uri.parse(volume.downloadUrl),
+      final route = ServerRoute.instance;
+      final base = await route.ready(settings);
+      Future<void> fetchFrom() => fetch(
+        Uri.parse(route.link(volume.downloadUrl)),
         OpdsClient(settings).authHeaders,
-        partFile,
+        partFile!,
         onProgress,
       );
+      try {
+        await fetchFrom();
+      } on Exception catch (e) {
+        // An answer from the computer is final; only a connection that went
+        // nowhere is worth sending to its other address.
+        final answered = e is _FetchFailure && e.answered;
+        if (answered || !await route.recover(settings, base)) rethrow;
+        if (partFile.existsSync()) await partFile.delete();
+        await fetchFrom();
+      }
 
       if (!partFile.existsSync()) {
         throw DownloadException(

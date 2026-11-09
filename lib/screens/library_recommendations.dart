@@ -8,7 +8,7 @@ import '../services/recommendation_feedback_store.dart';
 import '../services/rec_outcome_store.dart';
 import '../services/opds_client.dart';
 import '../services/settings_service.dart';
-import '../widgets/section_header.dart';
+import 'library_home.dart';
 import 'library_cards.dart';
 
 /// The "Recommended for you" shelf, extracted from the library screen: the
@@ -238,8 +238,9 @@ mixin LibraryRecommendations<T extends StatefulWidget> on State<T> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SectionHeader(
-          'Recommended for you',
+        RowHeading(
+          title: 'Recommended for you',
+          tag: 'Picked from your reading',
           trailing: canRotate
               ? IconButton(
                   icon: const Icon(Icons.refresh),

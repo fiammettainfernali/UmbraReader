@@ -43,6 +43,17 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
+    _loadSettings();
+    SettingsService.revision.addListener(_loadSettings);
+  }
+
+  @override
+  void dispose() {
+    SettingsService.revision.removeListener(_loadSettings);
+    super.dispose();
+  }
+
+  void _loadSettings() {
     SettingsService().load().then((s) {
       if (mounted) setState(() => _settings = s);
     });
@@ -65,6 +76,10 @@ class _HomeShellState extends State<HomeShell> {
         // The bar is glass, so the tabs have to scroll underneath it — with
         // nothing passing behind it there is nothing to blur.
         extendBody: true,
+        // Each tab is a Scaffold that makes room for the keyboard itself. With
+        // this one doing it too the room was taken twice, and a search left the
+        // library a thin strip with its results out of sight.
+        resizeToAvoidBottomInset: false,
         body: MediaQuery(
           // Hand the tabs the bar's full footprint as bottom padding. They paint
           // beneath it now, so their lists and floating buttons need to know to
@@ -81,8 +96,8 @@ class _HomeShellState extends State<HomeShell> {
             index: _index,
             children: [
               const LibraryScreen(),
-              // Both of these need the server address, so they wait on the
-              // same settings load rather than each guessing at it.
+              // Both of these need the server address, so they wait on
+              // the same settings load rather than each guessing at it.
               if (settings == null) ...[
                 const Scaffold(
                   body: Center(child: CircularProgressIndicator()),
@@ -91,9 +106,9 @@ class _HomeShellState extends State<HomeShell> {
                   body: Center(child: CircularProgressIndicator()),
                 ),
               ] else ...[
-                // Discover is told whether it is the tab on show. Alive in
-                // this stack is not the same as seen, and its shelf counts
-                // what the reader has been shown.
+                // Discover is told whether it is the tab on show. Alive
+                // in this stack is not the same as seen, and its shelf
+                // counts what the reader has been shown.
                 DiscoverScreen(settings: settings, isSelected: _index == 1),
                 ManageScreen(settings: settings),
               ],

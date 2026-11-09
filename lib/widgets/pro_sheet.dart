@@ -52,7 +52,7 @@ class ProSheet extends StatelessWidget {
                 Icon(Icons.auto_awesome, color: theme.colorScheme.tertiary),
                 const SizedBox(width: 10),
                 Text(
-                  'Umbra Pro',
+                  'Hawthorne Codex Pro',
                   style: theme.textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),

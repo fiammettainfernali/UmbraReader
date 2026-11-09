@@ -1,5 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'server_route.dart';
 
 /// Connection details for the Novel Grabber OPDS server.
 class OpdsSettings {
@@ -8,12 +11,18 @@ class OpdsSettings {
     required this.username,
     required this.password,
     this.downloaderUrl = '',
+    this.secondUrl = '',
     this.passwordLost = false,
   });
 
   /// Server root with no trailing slash and no `/opds` suffix —
   /// e.g. `http://192.168.1.42:8765`.
   final String baseUrl;
+
+  /// Another way to reach the same computer, tried when [baseUrl] doesn't
+  /// answer — typically the Wi-Fi address beside a Tailscale one. Empty means
+  /// there is only the one. See [ServerRoute] for which is used when.
+  final String secondUrl;
   final String username;
   final String password;
 
@@ -44,11 +53,24 @@ class OpdsSettings {
   ///
   /// Falls back to [baseUrl], which is the whole configuration for anyone
   /// whose one server both stores and downloads.
-  String get controlUrl => downloaderUrl.isNotEmpty ? downloaderUrl : baseUrl;
+  String get controlUrl => downloaderUrl.isNotEmpty
+      ? downloaderUrl
+      : ServerRoute.instance.baseFor(this);
 
   /// True when reading and downloading are two different machines.
   bool get downloaderIsElsewhere =>
       downloaderUrl.isNotEmpty && downloaderUrl != baseUrl;
+
+  /// True when [other] would reach the same servers as the same person.
+  ///
+  /// What a screen holding open a client or an event stream has to ask: if
+  /// this is false, what it holds is talking to the wrong place.
+  bool sameConnection(OpdsSettings other) =>
+      baseUrl == other.baseUrl &&
+      secondUrl == other.secondUrl &&
+      downloaderUrl == other.downloaderUrl &&
+      username == other.username &&
+      password == other.password;
 
   static const empty = OpdsSettings(baseUrl: '', username: '', password: '');
 
@@ -57,6 +79,7 @@ class OpdsSettings {
     String? username,
     String? password,
     String? downloaderUrl,
+    String? secondUrl,
     bool? passwordLost,
   }) {
     return OpdsSettings(
@@ -64,6 +87,7 @@ class OpdsSettings {
       username: username ?? this.username,
       password: password ?? this.password,
       downloaderUrl: downloaderUrl ?? this.downloaderUrl,
+      secondUrl: secondUrl ?? this.secondUrl,
       passwordLost: passwordLost ?? this.passwordLost,
     );
   }
@@ -98,6 +122,7 @@ String normalizeOpdsUrl(String input) {
 class SettingsService {
   static const _kBaseUrl = 'opds_base_url';
   static const _kDownloaderUrl = 'downloader_base_url';
+  static const _kSecondUrl = 'opds_second_url';
   static const _kUsername = 'opds_username';
   static const _kPassword = 'opds_password';
   static const _kHasPassword = 'opds_password_saved';
@@ -106,6 +131,15 @@ class SettingsService {
   static const _kAutoDownloadNext = 'auto_download_next';
   static const _kAutoDownloadWifiOnly = 'auto_download_wifi_only';
   static const _kAutoDeleteFinished = 'auto_delete_finished';
+
+  /// Bumped whenever connection settings are saved.
+  ///
+  /// The shell loads settings once and keeps its tabs alive for the life of
+  /// the app, so without this the Server tab went on using the address it
+  /// started with. Moving to a new server left it timing out against the old
+  /// one until the app was force-stopped, while the library, which reloads
+  /// for itself, looked perfectly healthy.
+  static final ValueNotifier<int> revision = ValueNotifier<int>(0);
 
   // first_unlock: readable after the first unlock following a reboot, so
   // background refresh/downloads don't lose auth while the phone is locked.
@@ -146,6 +180,7 @@ class SettingsService {
       username: prefs.getString(_kUsername) ?? '',
       password: password ?? '',
       downloaderUrl: prefs.getString(_kDownloaderUrl) ?? '',
+      secondUrl: prefs.getString(_kSecondUrl) ?? '',
       passwordLost: expected && !hasPassword,
     );
   }
@@ -154,6 +189,7 @@ class SettingsService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kBaseUrl, settings.baseUrl);
     await prefs.setString(_kDownloaderUrl, settings.downloaderUrl);
+    await prefs.setString(_kSecondUrl, settings.secondUrl);
     await prefs.setString(_kUsername, settings.username);
     await prefs.setBool(_kHasPassword, settings.password.isNotEmpty);
     if (await _writeSecure(_kPassword, settings.password)) {
@@ -163,6 +199,7 @@ class SettingsService {
       // SharedPreferences behaviour so settings still round-trip.
       await prefs.setString(_kPassword, settings.password);
     }
+    revision.value++;
   }
 
   /// Reads [key] from secure storage; null when unset or unavailable.

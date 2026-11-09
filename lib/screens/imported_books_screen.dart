@@ -112,7 +112,7 @@ class _ImportedBooksScreenState extends State<ImportedBooksScreen> {
                     const SizedBox(height: 8),
                     Text(
                       'Import an .epub from Files or iCloud Drive to read '
-                      'books that aren\'t on your Novel Grabber server.',
+                      'books that aren\'t in your computer\'s library.',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
