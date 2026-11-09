@@ -394,6 +394,81 @@ Duration reconnectBackoff(int attempt) {
 /// Talks to Novel Grabber's `/api/*` control endpoints (the command channel
 /// that complements the read-only OPDS feed). Same base URL + basic auth as
 /// [OpdsClient]; only works when the server is reachable.
+/// A reading place as it travels between the computer and here: the novel,
+/// the volume file and the chapter file inside it, how far through the
+/// chapter (0 to 1), and when it was read.
+class PcPlace {
+  const PcPlace({
+    required this.novel,
+    required this.file,
+    required this.path,
+    required this.share,
+    required this.at,
+  });
+
+  final int novel;
+  final String file;
+  final String path;
+  final double share;
+  final DateTime at;
+
+  /// Null when the computer has the place but no book holds that chapter yet.
+  static PcPlace? fromJson(Map<String, dynamic> j) {
+    final at = DateTime.tryParse(j['at'] as String? ?? '');
+    final file = j['file'] as String?;
+    final path = j['path'] as String?;
+    final novel = (j['novel'] as num?)?.toInt();
+    if (at == null || file == null || path == null || novel == null) return null;
+    return PcPlace(
+      novel: novel,
+      file: file,
+      path: path,
+      share: ((j['share'] as num?)?.toDouble() ?? 0).clamp(0.0, 1.0),
+      at: at,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'novel': novel,
+    'file': file,
+    'path': path,
+    'share': share,
+    'at': at.toUtc().toIso8601String(),
+  };
+}
+
+class PcProgressPage {
+  const PcProgressPage(this.now, this.places);
+
+  /// The computer's clock when it answered: what to ask "since" next time.
+  final String now;
+  final List<PcPlace> places;
+
+  factory PcProgressPage.fromJson(Map<String, dynamic> j) => PcProgressPage(
+    j['now'] as String? ?? '',
+    [
+      for (final n in (j['novels'] as List? ?? const []))
+        if (n is Map<String, dynamic>) ?PcPlace.fromJson(n),
+    ],
+  );
+}
+
+class PcProgressReply {
+  const PcProgressReply({required this.applied, this.newer});
+
+  final bool applied;
+
+  /// The computer's own place, when it was newer than the one sent.
+  final PcPlace? newer;
+
+  factory PcProgressReply.fromJson(Map<String, dynamic> j) => PcProgressReply(
+    applied: j['applied'] == true,
+    newer: j['newer'] is Map<String, dynamic>
+        ? PcPlace.fromJson(j['newer'] as Map<String, dynamic>)
+        : null,
+  );
+}
+
 class ControlClient {
   ControlClient(this.settings);
 
@@ -541,6 +616,17 @@ class ControlClient {
     '/api/novels/$novelId/download',
     start != null && end != null ? {'start': start, 'end': end} : null,
   );
+
+  /// Places read on the computer since [since] (its own clock, from the last
+  /// answer's `now`), or all of them when empty.
+  Future<PcProgressPage> progress({String since = ''}) async => PcProgressPage.fromJson(
+    await _get('/api/progress${since.isEmpty ? '' : '?since=${Uri.encodeQueryComponent(since)}'}'),
+  );
+
+  /// A place read here. The computer takes it if it is newer than its own;
+  /// otherwise the answer carries the computer's, newer one.
+  Future<PcProgressReply> pushProgress(PcPlace place) async =>
+      PcProgressReply.fromJson(await _postJson('/api/progress', place.toJson()));
 
   Future<void> pause() => _post('/api/queue/pause', null);
   Future<void> resume() => _post('/api/queue/resume', null);

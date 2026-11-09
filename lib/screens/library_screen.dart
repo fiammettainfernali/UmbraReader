@@ -12,6 +12,7 @@ import '../services/download_service.dart';
 import '../services/library_cache.dart';
 import '../services/library_storage.dart';
 import '../services/opds_client.dart';
+import '../services/pc_progress_sync.dart';
 import '../services/bookmark_store.dart';
 import '../services/collection_store.dart';
 import '../services/reading_progress_store.dart';
@@ -217,6 +218,19 @@ class _LibraryScreenState extends State<LibraryScreen>
       reloadSavedView();
     }
     _syncIfStale();
+    _syncPlacesWithComputer();
+  }
+
+  /// Reading places with the computer, beside the screen: a place read
+  /// there shows on Continue reading here once it arrives.
+  void _syncPlacesWithComputer() {
+    final settings = _settings;
+    if (settings == null || !settings.isConfigured) return;
+    unawaited(
+      PcProgressSync.instance.sync(settings).then((changed) {
+        if (changed && mounted) _loadReading();
+      }),
+    );
   }
 
   /// Fetches the library again if the last fetch is old enough to be worth
@@ -719,6 +733,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       // Recompute "Continue reading" + recommendations against the fresh
       // series list (its updatedAt advances after a recompile, etc.).
       await _loadReading();
+      _syncPlacesWithComputer();
       // Background library upkeep: pull the next volume of in-progress
       // series, then (if enabled) delete finished volumes we've moved past.
       unawaited(runLibraryMaintenance());

@@ -472,9 +472,20 @@ class _ReaderScreenState extends State<ReaderScreen>
       // spine path instead of the stale number.
       final savedPath = progress.chapterPath;
       if (widget.initialChapterIndex == null && savedPath != null) {
-        final byPath = book.chapters.indexWhere((c) => c.zipPath == savedPath);
+        // A place from the computer names the file without the book's folder.
+        final byPath = book.chapters.indexWhere(
+          (c) => ReadingProgressStore.samePath(c.zipPath, savedPath),
+        );
         if (byPath >= 0) chapterIndex = byPath;
       }
+      // Read on the computer: how far through this chapter, once.
+      final fromComputer =
+          widget.initialChapterIndex == null && widget.initialBlockIndex == null
+          ? await _progressStore.takeIncomingShare(
+              widget.volume,
+              book.chapters[chapterIndex].zipPath,
+            )
+          : null;
       if (_streaming &&
           !await parser.prepareChapter(book.chapters[chapterIndex])) {
         _fail('Could not reach the server to load this chapter.');
@@ -496,10 +507,11 @@ class _ReaderScreenState extends State<ReaderScreen>
         _settings = settings;
         _pendingRestoreBlock = blocks.isEmpty
             ? 0
-            : (widget.initialBlockIndex ?? progress.blockIndex).clamp(
-                0,
-                blocks.length - 1,
-              );
+            : (widget.initialBlockIndex ??
+                      (fromComputer != null
+                          ? (fromComputer * blocks.length).floor()
+                          : progress.blockIndex))
+                  .clamp(0, blocks.length - 1);
         // Search hits target a block; the saved position carries the char.
         _pendingRestoreChar = widget.initialBlockIndex != null
             ? 0
@@ -961,6 +973,9 @@ class _ReaderScreenState extends State<ReaderScreen>
         chapterCount: chapterCount,
         endReached: onLastChapter && atEnd,
       ),
+      // How far through the chapter, for the computer, which splits it
+      // into paragraphs of its own.
+      share: blocks.isEmpty ? 0 : (block / blocks.length).clamp(0.0, 1.0),
     );
   }
 

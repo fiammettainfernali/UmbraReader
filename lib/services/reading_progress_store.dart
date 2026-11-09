@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../db/app_database.dart';
 import '../models/volume.dart';
 import 'cloud_sync_service.dart';
+import 'pc_progress_sync.dart';
 
 /// A saved reading position within a volume.
 class ReadingProgress {
@@ -139,6 +140,7 @@ class ReadingProgressStore {
     Volume volume,
     ReadingProgress progress, {
     bool unhide = true,
+    double? share,
   }) async {
     await _ensureMigrated();
     // Finishing is sticky per edition: once a book has been read to the
@@ -198,8 +200,90 @@ class ReadingProgressStore {
     await _db
         .into(_table)
         .insert(companion, onConflict: DoUpdate((_) => companion));
+    // How far through the chapter, for the computer, which splits chapters
+    // into paragraphs of its own. Kept beside the row, not in it.
+    if (share != null) {
+      await _db.kvSet('$_shareOut${_key(volume)}', share.toStringAsFixed(4));
+    }
+    CloudSyncService().pushReadingProgressSoon();
+    if (moved) PcProgressSync.instance.syncSoon();
+  }
+
+  // ── places shared with the computer (see PcProgressSync) ─────────────────
+
+  static const _shareOut = 'pc_share_out:';
+  static const _shareIn = 'pc_share_in:';
+  static const _pushed = 'pc_pushed:';
+
+  /// The newest place per novel, with how far through its chapter it is.
+  Future<Map<int, (ReadingEntry, double)>> latestPerSeries() async {
+    final latest = <int, (ReadingEntry, double)>{};
+    for (final e in await allEntries()) {
+      // allEntries is newest first, so the first per series is its latest.
+      if (latest.containsKey(e.volume.seriesOpdsId)) continue;
+      final share = double.tryParse(await _db.kvGet('$_shareOut${_key(e.volume)}') ?? '') ?? 0;
+      latest[e.volume.seriesOpdsId] = (e, share.clamp(0.0, 1.0));
+    }
+    return latest;
+  }
+
+  /// When this volume's place was last sent to, or taken from, the computer.
+  Future<String?> pushedAt(Volume volume) => _db.kvGet('$_pushed${_key(volume)}');
+
+  Future<void> markPushed(Volume volume, DateTime at) =>
+      _db.kvSet('$_pushed${_key(volume)}', at.toIso8601String());
+
+  /// A place read on the computer: that chapter, that far through, stamped
+  /// with when it was read there — not now, or it would outrank later
+  /// reading here that the computer hasn't heard about.
+  Future<void> adoptRemote(
+    Volume volume, {
+    required String chapterPath,
+    required int chapterIndex,
+    required double share,
+    required DateTime at,
+  }) async {
+    await _ensureMigrated();
+    final existing = await _row(_key(volume));
+    final stamp = at.toLocal().toIso8601String();
+    final companion = ReadingProgressRowsCompanion(
+      volumeKey: Value(_key(volume)),
+      chapterIndex: Value(chapterIndex),
+      blockIndex: const Value(0),
+      blockChar: const Value(0),
+      chapterPath: Value(chapterPath),
+      chapterCount: Value(existing?.chapterCount ?? 0),
+      updatedAt: Value(stamp),
+      endReached: const Value(false),
+      volumeJson: Value(jsonEncode(volume.toJson())),
+      hidden: const Value(false),
+    );
+    await _db
+        .into(_table)
+        .insert(companion, onConflict: DoUpdate((_) => companion));
+    await _db.kvSet('$_shareIn${_key(volume)}', '$chapterPath|${share.toStringAsFixed(4)}');
+    await _db.kvSet('$_shareOut${_key(volume)}', share.toStringAsFixed(4));
+    await markPushed(volume, at.toLocal());
     CloudSyncService().pushReadingProgressSoon();
   }
+
+  /// How far through [chapterPath] a place from the computer is, once: the
+  /// reader turns it into a paragraph when it opens the book, then it is gone.
+  Future<double?> takeIncomingShare(Volume volume, String? chapterPath) async {
+    final stored = await _db.kvGet('$_shareIn${_key(volume)}');
+    if (stored == null || stored.isEmpty) return null;
+    await _db.kvSet('$_shareIn${_key(volume)}', '');
+    final cut = stored.lastIndexOf('|');
+    if (cut < 0 || chapterPath == null || !samePath(chapterPath, stored.substring(0, cut))) {
+      return null;
+    }
+    return double.tryParse(stored.substring(cut + 1));
+  }
+
+  /// Whether two chapter paths name the same file: the computer says
+  /// `chapter_0007.xhtml`, the book says `EPUB/chapter_0007.xhtml`.
+  static bool samePath(String a, String b) =>
+      a == b || a.endsWith('/$b') || b.endsWith('/$a');
 
   /// Marks [volume] as read to the end without touching the position —
   /// the user-facing "Mark as finished" on the Continue shelf.
