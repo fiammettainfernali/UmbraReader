@@ -1433,8 +1433,17 @@ class _LibraryScreenState extends State<LibraryScreen>
               ],
             ),
           ),
-        if (bulkDownloading) SliverToBoxAdapter(child: buildBulkBanner()),
+        if (bulkDownloading)
+          SliverToBoxAdapter(
+            key: const ValueKey('bulk-banner'),
+            child: buildBulkBanner(),
+          ),
+        // Keyed, so it stays the same box when the spotlight above it comes
+        // and goes. The first letter typed into search drops the home view;
+        // unkeyed, the box's place was then taken for the spotlight's, a new
+        // search box was built, and the keyboard closed after one letter.
         SliverToBoxAdapter(
+          key: const ValueKey('library-toolbar'),
           child: LibraryToolbarCard(
             count: all.length,
             child: Column(
