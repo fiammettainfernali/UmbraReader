@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:path_provider/path_provider.dart';
 
@@ -63,8 +64,10 @@ class LibraryStorage {
 /// Persists which volumes are downloaded, as a JSON manifest on disk.
 ///
 /// The full record map is held in memory after [load]; mutations rewrite the
-/// whole file. Downloads are issued sequentially by the UI, so there is no
-/// concurrent-write hazard.
+/// whole file. Downloads run several at a time, so writes take turns, and
+/// each goes to a side file first that replaces the manifest only once it
+/// is whole: an unreadable manifest loads as empty, and the app would then
+/// believe nothing was downloaded.
 class DownloadStore {
   DownloadStore(this._storage);
 
@@ -123,9 +126,32 @@ class DownloadStore {
     await _flush();
   }
 
-  Future<void> _flush() async {
-    final file = File(await _storage.manifestPath());
+  Future<void>? _writing;
+
+  /// One write at a time, of the records as they are when asked.
+  Future<void> _flush() {
     final map = _records.map((key, value) => MapEntry(key, value.toJson()));
-    await file.writeAsString(jsonEncode(map));
+    final previous = _writing ?? Future<void>.value();
+    final mine = previous.then((_) async {
+      final path = await _storage.manifestPath();
+      final text = await _encodeAside(map);
+      final part = File('$path.part');
+      await part.writeAsString(text, flush: true);
+      await part.rename(path);
+    });
+    _writing = mine.whenComplete(() {
+      if (identical(_writing, mine)) _writing = null;
+    });
+    return mine;
+  }
+
+  /// The manifest as text, off the thread that draws the screen: it grows
+  /// with every volume downloaded, and is rewritten after each one.
+  static Future<String> _encodeAside(Map<String, dynamic> map) async {
+    try {
+      return await Isolate.run(() => jsonEncode(map));
+    } on Object {
+      return jsonEncode(map);
+    }
   }
 }

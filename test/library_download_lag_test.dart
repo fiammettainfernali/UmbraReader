@@ -9,6 +9,7 @@ import 'dart:io';
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'package:umbra_reader/models/download_record.dart';
 import 'package:umbra_reader/models/volume.dart';
 import 'package:umbra_reader/services/download_service.dart';
 import 'package:umbra_reader/services/library_cache.dart';
@@ -101,6 +102,28 @@ void main() {
     final text = await (await cacheFile()).readAsString();
     final decoded = jsonDecode(text) as Map<String, dynamic>;
     expect((decoded['volumes'] as Map).length, 12);
+  });
+
+  test('downloads finishing together never garble the download records', () async {
+    final store = DownloadStore(LibraryStorage());
+    await store.load();
+    await Future.wait([
+      for (var s = 1; s <= 20; s++)
+        store.put(
+          _volume(s, 1),
+          DownloadRecord(
+            fileName: 'Book $s Volume 01.epub',
+            sizeBytes: 100,
+            downloadedAt: DateTime(2026, 11, 17),
+            volumeUpdatedAt: null,
+            etag: null,
+          ),
+        ),
+    ]);
+    final again = DownloadStore(LibraryStorage());
+    await again.load();
+    expect(again.allRecords.length, 20, reason: 'every one remembered, none lost to a half-written file');
+    expect(File('${await LibraryStorage().manifestPath()}.part').existsSync(), isFalse);
   });
 
   test('a downloaded book\'s chapters are counted, in the background', () async {
