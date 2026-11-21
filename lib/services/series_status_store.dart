@@ -13,6 +13,14 @@ enum SeriesStatus {
   /// Actively reading.
   reading('Reading'),
 
+  /// Started without a promise: the first few chapters, to see. Kept off
+  /// Continue reading until it's kept (see TryItFirst).
+  trying('Trying'),
+
+  /// Set down for now, meaning to come back. Off Continue reading and out of
+  /// the count of books in progress, but not dropped.
+  paused('Paused'),
+
   /// Read everything available; waiting on new chapters.
   caughtUp('Caught up'),
 

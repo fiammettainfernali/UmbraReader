@@ -8,6 +8,8 @@ import '../models/saved_view.dart';
 import '../models/series.dart';
 import '../models/volume.dart';
 import '../services/book_freshener.dart';
+import '../services/book_length_store.dart';
+import '../services/choosing.dart';
 import '../services/download_service.dart';
 import '../services/library_cache.dart';
 import '../services/library_storage.dart';
@@ -25,8 +27,10 @@ import '../services/recommendation_feedback_store.dart';
 import '../services/saved_view_store.dart';
 import '../services/series_status_store.dart';
 import '../services/reading_activity_store.dart';
+import '../services/recommendation_engine.dart';
 import '../services/settings_service.dart';
 import '../widgets/add_to_collection_sheet.dart';
+import '../widgets/choosing_widgets.dart';
 import '../widgets/action_sheet.dart';
 import '../widgets/living_surfaces.dart';
 import 'comic_browser_screen.dart';
@@ -103,6 +107,13 @@ class _LibraryScreenState extends State<LibraryScreen>
 
   /// Books that have been started but not finished, newest first.
   List<ReadingEntry> _reading = const [];
+
+  /// Help choosing: tonight's three, books being tried, and books left
+  /// untouched for a month (see choosing.dart).
+  List<TonightPick> _tonight = const [];
+  List<ReadingEntry> _trying = const [];
+  List<ReadingEntry> _stalled = const [];
+  bool _checkInDue = false;
 
   /// True after a row's See all, which swaps the spotlight and rows for the
   /// whole library, sorted that row's way.
@@ -228,6 +239,12 @@ class _LibraryScreenState extends State<LibraryScreen>
     if (settings == null || !settings.isConfigured) return;
     // Notes, highlights, the streak and the rest, if a send was missed.
     unawaited(CloudSyncService().catchUp());
+    // How long each book is, once a day.
+    unawaited(
+      BookLengthStore.instance.refresh(settings).then((fresh) {
+        if (fresh && mounted) unawaited(_loadChoosing());
+      }),
+    );
     unawaited(
       PcProgressSync.instance.sync(settings).then((changed) {
         if (changed && mounted) _loadReading();
@@ -639,6 +656,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       _reading = shelf(revived);
       _removedFromReading = removed(revived);
     });
+    unawaited(_loadChoosing());
 
     // Only now, with the shelf already on screen, re-measure streamed books.
     //
@@ -869,6 +887,10 @@ class _LibraryScreenState extends State<LibraryScreen>
 
   /// Opens a randomly chosen series — quick discovery for big libraries.
   void _openRandom() {
+    if (decideFor(_tonight, Random()) != null) {
+      unawaited(_decideForMe());
+      return;
+    }
     final library = _library;
     if (library == null || library.isEmpty) return;
     final pick = library[Random().nextInt(library.length)];
@@ -973,6 +995,8 @@ class _LibraryScreenState extends State<LibraryScreen>
             const Divider(height: 1),
             for (final s in const [
               SeriesStatus.reading,
+              SeriesStatus.trying,
+              SeriesStatus.paused,
               SeriesStatus.caughtUp,
               SeriesStatus.dropped,
             ])
@@ -1023,6 +1047,9 @@ class _LibraryScreenState extends State<LibraryScreen>
           : SeriesStatus.fromName(name);
       await SeriesStatusStore().setStatus(series.opdsId, status);
       await _loadReading();
+      if (status == SeriesStatus.reading) {
+        await _checkBooksAtOnce(series.opdsId);
+      }
     }
   }
 
@@ -1461,6 +1488,26 @@ class _LibraryScreenState extends State<LibraryScreen>
         if (showHome &&
             (_activity.currentStreak() > 0 || _dailyGoalMinutes > 0))
           SliverToBoxAdapter(child: _buildStreakChip()),
+        if (showHome && _checkInDue && _stalled.isNotEmpty)
+          SliverToBoxAdapter(
+            key: const ValueKey('stalled-check-in'),
+            child: StalledCheckInCard(
+              count: _stalled.length,
+              onStart: _runCheckIn,
+              onDismiss: _skipCheckIn,
+            ),
+          ),
+        if (showHome && _tonight.isNotEmpty)
+          SliverToBoxAdapter(
+            key: const ValueKey('tonights-three'),
+            child: TonightsThree(
+              picks: _tonight,
+              headers: _coverHeaders,
+              onOpen: _openPick,
+              onNotNow: _notNow,
+              onDecide: _decideForMe,
+            ),
+          ),
         if (hasRows) _buildHomeRows(),
         // Only worth a heading when something sits above it. With nothing
         // in progress the grid starts right under the controls, and a title
@@ -1670,6 +1717,145 @@ class _LibraryScreenState extends State<LibraryScreen>
 
   /// A spotlight's main button: carries on with a book already started, and
   /// otherwise opens its page set to start reading.
+  /// Tonight's three, the books being tried, and the week's check-in.
+  Future<void> _loadChoosing() async {
+    final library = _library;
+    if (library == null || library.isEmpty) return;
+    final now = DateTime.now();
+    final (feedback, activity, lengths, skipped, kept, due) = await (
+      RecommendationFeedbackStore().load(),
+      ReadingActivityStore().load(),
+      BookLengthStore.instance.load(),
+      ChoosingStore.instance.skippedToday(now),
+      ChoosingStore.instance.keptAt(),
+      ChoosingStore.instance.checkInDue(now),
+    ).wait;
+    final entries = _allReadingEntries;
+    final statuses = _seriesStatus;
+    final picks = pickTonight(
+      library: library,
+      shelf: _reading,
+      entries: entries,
+      statuses: statuses,
+      feedback: feedback,
+      skipped: skipped,
+      today: now,
+      lengths: lengths,
+      wordsPerMinute: activity.wordsPerMinute,
+      similar: (source) => [
+        for (final r in const RecommendationEngine().similarTo(
+          source: source,
+          allSeries: library,
+          feedback: feedback,
+          maxResults: 20,
+        ))
+          r.series,
+      ],
+    );
+    final stalled = stalledBooks(
+      entries,
+      statuses,
+      now: now,
+      hidden: _hiddenFromShelf,
+      keptAt: kept,
+    );
+    if (!mounted) return;
+    setState(() {
+      _tonight = picks;
+      _trying = tryingShelf(entries, statuses);
+      _stalled = stalled;
+      _checkInDue = due;
+    });
+    // A book kept in the reader is checked against the limit here, back in
+    // the library, where what's in progress can be shown.
+    final justKept = await ChoosingStore.instance.takeLimitCheck();
+    if (justKept != null && mounted) await _checkBooksAtOnce(justKept);
+  }
+
+  Future<void> _openPick(TonightPick pick) async {
+    final entry = pick.entry;
+    if (entry != null) {
+      await _openVolume(entry.volume);
+      return;
+    }
+    await openSeries(pick.series);
+  }
+
+  /// Not now: off tonight's three until tomorrow, and another takes its place.
+  Future<void> _notNow(TonightPick pick) async {
+    await ChoosingStore.instance.skipToday(pick.series.opdsId, DateTime.now());
+    await _loadChoosing();
+  }
+
+  /// Picks one of tonight's new books and opens it, to be tried.
+  Future<void> _decideForMe() async {
+    final pick = decideFor(_tonight, Random());
+    if (pick == null || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Decided: ${pick.series.title}. Give it three chapters.'),
+      ),
+    );
+    await openSeries(pick.series, startReading: true);
+  }
+
+  /// Over the limit of books at once, asks which to pause.
+  Future<void> _checkBooksAtOnce(int justStarted) async {
+    final limit = await ChoosingStore.instance.booksAtOnce();
+    if (limit <= 0 || !mounted) return;
+    final onTheGo = continueShelf(
+      _allReadingEntries,
+      hidden: _hiddenFromShelf,
+      statuses: _seriesStatus,
+      hasNewChapters: _seriesIdHasUpdate,
+      limit: 1000,
+    );
+    if (onTheGo.length <= limit) return;
+    final pause = await showPauseSheet(
+      context,
+      books: [
+        for (final e in onTheGo)
+          (series: _seriesById(e.volume.seriesOpdsId), entry: e),
+      ],
+      limit: limit,
+      justStarted: justStarted,
+    );
+    if (pause == null || pause.isEmpty) return;
+    for (final id in pause) {
+      await SeriesStatusStore().setStatus(id, SeriesStatus.paused);
+    }
+    await _loadReading();
+  }
+
+  Future<void> _runCheckIn() async {
+    final now = DateTime.now();
+    final answers = await showStalledCheckIn(
+      context,
+      books: [
+        for (final e in _stalled)
+          (series: _seriesById(e.volume.seriesOpdsId), entry: e),
+      ],
+      headers: _coverHeaders,
+    );
+    for (final MapEntry(key: id, value: answer) in answers.entries) {
+      switch (answer) {
+        case StalledAnswer.keepGoing:
+          await ChoosingStore.instance.keepGoing(id, now);
+        case StalledAnswer.pause:
+          await SeriesStatusStore().setStatus(id, SeriesStatus.paused);
+        case StalledAnswer.drop:
+          await SeriesStatusStore().setStatus(id, SeriesStatus.dropped);
+      }
+    }
+    await ChoosingStore.instance.checkedIn(now);
+    await _loadReading();
+  }
+
+  Future<void> _skipCheckIn() async {
+    await ChoosingStore.instance.checkedIn(DateTime.now());
+    if (mounted) setState(() => _checkInDue = false);
+  }
+
   Future<void> _readFromSpotlight(Series series) async {
     final entry = _readingEntryFor(series);
     if (entry != null) {
@@ -1714,16 +1900,30 @@ class _LibraryScreenState extends State<LibraryScreen>
   Widget _buildHomeRows() {
     final headers = _coverHeaders;
     final reading = _reading;
+    final trying = _trying;
     final byId = {
       for (final series in _library ?? const <Series>[]) series.opdsId: series,
     };
+    final shelves = [
+      if (reading.isNotEmpty) 'continue',
+      if (trying.isNotEmpty) 'trying',
+    ];
     return SliverList.builder(
-      itemCount: _homeRows.length + (reading.isEmpty ? 0 : 1),
+      itemCount: _homeRows.length + shelves.length,
       itemBuilder: (context, position) {
-        if (reading.isNotEmpty && position == 0) {
-          return _buildContinueRow(reading, byId, headers);
+        if (position < shelves.length) {
+          return shelves[position] == 'continue'
+              ? _buildContinueRow(reading, byId, headers)
+              : _buildContinueRow(
+                  trying,
+                  byId,
+                  headers,
+                  title: 'Trying',
+                  tag: 'Three chapters, then decide',
+                  filter: ReadingStateFilter.trying,
+                );
         }
-        final row = _homeRows[position - (reading.isEmpty ? 0 : 1)];
+        final row = _homeRows[position - shelves.length];
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1760,21 +1960,28 @@ class _LibraryScreenState extends State<LibraryScreen>
   Widget _buildContinueRow(
     List<ReadingEntry> reading,
     Map<int, Series> byId,
-    Map<String, String> headers,
-  ) {
+    Map<String, String> headers, {
+    String title = 'Continue reading',
+    String tag = 'In progress',
+    ReadingStateFilter filter = ReadingStateFilter.inProgress,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         RowHeading(
-          title: 'Continue reading',
-          tag: 'In progress',
+          title: title,
+          tag: tag,
           onSeeAll: () {
-            setReadingState(ReadingStateFilter.inProgress);
+            setReadingState(filter);
             _scrollToTop();
           },
         ),
         DriftingRow(
-          key: const PageStorageKey('row:continue'),
+          key: PageStorageKey(
+            filter == ReadingStateFilter.inProgress
+                ? 'row:continue'
+                : 'row:${filter.name}',
+          ),
           itemCount: reading.length,
           itemExtent: 138,
           height: 236,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/opds_client.dart';
+import '../services/choosing.dart';
 import '../services/reminder_service.dart';
 import '../services/settings_service.dart';
 import '../widgets/section_header.dart';
@@ -33,6 +34,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _reminders = ReminderService();
   bool _remindersOn = false;
   TimeOfDay _reminderTime = ReminderService.defaultTime;
+  int _booksAtOnce = ChoosingStore.defaultBooksAtOnce;
 
   @override
   void initState() {
@@ -53,6 +55,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final autoDelete = await _settingsService.autoDeleteFinished();
     final remindersOn = await _reminders.isEnabled();
     final reminderTime = await _reminders.time();
+    final booksAtOnce = await ChoosingStore.instance.booksAtOnce();
     if (!mounted) return;
     setState(() {
       _autoDownload = auto;
@@ -60,6 +63,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _autoDeleteFinished = autoDelete;
       _remindersOn = remindersOn;
       _reminderTime = reminderTime;
+      _booksAtOnce = booksAtOnce;
     });
   }
 
@@ -354,6 +358,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: Text(_reminderTime.format(context)),
               ),
             ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Books at once'),
+            subtitle: const Text(
+              'Starting another book past this asks which one to pause. '
+              "Books you are only trying don't count.",
+            ),
+            trailing: DropdownButton<int>(
+              value: _booksAtOnce,
+              underline: const SizedBox.shrink(),
+              items: [
+                for (final n in const [0, 1, 2, 3, 4, 5, 6, 8, 10])
+                  DropdownMenuItem(
+                    value: n,
+                    child: Text(n == 0 ? 'No limit' : '$n'),
+                  ),
+              ],
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() => _booksAtOnce = value);
+                ChoosingStore.instance.setBooksAtOnce(value);
+              },
+            ),
+          ),
         ],
       ),
     );

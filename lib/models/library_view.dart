@@ -42,6 +42,8 @@ enum LibrarySort {
 enum ReadingStateFilter {
   any('All'),
   inProgress('Reading'),
+  trying('Trying'),
+  paused('Paused'),
   unread('Unread'),
   finished('Finished'),
   dropped('Dropped');

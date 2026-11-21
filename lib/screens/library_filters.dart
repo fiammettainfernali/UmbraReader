@@ -299,6 +299,10 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
         return ReadingStateFilter.finished;
       case SeriesStatus.reading:
         return ReadingStateFilter.inProgress;
+      case SeriesStatus.trying:
+        return ReadingStateFilter.trying;
+      case SeriesStatus.paused:
+        return ReadingStateFilter.paused;
       case SeriesStatus.none:
       case null:
         break;

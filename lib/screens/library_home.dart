@@ -113,7 +113,10 @@ List<ReadingEntry> continueShelf(
     final id = entry.volume.seriesOpdsId;
     if (!settled.add(id)) continue;
     final status = statuses[id];
-    if (status == SeriesStatus.dropped || status == SeriesStatus.caughtUp) {
+    if (status == SeriesStatus.dropped ||
+        status == SeriesStatus.caughtUp ||
+        status == SeriesStatus.trying ||
+        status == SeriesStatus.paused) {
       continue;
     }
     if (hidden.contains('$id/${entry.volume.fileName}')) continue;
@@ -1018,6 +1021,31 @@ class SlidingPillBar<T> extends StatelessWidget {
     final count = values.length;
     final chosen = values.indexOf(selected);
     final reduced = AppMotion.isReduced(context);
+    // Each choice gets room enough to read. When they don't all fit, as on
+    // the Fold's outer screen with seven reading states, the bar scrolls
+    // sideways rather than squeezing the words together.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final needed = minSegmentWidth * count + 6;
+        final fits = !constraints.hasBoundedWidth || needed <= constraints.maxWidth;
+        final bar = SizedBox(
+          width: fits ? null : needed,
+          child: _bar(count, chosen, reduced),
+        );
+        return fits
+            ? bar
+            : SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: bar,
+              );
+      },
+    );
+  }
+
+  /// The narrowest a choice is drawn.
+  static const minSegmentWidth = 74.0;
+
+  Widget _bar(int count, int chosen, bool reduced) {
     return Container(
       height: 42,
       padding: const EdgeInsets.all(3),
