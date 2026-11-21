@@ -74,7 +74,11 @@ void main() {
     expect(find.text('Something different · A finished story · about 9 h'), findsOneWidget);
 
     await tester.tap(find.text('Not now').at(1));
+    await tester.ensureVisible(find.text('Decide for me'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Decide for me'));
+    await tester.ensureVisible(find.byType(AspectRatio).first);
+    await tester.pumpAndSettle();
     await tester.tap(find.byType(AspectRatio).first);
     expect(skipped, [2]);
     expect(decided, 1);
@@ -93,10 +97,17 @@ void main() {
         onOpen: (_) {},
         onNotNow: (_) {},
         onDecide: () {},
+        onMood: () {},
+        onThisOrThat: () {},
       )),
     ));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
+    final rows = {
+      for (final label in ['This or that', 'Mood', 'Decide for me'])
+        tester.getTopLeft(find.text(label)).dy.round() ~/ 40,
+    };
+    expect(rows, hasLength(1), reason: 'the three tools share one line');
   });
 
   testWidgets('seven reading states scroll on the outer screen instead of squeezing', (tester) async {

@@ -250,4 +250,125 @@ void main() {
       expect(await store.checkInDue(_today.add(const Duration(days: 7))), isTrue);
     });
   });
+
+  group('mood', () {
+    Series s(int id, String genres, {int chapters = 100}) => Series(
+      opdsId: id,
+      title: 'Book $id',
+      author: 'A',
+      description: 'About it.',
+      genres: genres.split(', '),
+      readingStatus: '',
+      totalChapters: chapters,
+      downloadedChapters: chapters,
+      coverUrl: 'http://pc/cover/$id',
+      updatedAt: null,
+      directEpubUrl: null,
+      volumesFeedUrl: null,
+    );
+    final lib = [
+      s(1, 'Romance, Comedy', chapters: 120),
+      s(2, 'Romance, Fantasy', chapters: 2000),
+      s(3, 'Action, Martial Arts'),
+      s(4, 'romance, Adult'),
+      s(5, 'Slice of Life', chapters: 900),
+    ];
+    List<int> ids(Set<Mood> moods, {Map<int, BookLength> lengths = const {}}) => [
+      for (final p in pickForMood(
+        library: lib,
+        moods: moods,
+        entries: const [],
+        statuses: const {},
+        feedback: const {},
+        today: _today,
+        lengths: lengths,
+        count: 10,
+      ))
+        p.series.opdsId,
+    ]..sort();
+
+    test('one mood: books whose genres fit it, adult left out', () {
+      expect(ids({Mood.romance}), [1, 2]);
+      expect(ids({Mood.light}), [1, 5]);
+    });
+
+    test('two moods: books that fit both', () {
+      expect(ids({Mood.romance, Mood.short}), [1]);
+    });
+
+    test('short goes by hours when the length is known, else chapters', () {
+      const long = BookLength(words: 600000, estimated: false, finished: true);
+      expect(ids({Mood.short}, lengths: {1: long}), [3]);
+    });
+
+    test('finished stories only', () {
+      const done = BookLength(words: 1000, estimated: false, finished: true);
+      expect(ids({Mood.finished}, lengths: {2: done}), [2]);
+    });
+
+    test('no mood, no picks; each says what it fits', () {
+      expect(ids({}), isEmpty);
+      final p = pickForMood(
+        library: lib, moods: {Mood.action}, entries: const [], statuses: const {},
+        feedback: const {}, today: _today,
+      ).single;
+      expect(p.reason, 'Fits action');
+    });
+  });
+
+  group('this or that', () {
+    test('the one tapped stays on, neither skips both, and wins rank the pile', () {
+      final books = [for (var i = 1; i <= 8; i++) _series(i)];
+      final game = ThisOrThat(books, rounds: 5);
+      expect(game.current, (books[0], books[1]));
+      game.choose(books[1]); // 2 beats 1
+      expect(game.current, (books[1], books[2]));
+      game.choose(books[1]); // 2 beats 3
+      game.choose(books[3]); // 4 beats 2
+      game.neither(); // 4 and 5 both go
+      expect(game.current, (books[5], books[6]));
+      game.choose(books[6]); // 7 beats 6
+      expect(game.current, isNull, reason: 'five rounds played');
+      expect(game.rank(), [2, 4, 7]);
+    });
+
+    test('the pile comes before the wildcard, and says why', () {
+      final picks = tonight(entries: [_entry(1)], similarIds: [3]);
+      final withPile = pickTonight(
+        library: library,
+        shelf: const [],
+        entries: const [],
+        statuses: const {},
+        feedback: const {},
+        similar: (_) => const [],
+        today: _today,
+        pile: const [9, 8],
+      );
+      expect(picks, isNotEmpty);
+      expect(withPile.map((p) => p.series.opdsId).take(2), [9, 8]);
+      expect(withPile.first.reason, 'You picked it in This or that');
+    });
+  });
+
+  group('just arrived', () {
+    test('added this week and never opened', () {
+      Series added(int id, int daysAgo) => Series(
+        opdsId: id,
+        title: 'Book $id',
+        author: 'A',
+        description: 'About it.',
+        genres: const ['Fantasy'],
+        readingStatus: '',
+        totalChapters: 10,
+        downloadedChapters: 10,
+        coverUrl: 'http://pc/cover/$id',
+        updatedAt: null,
+        directEpubUrl: null,
+        volumesFeedUrl: null,
+        addedAt: _today.subtract(Duration(days: daysAgo)),
+      );
+      final lib = [added(1, 1), added(2, 3), added(3, 9), added(4, 0)];
+      expect(justArrived(lib, [_entry(2)], _today), {1, 4});
+    });
+  });
 }

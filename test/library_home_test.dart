@@ -99,6 +99,19 @@ void main() {
       expect(rows[2].tag, '6 novels');
     });
 
+    test('what arrived this week has its own row, and stays out of the rest', () {
+      final library = [
+        for (var i = 1; i <= 8; i++)
+          _series(i, chapters: i * 10, added: DateTime(2026, 1, i), genres: const ['Action']),
+      ];
+      final rows = buildHomeRows(library, justArrived: {7, 8});
+      expect(rows.first.title, 'Just arrived');
+      expect(rows.first.series.map((s) => s.opdsId), [8, 7]);
+      for (final row in rows.skip(1)) {
+        expect(row.series.map((s) => s.opdsId), isNot(contains(8)));
+      }
+    });
+
     test('a row with under four covers is dropped', () {
       final rows = buildHomeRows([for (var i = 1; i <= 3; i++) _series(i)]);
       expect(rows, isEmpty);

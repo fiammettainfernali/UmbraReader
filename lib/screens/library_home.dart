@@ -165,10 +165,23 @@ class SeeGenre extends HomeRowTarget {
 /// Newest, longest, then the library's biggest genres. A row needs at least
 /// four covers to read as a row. As on the desktop, adult titles and books
 /// with no cover stay out of the rows, and remain in the full grid below.
-List<HomeRow> buildHomeRows(List<Series> library) {
-  final safe = [
+List<HomeRow> buildHomeRows(
+  List<Series> library, {
+  Set<int> justArrived = const {},
+}) {
+  final everything = [
     for (final series in library)
       if (series.coverUrl != null && !isAdultSeries(series)) series,
+  ];
+  // Novels that arrived this week and haven't been opened have a row of
+  // their own, and stay out of the others until they're a week old.
+  final arrived = [
+    for (final series in everything)
+      if (justArrived.contains(series.opdsId)) series,
+  ]..sort((a, b) => b.addedAt!.compareTo(a.addedAt!));
+  final safe = [
+    for (final series in everything)
+      if (!justArrived.contains(series.opdsId)) series,
   ];
   final dated = [
     for (final series in safe)
@@ -187,12 +200,20 @@ List<HomeRow> buildHomeRows(List<Series> library) {
     ..sort((a, b) => b.value.compareTo(a.value));
 
   final rows = <HomeRow>[
-    HomeRow(
-      title: 'Recently added',
-      tag: 'Newest first',
-      series: dated.take(30).toList(),
-      seeAll: const SeeNewest(),
-    ),
+    if (arrived.isNotEmpty)
+      HomeRow(
+        title: 'Just arrived',
+        tag: 'This week, not yet opened',
+        series: arrived.take(30).toList(),
+        seeAll: const SeeNewest(),
+      )
+    else
+      HomeRow(
+        title: 'Recently added',
+        tag: 'Newest first',
+        series: dated.take(30).toList(),
+        seeAll: const SeeNewest(),
+      ),
     HomeRow(
       title: 'Longest series',
       tag: 'Thousands of chapters',
@@ -216,7 +237,8 @@ List<HomeRow> buildHomeRows(List<Series> library) {
   ];
   return [
     for (final row in rows)
-      if (row.series.length >= 4) row,
+      // What arrived this week is worth a row however few there are.
+      if (row.series.length >= 4 || row.title == 'Just arrived') row,
   ];
 }
 

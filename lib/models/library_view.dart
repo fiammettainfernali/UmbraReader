@@ -9,7 +9,8 @@ enum LibrarySort {
   readingStatus('Reading status'),
   length('Length'),
   progress('How far in'),
-  timeSpent('Time spent');
+  timeSpent('Time spent'),
+  rating('Your rating');
 
   const LibrarySort(this.label);
 
@@ -28,6 +29,7 @@ enum LibrarySort {
     LibrarySort.length => ('Longest first', 'Shortest first'),
     LibrarySort.progress => ('Furthest in', 'Barely started'),
     LibrarySort.timeSpent => ('Most read', 'Least read'),
+    LibrarySort.rating => ('Best first', 'Lowest first'),
   };
 
   static LibrarySort fromName(String? name) {
