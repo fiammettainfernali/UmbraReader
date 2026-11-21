@@ -26,6 +26,7 @@ import '../services/control_client.dart';
 import '../services/recommendation_feedback_store.dart';
 import '../services/saved_view_store.dart';
 import '../services/series_status_store.dart';
+import '../services/reader_preferences.dart';
 import '../services/reading_activity_store.dart';
 import '../services/recommendation_engine.dart';
 import '../services/settings_service.dart';
@@ -1722,9 +1723,10 @@ class _LibraryScreenState extends State<LibraryScreen>
     final library = _library;
     if (library == null || library.isEmpty) return;
     final now = DateTime.now();
-    final (feedback, activity, lengths, skipped, kept, due) = await (
+    final (feedback, activity, chosenPace, lengths, skipped, kept, due) = await (
       RecommendationFeedbackStore().load(),
       ReadingActivityStore().load(),
+      ReaderPreferences().wordsPerMinute(),
       BookLengthStore.instance.load(),
       ChoosingStore.instance.skippedToday(now),
       ChoosingStore.instance.keptAt(),
@@ -1741,7 +1743,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       skipped: skipped,
       today: now,
       lengths: lengths,
-      wordsPerMinute: activity.wordsPerMinute,
+      wordsPerMinute: chosenPace > 0 ? chosenPace : activity.wordsPerMinute,
       similar: (source) => [
         for (final r in const RecommendationEngine().similarTo(
           source: source,

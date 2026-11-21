@@ -66,6 +66,12 @@ class ReaderPreferences {
   /// last-write-wins when merging the iCloud copy.
   static const _kGlobalModified = 'reader_settings_modified';
 
+  /// Your reading speed in words a minute, set by hand, for how long a book
+  /// will take. 0 means use the pace measured from reading, which is far too
+  /// low when you listen to books instead of turning pages. Synced, so the
+  /// computer's window uses the same speed.
+  static const kWordsPerMinute = 'reader_words_per_minute';
+
   /// The global setting keys, in the order they serialise for sync.
   static const _globalKeys = [
     _kMode,
@@ -106,6 +112,7 @@ class ReaderPreferences {
     _kPageFold,
     _kDoubleTapAction,
     _kAutoPageSeconds,
+    kWordsPerMinute,
   ];
 
   /// Settings that describe the DEVICE in hand rather than reading taste —
@@ -258,6 +265,17 @@ class ReaderPreferences {
       await prefs.setString(_kGlobalModified, DateTime.now().toIso8601String());
       CloudSyncService().pushReaderSettings();
     }
+  }
+
+  /// The reading speed set by hand, or 0 for the measured pace.
+  Future<int> wordsPerMinute() async =>
+      (await SharedPreferences.getInstance()).getInt(kWordsPerMinute) ?? 0;
+
+  Future<void> setWordsPerMinute(int wordsPerMinute) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(kWordsPerMinute, wordsPerMinute < 0 ? 0 : wordsPerMinute);
+    await prefs.setString(_kGlobalModified, DateTime.now().toIso8601String());
+    CloudSyncService().pushReaderSettings();
   }
 
   // ── iCloud sync (see CloudSyncService) ─────────────────────────────────

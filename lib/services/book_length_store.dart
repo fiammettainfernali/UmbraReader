@@ -83,13 +83,22 @@ class BookLengthStore {
   }
 }
 
-/// A reading pace to use before the phone has measured one.
+/// A reading pace to use before the phone has measured one, or when the
+/// measured one can't be right.
 const fallbackWordsPerMinute = 250;
+
+/// Paces worth believing. The reading ledger has logged time with no words
+/// on some days, which put the measured pace near 26 words a minute and
+/// every length in hours about ten times too long.
+bool plausiblePace(int wordsPerMinute) =>
+    wordsPerMinute >= 100 && wordsPerMinute <= 800;
 
 /// "about 12 h", "about 40 min", or null when the length isn't known.
 String? hoursToRead(BookLength? length, int wordsPerMinute) {
   if (length == null || length.words <= 0) return null;
-  final pace = wordsPerMinute > 0 ? wordsPerMinute : fallbackWordsPerMinute;
+  final pace = plausiblePace(wordsPerMinute)
+      ? wordsPerMinute
+      : fallbackWordsPerMinute;
   final minutes = length.words / pace;
   if (minutes < 55) return 'about ${(minutes / 5).ceil() * 5} min';
   final hours = minutes / 60;

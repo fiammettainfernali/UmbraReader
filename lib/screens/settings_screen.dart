@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/opds_client.dart';
 import '../services/choosing.dart';
+import '../services/reader_preferences.dart';
 import '../services/reminder_service.dart';
 import '../services/settings_service.dart';
 import '../widgets/section_header.dart';
@@ -35,6 +36,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _remindersOn = false;
   TimeOfDay _reminderTime = ReminderService.defaultTime;
   int _booksAtOnce = ChoosingStore.defaultBooksAtOnce;
+  int _wordsPerMinute = 0;
+
+  /// Reading speeds on offer, in words a minute; 0 is the measured pace.
+  static const speedChoices = [0, 150, 200, 250, 300, 350, 400, 450, 500, 600, 700];
 
   @override
   void initState() {
@@ -56,6 +61,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final remindersOn = await _reminders.isEnabled();
     final reminderTime = await _reminders.time();
     final booksAtOnce = await ChoosingStore.instance.booksAtOnce();
+    final wordsPerMinute = await ReaderPreferences().wordsPerMinute();
     if (!mounted) return;
     setState(() {
       _autoDownload = auto;
@@ -64,6 +70,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _remindersOn = remindersOn;
       _reminderTime = reminderTime;
       _booksAtOnce = booksAtOnce;
+      _wordsPerMinute = wordsPerMinute;
     });
   }
 
@@ -379,6 +386,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 if (value == null) return;
                 setState(() => _booksAtOnce = value);
                 ChoosingStore.instance.setBooksAtOnce(value);
+              },
+            ),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Reading speed'),
+            subtitle: const Text(
+              'For how long a book will take. If you listen to books, pick '
+              'the speed you listen at. The computer uses the same speed.',
+            ),
+            trailing: DropdownButton<int>(
+              value: speedChoices.contains(_wordsPerMinute)
+                  ? _wordsPerMinute
+                  : 0,
+              underline: const SizedBox.shrink(),
+              items: [
+                for (final n in speedChoices)
+                  DropdownMenuItem(
+                    value: n,
+                    child: Text(n == 0 ? 'Measured' : '$n wpm'),
+                  ),
+              ],
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() => _wordsPerMinute = value);
+                ReaderPreferences().setWordsPerMinute(value);
               },
             ),
           ),

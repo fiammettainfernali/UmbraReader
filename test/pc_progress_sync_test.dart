@@ -170,7 +170,8 @@ void main() {
       const ReadingProgress(chapterIndex: 1, blockIndex: 2, chapterPath: 'EPUB/chapter_0002.xhtml', chapterCount: 9),
       share: 0.2,
     );
-    // Newer, so sent first: the computer doesn't have it.
+    // The computer doesn't have this one. (Saved in the same millisecond as
+    // the first, it may go out first or second; either way the other lands.)
     await store.save(
       other,
       const ReadingProgress(chapterIndex: 0, blockIndex: 1, chapterPath: 'ch1.xhtml', chapterCount: 2),
@@ -178,7 +179,7 @@ void main() {
     );
     computer.refuseNovel = 9;
     await PcProgressSync.instance.sync(settings);
-    expect(computer.received.map((r) => r['novel']), [9, 7]);
+    expect(computer.received.map((r) => r['novel']), unorderedEquals([9, 7]));
     await PcProgressSync.instance.sync(settings);
     expect(computer.received, hasLength(2), reason: 'the refused one is not asked again');
   });
