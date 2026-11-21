@@ -43,6 +43,9 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
   List<ReadingEntry> get readingEntries;
   Map<int, SeriesStatus> get seriesStatuses;
 
+  /// Your stars by series, for the "Your rating" sort.
+  Map<int, int> get seriesRatings;
+
   /// Series taken off Continue reading by hand, and so not offered as Reading.
   Set<int> get seriesRemovedFromReading;
 
@@ -379,6 +382,14 @@ mixin LibraryFiltering<T extends StatefulWidget> on State<T> {
         final seconds = _secondsBySeries;
         return (Series a, Series b) {
           final c = (seconds[b.opdsId] ?? 0).compareTo(seconds[a.opdsId] ?? 0);
+          return c != 0 ? c : byTitle(a, b);
+        };
+      }(),
+      // Rated books first, best first; unrated ones after, by title.
+      LibrarySort.rating => () {
+        final stars = seriesRatings;
+        return (Series a, Series b) {
+          final c = (stars[b.opdsId] ?? 0).compareTo(stars[a.opdsId] ?? 0);
           return c != 0 ? c : byTitle(a, b);
         };
       }(),

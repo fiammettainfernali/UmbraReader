@@ -6,6 +6,7 @@ import '../models/series.dart';
 import '../models/volume.dart';
 import '../screens/library_home.dart' show isAdultSeries;
 import 'book_length_store.dart';
+import 'rating_store.dart';
 import 'reading_progress_store.dart';
 import 'recommendation_feedback_store.dart';
 import 'series_status_store.dart';
@@ -87,6 +88,8 @@ List<TonightPick> pickTonight({
   Set<int> skipped = const {},
   Map<int, BookLength> lengths = const {},
   int wordsPerMinute = 0,
+  Map<int, Rating> ratings = const {},
+  List<int> pile = const [],
 }) {
   final byId = {for (final s in library) s.opdsId: s};
   final opened = {
@@ -101,6 +104,7 @@ List<TonightPick> pickTonight({
       (statuses[s.opdsId] ?? SeriesStatus.none) == SeriesStatus.none &&
       !feedback.containsKey(s.opdsId) &&
       !skipped.contains(s.opdsId) &&
+      !ratings.containsKey(s.opdsId) &&
       !chosen.contains(s.opdsId) &&
       s.coverUrl != null &&
       s.description.length > 80 &&
@@ -136,30 +140,62 @@ List<TonightPick> pickTonight({
     break;
   }
 
-  // One like the last book finished, or failing that, the one on the go.
+  // One like a book you rated highly, else the last one finished, else the
+  // one on the go.
+  final loved = [
+    for (final e in ratings.entries)
+      if (e.value.stars >= 4 && byId.containsKey(e.key)) e,
+  ]..sort((a, b) => b.value.at.compareTo(a.value.at));
   final finished = latestPerSeries([
     for (final e in entries)
       if (e.progress.isFinished ||
           statuses[e.volume.seriesOpdsId] == SeriesStatus.caughtUp)
         e,
   ]);
-  final source = finished.isNotEmpty
-      ? byId[finished.first.volume.seriesOpdsId]
-      : (picks.isNotEmpty ? picks.first.series : null);
+  final Series? source;
+  final String because;
+  if (loved.isNotEmpty) {
+    source = byId[loved.first.key];
+    final stars = loved.first.value.stars;
+    because = 'which you rated $stars stars';
+  } else if (finished.isNotEmpty) {
+    source = byId[finished.first.volume.seriesOpdsId];
+    because = 'which you finished';
+  } else {
+    source = picks.isNotEmpty ? picks.first.series : null;
+    because = 'which you are reading';
+  }
   if (source != null) {
-    final verb = finished.isNotEmpty ? 'finished' : 'are reading';
     for (final s in similar(source)) {
       if (!isNew(s)) continue;
       picks.add(
         TonightPick(
           series: s,
           kind: TonightKind.likeLast,
-          reason: newReason(s, 'Like ${source.title}, which you $verb'),
+          reason: newReason(s, 'Like ${source.title}, $because'),
         ),
       );
       chosen.add(s.opdsId);
       break;
     }
+  }
+
+  // The pile from This or that comes before any wildcard: you chose it.
+  for (final id in pile) {
+    if (picks.length >= 3) break;
+    final s = byId[id];
+    if (s == null || !isNew(s)) continue;
+    final line = lengthLine(lengths[s.opdsId], wordsPerMinute);
+    picks.add(
+      TonightPick(
+        series: s,
+        kind: TonightKind.wildcard,
+        reason: line == null
+            ? 'You picked it in This or that'
+            : 'You picked it in This or that · $line',
+      ),
+    );
+    chosen.add(s.opdsId);
   }
 
   // And a wildcard, the same one all day.
@@ -173,12 +209,204 @@ List<TonightPick> pickTonight({
       TonightPick(
         series: s,
         kind: TonightKind.wildcard,
-        reason: newReason(s, 'Something different'),
+        // The card already says Wildcard; the room goes to how long it is.
+        reason:
+            lengthLine(lengths[s.opdsId], wordsPerMinute) ??
+            'Something different',
       ),
     );
     chosen.add(s.opdsId);
   }
   return picks;
+}
+
+/// A mood to choose by, instead of a book. Several together must all fit.
+enum Mood {
+  light('Light & cozy', ['comedy', 'slice of life', 'school life', 'family']),
+  epic('Epic', ['fantasy', 'xianxia', 'xuanhuan', 'eastern', 'adventure']),
+  romance('Romance', ['romance', 'love', 'josei', 'shoujo']),
+  action('Action', ['action', 'martial arts']),
+  mystery('Mystery & spooky', [
+    'mystery',
+    'supernatural',
+    'horror',
+    'thriller',
+  ]),
+  scifi('Sci-fi & games', ['sci-fi', 'game', 'system']),
+  short('Short', []),
+  finished('Finished stories only', []);
+
+  const Mood(this.label, this.genres);
+
+  final String label;
+
+  /// Genre words that fit, matched whole and ignoring case.
+  final List<String> genres;
+}
+
+/// Up to [count] new books that fit every mood in [moods], with why, the
+/// same ones all day for the same moods. Short is up to 300 chapters, or
+/// about 20 hours when the length is known.
+List<TonightPick> pickForMood({
+  required List<Series> library,
+  required Set<Mood> moods,
+  required List<ReadingEntry> entries,
+  required Map<int, SeriesStatus> statuses,
+  required Map<int, RecommendationFeedback> feedback,
+  required DateTime today,
+  Map<int, BookLength> lengths = const {},
+  int wordsPerMinute = 0,
+  Map<int, Rating> ratings = const {},
+  Set<int> exclude = const {},
+  int count = 3,
+}) {
+  if (moods.isEmpty) return const [];
+  final opened = {
+    for (final e in entries)
+      if (e.progress.isStarted || e.progress.isFinished) e.volume.seriesOpdsId,
+  };
+  final pace = plausiblePace(wordsPerMinute)
+      ? wordsPerMinute
+      : fallbackWordsPerMinute;
+  bool fits(Series s, Mood mood) {
+    final genres = {for (final g in s.genres) g.trim().toLowerCase()};
+    final length = lengths[s.opdsId];
+    return switch (mood) {
+      Mood.short =>
+        length != null && length.words > 0
+            ? length.words / pace / 60 <= 20
+            : s.totalChapters > 0 && s.totalChapters <= 300,
+      Mood.finished => length?.finished ?? false,
+      _ => mood.genres.any(genres.contains),
+    };
+  }
+
+  final pool = [
+    for (final s in library)
+      if (!opened.contains(s.opdsId) &&
+          (statuses[s.opdsId] ?? SeriesStatus.none) == SeriesStatus.none &&
+          !feedback.containsKey(s.opdsId) &&
+          !ratings.containsKey(s.opdsId) &&
+          !exclude.contains(s.opdsId) &&
+          s.coverUrl != null &&
+          !isAdultSeries(s) &&
+          moods.every((m) => fits(s, m)))
+        s,
+  ];
+  final seed =
+      today.year * 10000 +
+      today.month * 100 +
+      today.day +
+      moods.fold<int>(0, (sum, m) => sum + (1 << m.index) * 7919);
+  pool.shuffle(math.Random(seed));
+  final named = moods.map((m) => m.label.toLowerCase()).join(', ');
+  return [
+    for (final s in pool.take(count))
+      TonightPick(
+        series: s,
+        kind: TonightKind.wildcard,
+        reason: [
+          'Fits $named',
+          ?lengthLine(lengths[s.opdsId], wordsPerMinute),
+        ].join(' · '),
+      ),
+  ];
+}
+
+/// Novels added in the last [within] and never opened: they wait in their own
+/// row, Just arrived, rather than reshuffling every other row and pick, when
+/// several arrive a day.
+Set<int> justArrived(
+  List<Series> library,
+  List<ReadingEntry> entries,
+  DateTime now, {
+  Duration within = const Duration(days: 7),
+}) {
+  final opened = {
+    for (final e in entries)
+      if (e.progress.isStarted || e.progress.isFinished) e.volume.seriesOpdsId,
+  };
+  return {
+    for (final s in library)
+      if (s.addedAt != null &&
+          now.difference(s.addedAt!) < within &&
+          !opened.contains(s.opdsId))
+        s.opdsId,
+  };
+}
+
+/// Books never opened, with no state, rating or Not now against them, with
+/// a cover and a description, and not adult: what may be offered as new.
+List<Series> freshBooks({
+  required List<Series> library,
+  required List<ReadingEntry> entries,
+  required Map<int, SeriesStatus> statuses,
+  required Map<int, RecommendationFeedback> feedback,
+  Map<int, Rating> ratings = const {},
+  Set<int> skipped = const {},
+}) {
+  final opened = {
+    for (final e in entries)
+      if (e.progress.isStarted || e.progress.isFinished) e.volume.seriesOpdsId,
+  };
+  return [
+    for (final s in library)
+      if (!opened.contains(s.opdsId) &&
+          (statuses[s.opdsId] ?? SeriesStatus.none) == SeriesStatus.none &&
+          !feedback.containsKey(s.opdsId) &&
+          !ratings.containsKey(s.opdsId) &&
+          !skipped.contains(s.opdsId) &&
+          s.coverUrl != null &&
+          s.description.length > 80 &&
+          !isAdultSeries(s))
+        s,
+  ];
+}
+
+/// This or that: two books at a time, the one tapped stays for the next
+/// round against a new one. [rank] turns the taps into a pile, most wins
+/// first; a book that never won isn't in it.
+class ThisOrThat {
+  ThisOrThat(List<Series> candidates, {this.rounds = 10})
+    : _queue = List.of(candidates);
+
+  final int rounds;
+  final List<Series> _queue;
+  final Map<int, int> _wins = {};
+  int played = 0;
+
+  /// The two to choose between now, or null when done.
+  (Series, Series)? get current {
+    if (played >= rounds || _queue.length < 2) return null;
+    return (_queue[0], _queue[1]);
+  }
+
+  /// [winner] is one of [current]. The loser leaves; the winner stays on.
+  void choose(Series winner) {
+    final pair = current;
+    if (pair == null) return;
+    final loser = identical(winner, pair.$1) ? pair.$2 : pair.$1;
+    _wins[winner.opdsId] = (_wins[winner.opdsId] ?? 0) + 1;
+    _queue.remove(loser);
+    _queue.remove(winner);
+    _queue.insert(0, winner);
+    played++;
+  }
+
+  /// Skips both: neither appeals.
+  void neither() {
+    final pair = current;
+    if (pair == null) return;
+    _queue.remove(pair.$1);
+    _queue.remove(pair.$2);
+    played++;
+  }
+
+  List<int> rank({int keep = 5}) {
+    final ids = _wins.keys.toList()
+      ..sort((a, b) => _wins[b]!.compareTo(_wins[a]!));
+    return ids.take(keep).toList();
+  }
 }
 
 /// Picks one of tonight's new books for you: never the one on the go.
@@ -270,6 +498,20 @@ class ChoosingStore {
       _db.kvSet(_kBooksAtOnce, '${count < 0 ? 0 : count}');
 
   static const _kLimitCheck = 'books_at_once_check';
+  static const _kPile = 'tonight_pile';
+
+  /// The pile chosen in This or that, best first.
+  Future<List<int>> pile() async {
+    final raw = _json(await _db.kvGet(_kPile));
+    return raw is List
+        ? [
+            for (final i in raw)
+              if (i is num) i.toInt(),
+          ]
+        : [];
+  }
+
+  Future<void> setPile(List<int> ids) => _db.kvSet(_kPile, jsonEncode(ids));
 
   /// A book was just kept in the reader; the library checks the limit on
   /// return, where there's room to show what's in progress.

@@ -17,6 +17,8 @@ class TonightsThree extends StatelessWidget {
     required this.onOpen,
     required this.onNotNow,
     required this.onDecide,
+    this.onMood,
+    this.onThisOrThat,
   });
 
   final List<TonightPick> picks;
@@ -24,6 +26,12 @@ class TonightsThree extends StatelessWidget {
   final void Function(TonightPick pick) onOpen;
   final void Function(TonightPick pick) onNotNow;
   final VoidCallback onDecide;
+
+  /// Opens "What am I in the mood for?".
+  final VoidCallback? onMood;
+
+  /// Opens This or that.
+  final VoidCallback? onThisOrThat;
 
   @override
   Widget build(BuildContext context) {
@@ -57,20 +65,99 @@ class TonightsThree extends StatelessWidget {
         ),
         // Under the cards, not beside the heading: on the Fold's outer
         // screen there is no room beside it.
+        // Three equal tiles, icon over a short word, so they share one line
+        // even on the Fold's outer screen at a large text size.
         Padding(
-          padding: const EdgeInsets.fromLTRB(8, 4, 8, 0),
-          child: Align(
-            alignment: Alignment.centerRight,
-            child: TextButton.icon(
-              onPressed: picks.any((p) => p.kind != TonightKind.carryOn)
-                  ? onDecide
-                  : null,
-              icon: const Icon(Icons.casino_outlined, size: 18),
-              label: const Text('Decide for me'),
-            ),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (onThisOrThat != null)
+                _ToolTile(
+                  icon: Icons.compare_arrows,
+                  label: 'This or that',
+                  tooltip: 'This or that',
+                  onPressed: onThisOrThat,
+                ),
+              if (onMood != null)
+                _ToolTile(
+                  icon: Icons.mood_outlined,
+                  label: 'Mood',
+                  tooltip: 'What am I in the mood for?',
+                  onPressed: onMood,
+                ),
+              _ToolTile(
+                icon: Icons.casino_outlined,
+                label: 'Decide for me',
+                tooltip: 'Decide for me',
+                onPressed: picks.any((p) => p.kind != TonightKind.carryOn)
+                    ? onDecide
+                    : null,
+              ),
+            ],
           ),
         ),
       ],
+    );
+  }
+}
+
+/// One of the tools under Tonight's three: an icon over a short word.
+class _ToolTile extends StatelessWidget {
+  const _ToolTile({
+    required this.icon,
+    required this.label,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = onPressed == null
+        ? theme.disabledColor
+        : theme.colorScheme.primary;
+    return Expanded(
+      child: Tooltip(
+        message: tooltip,
+        child: Semantics(
+          button: true,
+          enabled: onPressed != null,
+          label: tooltip,
+          excludeSemantics: true,
+          child: InkWell(
+            onTap: onPressed,
+            borderRadius: BorderRadius.circular(12),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 56),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 22, color: color),
+                    const SizedBox(height: 4),
+                    Text(
+                      label,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      style: theme.textTheme.labelMedium?.copyWith(
+                        color: color,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -465,4 +552,201 @@ Future<Map<int, StalledAnswer>> showStalledCheckIn(
     answers[book.entry.volume.seriesOpdsId] = answer;
   }
   return answers;
+}
+
+/// "What am I in the mood for?": tap a mood or two, see up to three books
+/// that fit them all, and open one.
+Future<void> showMoodPicker(
+  BuildContext context, {
+  required List<TonightPick> Function(Set<Mood> moods) pick,
+  required Map<String, String> headers,
+  required void Function(Series series) onOpen,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (ctx) {
+      final chosen = <Mood>{};
+      var picks = <TonightPick>[];
+      return StatefulBuilder(
+        builder: (ctx, setSheet) {
+          final theme = Theme.of(ctx);
+          return SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'What are you in the mood for?',
+                    style: theme.textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 4),
+                  const Text('Pick one or two. Books have to fit them all.'),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: [
+                      for (final mood in Mood.values)
+                        FilterChip(
+                          label: Text(mood.label),
+                          selected: chosen.contains(mood),
+                          onSelected: (on) => setSheet(() {
+                            on ? chosen.add(mood) : chosen.remove(mood);
+                            picks = pick(chosen);
+                          }),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  if (chosen.isNotEmpty && picks.isEmpty)
+                    const Text('Nothing new fits all of those. Try one fewer.'),
+                  for (final p in picks)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: SizedBox(
+                        width: 44,
+                        child: AspectRatio(
+                          aspectRatio: 2 / 3,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: CoverImage(
+                              series: p.series,
+                              headers: headers,
+                              decodeWidth: 120,
+                            ),
+                          ),
+                        ),
+                      ),
+                      title: Text(
+                        p.series.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: Text(
+                        p.reason,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        onOpen(p.series);
+                      },
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    },
+  );
+}
+
+/// This or that: tap the one you would rather read, ten times. Returns the
+/// pile, best first, or null when closed early with nothing chosen.
+Future<List<int>?> showThisOrThat(
+  BuildContext context, {
+  required ThisOrThat game,
+  required Map<String, String> headers,
+}) {
+  return showModalBottomSheet<List<int>>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (ctx) => StatefulBuilder(
+      builder: (ctx, setSheet) {
+        final theme = Theme.of(ctx);
+        final pair = game.current;
+        if (pair == null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (Navigator.of(ctx).canPop()) Navigator.pop(ctx, game.rank());
+          });
+          return const SizedBox(height: 120);
+        }
+        Widget side(Series s) => Expanded(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setSheet(() => game.choose(s)),
+            child: PressScale(
+              child: Semantics(
+                button: true,
+                label: 'I would rather read ${s.title}',
+                excludeSemantics: true,
+                child: Column(
+                  children: [
+                    AspectRatio(
+                      aspectRatio: 2 / 3,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: CoverImage(
+                          series: s,
+                          headers: headers,
+                          decodeWidth: 400,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      s.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Which would you rather read?',
+                  style: theme.textTheme.titleLarge,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${game.played + 1} of ${game.rounds}',
+                  style: theme.textTheme.labelMedium,
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    side(pair.$1),
+                    const SizedBox(width: 14),
+                    side(pair.$2),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton(
+                      onPressed: () => setSheet(game.neither),
+                      child: const Text('Neither'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, game.rank()),
+                      child: const Text('Done'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    ),
+  );
 }

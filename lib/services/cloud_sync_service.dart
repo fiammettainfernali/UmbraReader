@@ -9,6 +9,7 @@ import 'glossary_store.dart';
 import 'library_view_store.dart';
 import 'reader_preferences.dart';
 import 'saved_view_store.dart';
+import 'rating_store.dart';
 import 'reading_activity_store.dart';
 import 'reading_progress_store.dart';
 import 'recommendation_feedback_store.dart';
@@ -55,6 +56,7 @@ class CloudSyncService {
   static const _kCustomThemes = 'cloud_custom_themes';
   static const _kLibraryView = 'cloud_library_view';
   static const _kSavedViews = 'cloud_saved_views';
+  static const _kRatings = 'cloud_ratings';
 
   /// True while a cloud→local merge is in flight, so the store-write hooks
   /// don't bounce the just-merged data straight back up to the cloud.
@@ -223,6 +225,12 @@ class CloudSyncService {
     await _set(_kSavedViews, await SavedViewStore().exportSyncBlob());
   }
 
+  /// Your ratings: pushed at once, as each is a deliberate act.
+  Future<void> pushRatings() async {
+    if (_merging) return;
+    await _set(_kRatings, await RatingStore().exportSyncBlob());
+  }
+
   Future<void> pushCustomThemes() async {
     if (_merging) return;
     await _set(_kCustomThemes, await CustomThemeStore().exportSyncBlob());
@@ -300,6 +308,10 @@ class CloudSyncService {
           await LibraryViewStore().mergeSyncBlob(libraryView)) {
         changed = true;
       }
+      final ratings = await _get(_kRatings);
+      if (ratings != null && await RatingStore().mergeSyncBlob(ratings)) {
+        changed = true;
+      }
       final themes = await _get(_kCustomThemes);
       if (themes != null && await CustomThemeStore().mergeSyncBlob(themes)) {
         changed = true;
@@ -324,6 +336,7 @@ class CloudSyncService {
       await pushCustomThemes();
       await pushLibraryView();
       await pushSavedViews();
+      await pushRatings();
       await backend.endFullPush();
       if (changed) onRemoteMerge?.call();
     }

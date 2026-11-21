@@ -26,6 +26,7 @@ import '../services/control_client.dart';
 import '../services/recommendation_feedback_store.dart';
 import '../services/saved_view_store.dart';
 import '../services/series_status_store.dart';
+import '../services/rating_store.dart';
 import '../services/reader_preferences.dart';
 import '../services/reading_activity_store.dart';
 import '../services/recommendation_engine.dart';
@@ -160,6 +161,10 @@ class _LibraryScreenState extends State<LibraryScreen>
   /// that saturated the connection and slowed manual checking/downloading.
   @override
   Map<int, SeriesStatus> get seriesStatuses => _seriesStatus;
+
+  @override
+  Map<int, int> get seriesRatings => _ratings;
+  Map<int, int> _ratings = const {};
 
   Set<int> _removedFromReading = const {};
   Set<String> _hiddenFromShelf = const {};
@@ -1507,6 +1512,8 @@ class _LibraryScreenState extends State<LibraryScreen>
               onOpen: _openPick,
               onNotNow: _notNow,
               onDecide: _decideForMe,
+              onMood: _openMoodPicker,
+              onThisOrThat: _openThisOrThat,
             ),
           ),
         if (hasRows) _buildHomeRows(),
@@ -1695,10 +1702,17 @@ class _LibraryScreenState extends State<LibraryScreen>
   List<Series>? _homeRowsFor;
   List<ReadingEntry>? _spotlightFor;
 
+  List<ReadingEntry>? _homeEntriesFor;
+
   void _refreshHome(List<Series> library) {
-    if (!identical(_homeRowsFor, library)) {
+    if (!identical(_homeRowsFor, library) ||
+        !identical(_homeEntriesFor, _allReadingEntries)) {
       _homeRowsFor = library;
-      _homeRows = buildHomeRows(library);
+      _homeEntriesFor = _allReadingEntries;
+      _homeRows = buildHomeRows(
+        library,
+        justArrived: justArrived(library, _allReadingEntries, DateTime.now()),
+      );
       _spotlightFor = null;
     }
     if (!identical(_spotlightFor, _reading)) {
@@ -1723,10 +1737,12 @@ class _LibraryScreenState extends State<LibraryScreen>
     final library = _library;
     if (library == null || library.isEmpty) return;
     final now = DateTime.now();
-    final (feedback, activity, chosenPace, lengths, skipped, kept, due) = await (
+    final pile = await ChoosingStore.instance.pile();
+    final (feedback, activity, chosenPace, ratings, lengths, skipped, kept, due) = await (
       RecommendationFeedbackStore().load(),
       ReadingActivityStore().load(),
       ReaderPreferences().wordsPerMinute(),
+      RatingStore().load(),
       BookLengthStore.instance.load(),
       ChoosingStore.instance.skippedToday(now),
       ChoosingStore.instance.keptAt(),
@@ -1734,16 +1750,19 @@ class _LibraryScreenState extends State<LibraryScreen>
     ).wait;
     final entries = _allReadingEntries;
     final statuses = _seriesStatus;
+    final arrived = justArrived(library, entries, now);
     final picks = pickTonight(
       library: library,
       shelf: _reading,
       entries: entries,
       statuses: statuses,
       feedback: feedback,
-      skipped: skipped,
+      skipped: {...skipped, ...arrived},
       today: now,
       lengths: lengths,
       wordsPerMinute: chosenPace > 0 ? chosenPace : activity.wordsPerMinute,
+      ratings: ratings,
+      pile: pile,
       similar: (source) => [
         for (final r in const RecommendationEngine().similarTo(
           source: source,
@@ -1764,6 +1783,7 @@ class _LibraryScreenState extends State<LibraryScreen>
     if (!mounted) return;
     setState(() {
       _tonight = picks;
+      _ratings = {for (final e in ratings.entries) e.key: e.value.stars};
       _trying = tryingShelf(entries, statuses);
       _stalled = stalled;
       _checkInDue = due;
@@ -1787,6 +1807,76 @@ class _LibraryScreenState extends State<LibraryScreen>
   Future<void> _notNow(TonightPick pick) async {
     await ChoosingStore.instance.skipToday(pick.series.opdsId, DateTime.now());
     await _loadChoosing();
+  }
+
+  /// This or that, over a dozen new books; the winners go to the front of
+  /// the pile Tonight's three draws from.
+  Future<void> _openThisOrThat() async {
+    final library = _library;
+    if (library == null) return;
+    final now = DateTime.now();
+    final (feedback, ratings, skipped, pile) = await (
+      RecommendationFeedbackStore().load(),
+      RatingStore().load(),
+      ChoosingStore.instance.skippedToday(now),
+      ChoosingStore.instance.pile(),
+    ).wait;
+    final candidates = freshBooks(
+      library: library,
+      entries: _allReadingEntries,
+      statuses: _seriesStatus,
+      feedback: feedback,
+      ratings: ratings,
+      skipped: {
+        ...skipped,
+        ...justArrived(library, _allReadingEntries, now),
+      },
+    )..shuffle(Random());
+    if (candidates.length < 2 || !mounted) return;
+    final ranked = await showThisOrThat(
+      context,
+      game: ThisOrThat(candidates.take(12).toList()),
+      headers: _coverHeaders,
+    );
+    if (ranked == null || ranked.isEmpty) return;
+    await ChoosingStore.instance.setPile([
+      ...ranked,
+      for (final id in pile)
+        if (!ranked.contains(id)) id,
+    ].take(10).toList());
+    await _loadChoosing();
+  }
+
+  /// "What am I in the mood for?", picking from the same new books.
+  Future<void> _openMoodPicker() async {
+    final library = _library;
+    if (library == null) return;
+    final now = DateTime.now();
+    final (feedback, activity, chosenPace, ratings, lengths) = await (
+      RecommendationFeedbackStore().load(),
+      ReadingActivityStore().load(),
+      ReaderPreferences().wordsPerMinute(),
+      RatingStore().load(),
+      BookLengthStore.instance.load(),
+    ).wait;
+    if (!mounted) return;
+    await showMoodPicker(
+      context,
+      headers: _coverHeaders,
+      onOpen: openSeries,
+      pick: (moods) => pickForMood(
+        library: library,
+        moods: moods,
+        entries: _allReadingEntries,
+        statuses: _seriesStatus,
+        feedback: feedback,
+        today: now,
+        lengths: lengths,
+        wordsPerMinute: chosenPace > 0 ? chosenPace : activity.wordsPerMinute,
+        ratings: ratings,
+        exclude: justArrived(library, _allReadingEntries, now),
+      ),
+    );
   }
 
   /// Picks one of tonight's new books and opens it, to be tried.

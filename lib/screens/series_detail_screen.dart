@@ -19,6 +19,7 @@ import '../services/recommendation_feedback_store.dart';
 import '../services/semantic_log.dart';
 import '../services/semantic_recommender.dart';
 import '../services/series_vector_store.dart';
+import '../services/rating_store.dart';
 import '../services/series_status_store.dart';
 import '../services/settings_service.dart';
 import '../utils/volume_ordering.dart';
@@ -26,6 +27,7 @@ import '../widgets/add_to_collection_sheet.dart';
 import '../widgets/action_sheet.dart';
 import '../widgets/cached_cover.dart';
 import '../widgets/living_surfaces.dart';
+import '../widgets/rating_stars.dart';
 import 'library_home.dart';
 import '../widgets/section_header.dart';
 import 'filtered_series_screen.dart';
@@ -82,6 +84,10 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   final _statusStore = SeriesStatusStore();
   SeriesStatus _status = SeriesStatus.none;
 
+  /// Your stars (0 for none) and the line of thoughts beside them.
+  int _stars = 0;
+  final _note = TextEditingController();
+
   /// Saved reading progress per volume (keyed by fileName) for this series,
   /// so each volume tile can show read / in-progress / unread.
   Map<String, ReadingProgress> _reading = const {};
@@ -90,6 +96,12 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
   void initState() {
     super.initState();
     _init();
+  }
+
+  @override
+  void dispose() {
+    _note.dispose();
+    super.dispose();
   }
 
   Future<void> _init() async {
@@ -155,6 +167,7 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
     );
 
     final status = await _statusStore.statusFor(widget.series.opdsId);
+    final rating = await RatingStore().ratingFor(widget.series.opdsId);
     setState(() {
       _store = store;
       _libraryCache = cache;
@@ -165,6 +178,8 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
       );
       _similar = similar;
       _status = status;
+      _stars = rating?.stars ?? 0;
+      _note.text = rating?.note ?? '';
       _ready = true;
     });
     await _loadReading();
@@ -204,6 +219,17 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
             e.volume.fileName: e.progress,
       };
     });
+  }
+
+  Future<void> _rate(int stars) async {
+    setState(() => _stars = stars);
+    if (stars == 0) _note.clear();
+    await RatingStore().rate(widget.series.opdsId, stars, note: _note.text);
+  }
+
+  Future<void> _saveNote() async {
+    if (_stars == 0) return;
+    await RatingStore().rate(widget.series.opdsId, _stars, note: _note.text);
   }
 
   Future<void> _setStatus(SeriesStatus status) async {
@@ -805,6 +831,29 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
                     ),
                 ],
               ),
+              const SizedBox(height: 16),
+              const SectionHeader(
+                'Your rating',
+                padding: EdgeInsets.only(bottom: 4),
+              ),
+              RatingStars(stars: _stars, onRate: _rate),
+              if (_stars > 0)
+                TextField(
+                  controller: _note,
+                  minLines: 1,
+                  maxLines: 3,
+                  maxLength: 280,
+                  textInputAction: TextInputAction.done,
+                  decoration: const InputDecoration(
+                    hintText: 'A line of thoughts, if you like',
+                    counterText: '',
+                  ),
+                  onSubmitted: (_) => _saveNote(),
+                  onTapOutside: (_) {
+                    FocusManager.instance.primaryFocus?.unfocus();
+                    _saveNote();
+                  },
+                ),
               const SizedBox(height: 24),
               const Divider(),
               const SizedBox(height: 8),
