@@ -36,6 +36,24 @@ abstract class SyncBackend {
   /// Store [value] under [key]. Silently does nothing when there is no cloud.
   Future<void> write(String key, String value);
 
+  /// A pull is about to read every blob.
+  Future<void> beginPull() async {}
+
+  /// The pull finished. True when everything should be pushed now even
+  /// though the merge changed nothing: a backend that missed sends, or has
+  /// never been given this device's data, says so here.
+  Future<bool> endPull() async => false;
+
+  /// Whether this backend is behind and a pull (with the push after it) is
+  /// worth doing now, without waiting for the backend to announce a change.
+  Future<bool> needsFullPush() async => false;
+
+  /// Every blob is about to be written, one after another.
+  Future<void> beginFullPush() async {}
+
+  /// The writes after [beginFullPush] are done.
+  Future<void> endFullPush() async {}
+
   /// The backend this platform gets by default.
   ///
   /// Android deliberately gets [NullSyncBackend] rather than a broken iCloud

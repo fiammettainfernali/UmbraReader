@@ -226,6 +226,8 @@ class _LibraryScreenState extends State<LibraryScreen>
   void _syncPlacesWithComputer() {
     final settings = _settings;
     if (settings == null || !settings.isConfigured) return;
+    // Notes, highlights, the streak and the rest, if a send was missed.
+    unawaited(CloudSyncService().catchUp());
     unawaited(
       PcProgressSync.instance.sync(settings).then((changed) {
         if (changed && mounted) _loadReading();

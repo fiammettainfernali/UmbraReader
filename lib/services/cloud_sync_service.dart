@@ -230,9 +230,27 @@ class CloudSyncService {
 
   // ── pull + merge: cloud → local ────────────────────────────────────────
 
-  Future<void> pullAndMerge() async {
+  Future<void>? _pull;
+
+  /// Pulls only when the backend says it is behind: the computer was out of
+  /// reach for a send, or has never had this phone's data. Cheap otherwise,
+  /// so it can run every time the app comes back.
+  Future<void> catchUp() async {
+    if (_pull != null || !await backend.needsFullPush()) return;
+    await pullAndMerge();
+  }
+
+  /// Reads every blob, merges what came back, and pushes the union up when
+  /// anything moved (or the backend asks for it). One at a time: a second
+  /// call while one runs waits for it instead of starting another.
+  Future<void> pullAndMerge() {
+    return _pull ??= _pullAndMerge().whenComplete(() => _pull = null);
+  }
+
+  Future<void> _pullAndMerge() async {
     _merging = true;
     var changed = false;
+    await backend.beginPull();
     try {
       final progress = await _get(_kProgress);
       if (progress != null &&
@@ -289,10 +307,12 @@ class CloudSyncService {
     } finally {
       _merging = false;
     }
-    if (changed) {
+    final behind = await backend.endPull();
+    if (changed || behind) {
       // Our merged local state may now be ahead of the cloud (e.g. a volume
-      // the other device hadn't seen). Push the union back up, then let the
-      // UI repaint.
+      // the other device hadn't seen, or a backend that has never had this
+      // device's data). Push the union back up, then let the UI repaint.
+      await backend.beginFullPush();
       await pushReadingProgress();
       await pushCollections();
       await pushRecFeedback();
@@ -304,7 +324,8 @@ class CloudSyncService {
       await pushCustomThemes();
       await pushLibraryView();
       await pushSavedViews();
-      onRemoteMerge?.call();
+      await backend.endFullPush();
+      if (changed) onRemoteMerge?.call();
     }
   }
 }

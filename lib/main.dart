@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
@@ -9,6 +10,7 @@ import 'screens/onboarding_screen.dart';
 import 'services/app_motion.dart';
 import 'services/cloud_sync_service.dart';
 import 'services/custom_theme_store.dart';
+import 'services/pc_sync_backend.dart';
 import 'services/pro_service.dart';
 import 'services/reader_preferences.dart';
 import 'services/reminder_service.dart';
@@ -37,6 +39,10 @@ Future<void> main() async {
   // initial pull runs in the background; no-ops where iCloud is unavailable.
   // iCloud sync is a Pro feature; free builds stay local-only.
   if (ProService().isPro.value) {
+    // Android has no iCloud; the computer keeps this phone's data instead.
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      CloudSyncService().backend = PcSyncBackend();
+    }
     await CloudSyncService().initialize();
   }
   // Re-arm the reading-reminder schedule (a no-op unless opted in). Not

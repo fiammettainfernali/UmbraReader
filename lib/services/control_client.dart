@@ -628,6 +628,43 @@ class ControlClient {
   Future<PcProgressReply> pushProgress(PcPlace place) async =>
       PcProgressReply.fromJson(await _postJson('/api/progress', place.toJson()));
 
+  /// The blob the computer keeps for this phone under [key], or null when it
+  /// has none yet. Throws [ControlException] when it can't be asked.
+  Future<String?> syncRead(String key) async {
+    final http.Response res;
+    try {
+      res = await _send(
+        '/api/sync/$key',
+        (url) => http.get(url, headers: _auth).timeout(const Duration(seconds: 30)),
+      );
+    } on Exception catch (e) {
+      throw ControlException(explain(e, _u('/api/sync/$key').toString()), isUnreachable: true);
+    }
+    if (res.statusCode == 404) return null;
+    if (res.statusCode != 200) throw ControlException('Server returned HTTP ${res.statusCode}.');
+    final decoded = jsonDecode(utf8.decode(res.bodyBytes));
+    return decoded is Map<String, dynamic> ? decoded['value'] as String? : null;
+  }
+
+  /// Hands the computer this phone's latest blob for [key]. Latest wins
+  /// there, so sending it again is harmless.
+  Future<void> syncWrite(String key, String value) async {
+    final http.Response res;
+    try {
+      res = await _send(
+        '/api/sync/$key',
+        (url) => http
+            .post(url, headers: {..._auth, 'Content-Type': 'application/json'}, body: utf8.encode(value))
+            .timeout(const Duration(seconds: 60)),
+      );
+    } on Exception catch (e) {
+      throw ControlException(explain(e, _u('/api/sync/$key').toString()), isUnreachable: true);
+    }
+    if (res.statusCode != 200) {
+      throw ControlException('The computer did not keep $key (HTTP ${res.statusCode}).');
+    }
+  }
+
   Future<void> pause() => _post('/api/queue/pause', null);
   Future<void> resume() => _post('/api/queue/resume', null);
   Future<void> stop() => _post('/api/queue/stop', null);
