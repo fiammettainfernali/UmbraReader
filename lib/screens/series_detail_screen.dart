@@ -793,6 +793,8 @@ class _SeriesDetailScreenState extends State<SeriesDetailScreen> {
                 children: [
                   for (final status in const [
                     SeriesStatus.reading,
+                    SeriesStatus.trying,
+                    SeriesStatus.paused,
                     SeriesStatus.caughtUp,
                     SeriesStatus.dropped,
                   ])

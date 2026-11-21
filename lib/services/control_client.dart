@@ -628,6 +628,12 @@ class ControlClient {
   Future<PcProgressReply> pushProgress(PcPlace place) async =>
       PcProgressReply.fromJson(await _postJson('/api/progress', place.toJson()));
 
+  /// Each novel's length in words, and whether its story has finished. The
+  /// computer sums a million chapters the first time, so this waits longer
+  /// than a command does.
+  Future<Map<String, dynamic>> lengths() =>
+      _get('/api/lengths', timeout: const Duration(seconds: 90));
+
   /// The blob the computer keeps for this phone under [key], or null when it
   /// has none yet. Throws [ControlException] when it can't be asked.
   Future<String?> syncRead(String key) async {

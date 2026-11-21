@@ -31,6 +31,7 @@ import '../services/remote_epub_source.dart';
 import '../services/server_route.dart';
 import '../models/series.dart';
 import '../services/glossary_store.dart';
+import '../services/choosing.dart';
 import '../services/library_cache.dart';
 import '../services/library_storage.dart';
 import '../services/reader_preferences.dart';
@@ -38,6 +39,7 @@ import '../services/settings_service.dart';
 import '../services/reading_activity_store.dart';
 import '../services/reading_progress_store.dart';
 import '../utils/volume_ordering.dart';
+import '../widgets/choosing_widgets.dart';
 import '../widgets/reader_settings_sheet.dart';
 import '../reader/reader_selection.dart';
 import '../reader/reader_session.dart';
@@ -536,6 +538,8 @@ class _ReaderScreenState extends State<ReaderScreen>
         _loading = false;
       });
       _noteGlossarySightings(book.chapters[chapterIndex], blocks);
+      // A book never opened before is only being tried (see TryItFirst).
+      unawaited(_markIfNew());
       if (reentryBlock != null) armReentryTimer();
       startSessionTicker();
       _applyOrientation(settings.orientation);
@@ -976,6 +980,49 @@ class _ReaderScreenState extends State<ReaderScreen>
       // into paragraphs of its own.
       share: blocks.isEmpty ? 0 : (block / blocks.length).clamp(0.0, 1.0),
     );
+    unawaited(_maybeAskTryIt());
+  }
+
+  Future<void> _markIfNew() async {
+    try {
+      await const TryItFirst().markIfNew(widget.volume);
+    } on Exception {
+      // Only a label: reading goes on regardless.
+    }
+  }
+
+  /// The chapter last checked for "Keep reading?", so a page turn within it
+  /// doesn't ask the stores again.
+  int _tryItCheckedAt = -1;
+  bool _askingTryIt = false;
+
+  /// Three chapters into a book being tried, asks whether to keep it.
+  Future<void> _maybeAskTryIt() async {
+    if (_askingTryIt || _chapterIndex < TryItFirst.askAtChapter) return;
+    if (_tryItCheckedAt == _chapterIndex) return;
+    _tryItCheckedAt = _chapterIndex;
+    final id = widget.volume.seriesOpdsId;
+    const tryIt = TryItFirst();
+    _askingTryIt = true;
+    try {
+      if (!await tryIt.shouldAsk(id, _chapterIndex) || !mounted) return;
+      final answer = await showTryItPrompt(context, widget.volume.title);
+      switch (answer) {
+        case TryItAnswer.keep:
+          await tryIt.keep(id);
+          await ChoosingStore.instance.markLimitCheck(id);
+        case TryItAnswer.notForMe:
+          await tryIt.notForMe(id);
+          if (mounted) await Navigator.of(context).maybePop();
+        case TryItAnswer.later:
+        case null:
+          await tryIt.askLater(id, _chapterIndex);
+      }
+    } on Exception {
+      // Asking is a courtesy; a store that can't answer just means not now.
+    } finally {
+      _askingTryIt = false;
+    }
   }
 
   /// Spine href of the open chapter — the recompile-proof anchor stored
