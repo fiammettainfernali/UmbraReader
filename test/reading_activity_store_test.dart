@@ -105,17 +105,27 @@ void main() {
     final store = ReadingActivityStore();
     final v = _volume();
     final t = DateTime(2026, 7, 3, 12);
-    await store.record(v, const Duration(minutes: 5), words: 400, now: t);
-    await store.record(v, const Duration(minutes: 5), words: 250, now: t);
+    await store.record(v, const Duration(minutes: 5), words: 2000, now: t);
+    await store.record(v, const Duration(minutes: 5), words: 1250, now: t);
 
     final a = await store.load();
-    expect(a.totalWords, 650);
-    expect(a.todayWords(now: t), 650);
-    expect(a.perVolumeWords['${v.seriesOpdsId}/${v.fileName}'], 650);
-    // 10 minutes of reading, 650 words → 65 wpm.
-    expect(a.wordsPerMinute, 65);
+    expect(a.totalWords, 3250);
+    expect(a.todayWords(now: t), 3250);
+    expect(a.perVolumeWords['${v.seriesOpdsId}/${v.fileName}'], 3250);
+    // 10 minutes of reading, 3,250 words → 325 wpm.
+    expect(a.wordsPerMinute, 325);
     // wordsForVolume reports this device's high-water mark for seeding.
-    expect(await store.wordsForVolume(v), 650);
+    expect(await store.wordsForVolume(v), 3250);
+  });
+
+  test('a day spent listening in another app does not drag the pace down', () async {
+    // The reader stays open while another app reads aloud, so the day logs
+    // the time and hardly any words. It is left out of the pace.
+    final store = ReadingActivityStore();
+    final v = _volume();
+    await store.record(v, const Duration(minutes: 10), words: 3000, now: DateTime(2026, 7, 3, 12));
+    await store.record(v, const Duration(minutes: 90), words: 400, now: DateTime(2026, 7, 4, 12));
+    expect((await store.load()).wordsPerMinute, 300);
   });
 
   test('record clamps negative word counts to zero', () async {

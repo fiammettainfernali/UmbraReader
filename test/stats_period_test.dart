@@ -90,9 +90,10 @@ void main() {
       final a = _activity({0: 60, 100: 6000}, words: {0: 300, 100: 100});
       expect(a.wordsPerMinuteIn(StatsPeriod.week, now: _now), 300);
       expect(
-        a.wordsPerMinuteIn(StatsPeriod.week, now: _now),
-        isNot(a.wordsPerMinute),
-        reason: 'the lifetime figure is dragged down by the old session',
+        a.wordsPerMinute,
+        300,
+        reason: 'the old session (100 words in 100 minutes) was not reading '
+            'and is left out of the lifetime figure too',
       );
     });
 

@@ -188,6 +188,8 @@ void main() {
       expect(hoursToRead(mid, 250), 'about 4 h');
       expect(hoursToRead(long, 250), 'about 300 h');
       expect(hoursToRead(mid, 0), 'about 4 h', reason: 'no pace measured yet uses 250 wpm');
+      expect(hoursToRead(mid, 26), 'about 4 h', reason: '26 wpm is a ledger missing words, not a pace');
+      expect(hoursToRead(mid, 400), 'about 3 h');
       expect(lengthLine(long, 250), 'Still being written · about 300 h');
       expect(hoursToRead(null, 250), isNull);
     });

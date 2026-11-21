@@ -96,13 +96,34 @@ class ReadingActivity {
     return total;
   }
 
-  /// Average reading pace in words per minute across all recorded time, or 0
-  /// when there is not yet any measured time.
-  int get wordsPerMinute {
-    final minutes = totalSeconds / 60.0;
-    if (minutes <= 0) return 0;
-    return (totalWords / minutes).round();
+  /// Average reading pace in words per minute, or 0 when there is not yet
+  /// any measured reading.
+  ///
+  /// Only days that read like reading count: at least a minute, at
+  /// [minPlausiblePace] words a minute or more. Listening to a book in
+  /// another app keeps the reader open while the place hardly moves, so a
+  /// listening day logs the time with next to no words. Counted in, those
+  /// days put the pace near 26 words a minute, and every estimate built on
+  /// it (time left, how long a book takes) about ten times too long.
+  int get wordsPerMinute => _paceOver(dailySeconds.keys);
+
+  /// Pace across [days] (date keys), counting only the days that read like
+  /// reading; see [wordsPerMinute].
+  int _paceOver(Iterable<String> days) {
+    var seconds = 0, words = 0;
+    for (final day in days) {
+      final s = dailySeconds[day] ?? 0;
+      final w = dailyWords[day] ?? 0;
+      if (s < 60 || w / (s / 60.0) < minPlausiblePace) continue;
+      seconds += s;
+      words += w;
+    }
+    if (seconds <= 0) return 0;
+    return (words / (seconds / 60.0)).round();
   }
+
+  /// The slowest pace a day of reading (rather than listening) shows.
+  static const minPlausiblePace = 100;
 
   /// Total seconds across the last seven days, inclusive of today.
   int weekSeconds({DateTime? now}) {
@@ -172,9 +193,12 @@ class ReadingActivity {
   /// ([wordsPerMinute]) still drives the reader's time-left estimate, which
   /// wants stability over recency.
   int wordsPerMinuteIn(StatsPeriod period, {DateTime? now}) {
-    final minutes = secondsIn(period, now: now) / 60.0;
-    if (minutes <= 0) return 0;
-    return (wordsIn(period, now: now) / minutes).round();
+    if (period.isAllTime) return wordsPerMinute;
+    final today = _today(now);
+    return _paceOver([
+      for (var i = 0; i < period.days; i++)
+        _dateKey(today.subtract(Duration(days: i))),
+    ]);
   }
 
   /// Change in reading time against the window immediately before [period],
